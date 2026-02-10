@@ -1,0 +1,266 @@
+import { NextRequest, NextResponse } from "next/server"
+import { prisma } from "@/lib/prisma"
+import type { SystemType, Location } from "@/lib/storage"
+
+/**
+ * GET /api/facilities
+ * Get facilities for a specific system and location
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const searchParams = request.nextUrl.searchParams
+    const system = searchParams.get("system") as SystemType | null
+    const location = searchParams.get("location") as Location | null
+    const isMaster = searchParams.get("isMaster")
+
+    if (!system || !location) {
+      return NextResponse.json(
+        { error: "System and location are required" },
+        { status: 400 }
+      )
+    }
+
+    const where: any = {
+      system,
+      location,
+    }
+
+    if (isMaster !== null) {
+      where.isMaster = isMaster === "true"
+    }
+
+    const facilities = await prisma.facility.findMany({
+      where,
+      orderBy: { name: "asc" },
+    })
+
+    return NextResponse.json({ facilities })
+  } catch (error) {
+    console.error("Error fetching facilities:", error)
+    return NextResponse.json(
+      { error: "Failed to fetch facilities" },
+      { status: 500 }
+    )
+  }
+}
+
+/**
+ * POST /api/facilities
+ * Create facilities (bulk)
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { system, location, facilities, isMaster } = body
+
+    if (!system || !location || !Array.isArray(facilities)) {
+      return NextResponse.json(
+        { error: "System, location, and facilities array are required" },
+        { status: 400 }
+      )
+    }
+
+    // Normalize facilities - can be string (name) or object {name, subcounty}
+    const normalizedFacilities = facilities
+      .map((facility: string | { name: string; subcounty?: string }) => {
+        if (typeof facility === "string") {
+          return { name: facility.trim(), subcounty: null }
+        }
+        return {
+          name: facility.name.trim(),
+          subcounty: facility.subcounty?.trim() || null,
+        }
+      })
+      .filter((f: { name: string }) => f.name.length > 0)
+
+    // Check for existing facilities to avoid duplicates (by name only, case-insensitive)
+    const existing = await prisma.facility.findMany({
+      where: {
+        system,
+        location,
+        isMaster: isMaster ?? true,
+      },
+      select: {
+        name: true,
+      },
+    })
+
+    const existingNames = new Set(
+      existing.map((f) => f.name.toLowerCase().trim())
+    )
+    const newFacilities = normalizedFacilities.filter(
+      (f: { name: string }) => !existingNames.has(f.name.toLowerCase().trim())
+    )
+
+    if (newFacilities.length === 0) {
+      return NextResponse.json({
+        success: true,
+        count: 0,
+        message: "All facilities already exist",
+      })
+    }
+
+    // Create facilities
+    const created = await prisma.facility.createMany({
+      data: newFacilities.map((f: { name: string; subcounty: string | null }) => ({
+        name: f.name.trim(),
+        subcounty: f.subcounty,
+        system,
+        location,
+        isMaster: isMaster ?? true,
+      })),
+      skipDuplicates: true,
+    })
+
+    return NextResponse.json({
+      success: true,
+      count: created.count,
+    })
+  } catch (error) {
+    console.error("Error creating facilities:", error)
+    return NextResponse.json(
+      { error: "Failed to create facilities" },
+      { status: 500 }
+    )
+  }
+}
+
+/**
+ * PATCH /api/facilities
+ * Update a single facility name and subcounty
+ */
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { id, name, subcounty, system, location } = body
+
+    if (!id || !name || !system || !location) {
+      return NextResponse.json(
+        { error: "ID, name, system, and location are required" },
+        { status: 400 }
+      )
+    }
+
+    const updated = await prisma.facility.update({
+      where: { id },
+      data: {
+        name: name.trim(),
+        subcounty: subcounty?.trim() || null,
+      },
+    })
+
+    return NextResponse.json({
+      success: true,
+      facility: updated,
+    })
+  } catch (error) {
+    console.error("Error updating facility:", error)
+    return NextResponse.json(
+      { error: "Failed to update facility" },
+      { status: 500 }
+    )
+  }
+}
+
+/**
+ * DELETE /api/facilities
+ * Delete facilities
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const searchParams = request.nextUrl.searchParams
+    const system = searchParams.get("system") as SystemType | null
+    const location = searchParams.get("location") as Location | null
+    const isMaster = searchParams.get("isMaster")
+    const name = searchParams.get("name")
+    const id = searchParams.get("id")
+
+    if (!system || !location) {
+      return NextResponse.json(
+        { error: "System and location are required" },
+        { status: 400 }
+      )
+    }
+
+    const where: any = {
+      system,
+      location,
+    }
+
+    if (isMaster !== null) {
+      where.isMaster = isMaster === "true"
+    }
+
+    if (id) {
+      where.id = id
+    } else if (name) {
+      where.name = name
+    }
+
+    const result = await prisma.facility.deleteMany({
+      where,
+    })
+
+    return NextResponse.json({
+      success: true,
+      count: result.count,
+    })
+  } catch (error) {
+    console.error("Error deleting facilities:", error)
+    return NextResponse.json(
+      { error: "Failed to delete facilities" },
+      { status: 500 }
+    )
+  }
+}
+
+/**
+ * PUT /api/facilities
+ * Replace facilities (used for reported facilities)
+ */
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { system, location, facilities, isMaster } = body
+
+    if (!system || !location || !Array.isArray(facilities)) {
+      return NextResponse.json(
+        { error: "System, location, and facilities array are required" },
+        { status: 400 }
+      )
+    }
+
+    // Delete existing facilities of this type
+    await prisma.facility.deleteMany({
+      where: {
+        system,
+        location,
+        isMaster: isMaster ?? false,
+      },
+    })
+
+    // Create new facilities
+    if (facilities.length > 0) {
+      await prisma.facility.createMany({
+        data: facilities.map((name: string) => ({
+          name: name.trim(),
+          system,
+          location,
+          isMaster: isMaster ?? false,
+        })),
+        skipDuplicates: true,
+      })
+    }
+
+    return NextResponse.json({
+      success: true,
+      count: facilities.length,
+    })
+  } catch (error) {
+    console.error("Error updating facilities:", error)
+    return NextResponse.json(
+      { error: "Failed to update facilities" },
+      { status: 500 }
+    )
+  }
+}

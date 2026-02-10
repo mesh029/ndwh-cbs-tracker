@@ -1,0 +1,26 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Facility {
+  id        String   @id @default(cuid())
+  name      String   @db.VarChar(500)
+  subcounty String?  @db.VarChar(100) // Optional subcounty
+  system    String   @db.VarChar(10) // NDWH or CBS
+  location  String   @db.VarChar(50) // Kakamega, Vihiga, Nyamira, Kisumu
+  isMaster  Boolean  @default(true) // true for master facilities, false for reported
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([system, location, isMaster])
+  @@index([system, location])
+  @@map("facilities")
+}
