@@ -63,11 +63,6 @@ export function NyamiraDashboard() {
     cbs: { total: 0, matched: 0, unmatched: 0 },
     ndwh: { total: 0, matched: 0, unmatched: 0 },
   })
-  const [laptopBootIssuePattern, setLaptopBootIssuePattern] = useState<{
-    totalLaptops: number;
-    withBootIssues: number;
-    facilities: Array<{ name: string; hasBootIssue: boolean; issues: string[] }>;
-  } | null>(null)
   const [sublocationDistribution, setSublocationDistribution] = useState<Array<{
     sublocation: string;
     serverTypes: Array<{ serverType: string; count: number; facilities: string[] }>;
@@ -103,7 +98,6 @@ export function NyamiraDashboard() {
           loadComparisonStats(),
           loadServerDistribution(),
           loadSimcardDistribution(),
-          loadLaptopBootIssuePattern(),
           loadSublocationDistribution(),
         ])
         console.log("✅ Initial data loaded, loading tickets...")
@@ -499,31 +493,33 @@ export function NyamiraDashboard() {
       // IMPORTANT: Both byServerType and serverDistribution now use normalized server types
       let correlation: Array<{ serverType: string; issueRate: number; totalIssues: number; totalFacilities: number }> = []
       
+      // Build a map of normalized server types to facility counts from serverDistribution
+      const serverDistMap = new Map<string, number>()
+      if (serverDistribution.length > 0) {
+        serverDistribution.forEach(s => {
+          const normalized = normalizeServerType(s.serverType)
+          if (normalized && normalized !== "Unknown" && normalized.toLowerCase() !== "tickets") {
+            // Use the maximum count if there are duplicates (shouldn't happen, but just in case)
+            const existing = serverDistMap.get(normalized) || 0
+            serverDistMap.set(normalized, Math.max(existing, s.count))
+          }
+        })
+        console.log("📊 Server distribution map:", Array.from(serverDistMap.entries()))
+      }
+      
       // Always calculate correlation, even if serverDistribution isn't ready
       correlation = Object.entries(byServerType)
         .filter(([serverType]) => serverType !== "Unknown" && serverType.toLowerCase() !== "tickets") // Exclude unknown and Tickets from correlation
         .map(([serverType, data]) => {
-          // Find matching server type in distribution (both are now normalized)
-          let totalFacilities = 0
+          // Find matching server type in distribution map
+          let totalFacilities = serverDistMap.get(serverType) || 0
           let issueRate = 0
           
-          if (serverDistribution.length > 0) {
-            const facilitiesWithServerType = serverDistribution.find(s => {
-              // Normalize the distribution server type to ensure match
-              const normalizedDistType = normalizeServerType(s.serverType)
-              return normalizedDistType === serverType || s.serverType === serverType
-            })
-            totalFacilities = facilitiesWithServerType?.count || 0
-            issueRate = totalFacilities > 0 ? (data.count / totalFacilities) * 100 : 0 // Issues per 100 facilities
-            
-            if (totalFacilities > 0) {
-              console.log(`📊 Correlation for ${serverType}: ${data.count} issues / ${totalFacilities} facilities = ${issueRate.toFixed(1)}%`)
-            }
+          if (totalFacilities > 0) {
+            issueRate = (data.count / totalFacilities) * 100 // Issues per 100 facilities
+            console.log(`📊 Correlation for ${serverType}: ${data.count} issues / ${totalFacilities} facilities = ${issueRate.toFixed(1)}%`)
           } else {
-            // If server distribution not loaded, use ticket count as fallback
-            totalFacilities = 0
-            issueRate = 0
-            console.log(`📊 Correlation for ${serverType}: ${data.count} issues (server distribution not loaded yet)`)
+            console.log(`⚠️ No facilities found for server type "${serverType}" in distribution. Available types:`, Array.from(serverDistMap.keys()))
           }
           
           return {
@@ -535,11 +531,15 @@ export function NyamiraDashboard() {
         })
         .sort((a, b) => {
           // Sort by issue rate first (highest first), then by total issues if rates are equal
-          if (serverDistribution.length > 0) {
+          if (a.totalFacilities > 0 && b.totalFacilities > 0) {
             if (Math.abs(a.issueRate - b.issueRate) < 0.01) {
               return b.totalIssues - a.totalIssues
             }
             return b.issueRate - a.issueRate
+          } else if (a.totalFacilities > 0) {
+            return -1 // Prioritize entries with facility data
+          } else if (b.totalFacilities > 0) {
+            return 1
           } else {
             // If no server distribution, sort by total issues
             return b.totalIssues - a.totalIssues
@@ -630,12 +630,16 @@ export function NyamiraDashboard() {
 
   // Recalculate ticket analytics when server distribution changes (only if correlation needs updating)
   useEffect(() => {
-    if (serverDistribution.length > 0 && tickets.length > 0 && ticketAnalytics && ticketAnalytics.correlation) {
-      // Only recalculate if correlation has zero facilities (indicating it was calculated before serverDistribution loaded)
-      const hasIncompleteCorrelation = ticketAnalytics.correlation.some(c => c.totalFacilities === 0 && c.totalIssues > 0)
+    if (serverDistribution.length > 0 && tickets.length > 0) {
+      // Always recalculate if correlation has zero facilities (indicating it was calculated before serverDistribution loaded)
+      const needsRecalculation = !ticketAnalytics || 
+        !ticketAnalytics.correlation || 
+        ticketAnalytics.correlation.length === 0 ||
+        ticketAnalytics.correlation.some(c => c.totalFacilities === 0 && c.totalIssues > 0)
       
-      if (hasIncompleteCorrelation) {
-        console.log("🔄 Recalculating ticket analytics due to server distribution change...")
+      if (needsRecalculation) {
+        console.log("🔄 Recalculating ticket analytics due to server distribution availability...")
+        console.log("📊 Current server distribution:", serverDistribution.map(s => ({ type: s.serverType, count: s.count })))
         // Use a small delay to avoid race conditions
         const timer = setTimeout(() => {
           loadTicketsAndAnalytics()
@@ -643,7 +647,7 @@ export function NyamiraDashboard() {
         return () => clearTimeout(timer)
       }
     }
-  }, [serverDistribution.length]) // Only depend on serverDistribution length to avoid infinite loops
+  }, [serverDistribution.length, tickets.length]) // Recalculate when server distribution or tickets change
 
   const loadServerDistribution = async () => {
     try {
@@ -819,77 +823,6 @@ export function NyamiraDashboard() {
     }
   }
 
-  const loadLaptopBootIssuePattern = async () => {
-    try {
-      console.log("🔄 Loading laptop boot issue pattern...")
-      // Fetch all facilities and tickets
-      const [facilitiesRes, ticketsRes] = await Promise.all([
-        fetch("/api/facilities?system=NDWH&location=Nyamira&isMaster=true"),
-        fetch("/api/tickets?location=Nyamira"),
-      ])
-
-      if (!facilitiesRes.ok || !ticketsRes.ok) {
-        console.error("Failed to fetch data for laptop boot issue pattern")
-        return
-      }
-
-      const facilitiesData = await facilitiesRes.json()
-      const ticketsData = await ticketsRes.json()
-      const facilities = facilitiesData.facilities || []
-      const tickets = ticketsData.tickets || []
-
-      // Filter for laptop facilities
-      const laptopFacilities = facilities.filter((f: any) => {
-        const serverType = normalizeServerType(f.serverType)
-        return serverType === "Laptops"
-      })
-
-      console.log(`Found ${laptopFacilities.length} laptop facilities`)
-
-      // Analyze each laptop facility for boot issues
-      const facilitiesWithIssues: Array<{ name: string; hasBootIssue: boolean; issues: string[] }> = []
-      let withBootIssues = 0
-
-      laptopFacilities.forEach((facility: any) => {
-        // Find tickets for this facility
-        const facilityTickets = tickets.filter((t: any) => 
-          facilitiesMatch(t.facilityName, facility.name)
-        )
-
-        // Check if any ticket has boot-related issues
-        const bootIssues: string[] = []
-        let hasBootIssue = false
-
-        facilityTickets.forEach((ticket: any) => {
-          const problemLower = (ticket.problem || "").toLowerCase()
-          if (problemLower.includes("boot") || problemLower.includes("wont boot") || problemLower.includes("won't boot")) {
-            hasBootIssue = true
-            bootIssues.push(ticket.problem)
-          }
-        })
-
-        if (hasBootIssue) {
-          withBootIssues++
-        }
-
-        facilitiesWithIssues.push({
-          name: facility.name,
-          hasBootIssue,
-          issues: bootIssues,
-        })
-      })
-
-      console.log(`Laptop boot issue pattern: ${withBootIssues}/${laptopFacilities.length} have boot issues`)
-
-      setLaptopBootIssuePattern({
-        totalLaptops: laptopFacilities.length,
-        withBootIssues,
-        facilities: facilitiesWithIssues,
-      })
-    } catch (error) {
-      console.error("Error loading laptop boot issue pattern:", error)
-    }
-  }
 
 
   // Server type distribution data for charts
@@ -1061,24 +994,92 @@ export function NyamiraDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Total Tickets</CardTitle>
-            <CardDescription>All issues reported</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{tickets.length || 0}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {tickets.filter((t: any) => t.status === "resolved").length} resolved
-            </p>
-            {/* Debug info - remove in production */}
-            {process.env.NODE_ENV === 'development' && (
-              <p className="text-xs text-muted-foreground mt-1 opacity-50">
-                Debug: tickets state length = {tickets.length}
-              </p>
-            )}
-          </CardContent>
-        </Card>
+        <HoverCard>
+          <HoverCardTrigger asChild>
+            <Card className="cursor-pointer hover:bg-accent/50 transition-colors">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg">Total Tickets</CardTitle>
+                <CardDescription>All issues reported - Hover for main issues</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{tickets.length || 0}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {tickets.filter((t: any) => t.status === "resolved").length} resolved
+                </p>
+              </CardContent>
+            </Card>
+          </HoverCardTrigger>
+          <HoverCardContent className="w-96 max-h-96 overflow-y-auto">
+            <div className="space-y-3">
+              <h4 className="font-semibold text-sm mb-3">
+                Main Issues Summary
+              </h4>
+              {ticketAnalytics?.byProblem && ticketAnalytics.byProblem.length > 0 ? (
+                <div className="space-y-2">
+                  {ticketAnalytics.byProblem.slice(0, 10).map((item, index) => (
+                    <div 
+                      key={index}
+                      className={`p-3 rounded-md border ${
+                        index === 0 
+                          ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800' 
+                          : index === 1
+                          ? 'bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800'
+                          : index === 2
+                          ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800'
+                          : 'bg-muted/50'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 flex-1">
+                          <span className="text-xs font-bold text-muted-foreground">
+                            #{index + 1}
+                          </span>
+                          <Badge 
+                            variant={index < 3 ? "destructive" : "secondary"} 
+                            className="text-xs"
+                          >
+                            {item.count} {item.count === 1 ? 'ticket' : 'tickets'}
+                          </Badge>
+                        </div>
+                      </div>
+                      <p className="text-sm font-medium mb-2 line-clamp-2">
+                        {item.problem}
+                      </p>
+                      {item.serverTypes && item.serverTypes.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          <span className="text-xs text-muted-foreground">Affects:</span>
+                          {item.serverTypes.slice(0, 3).map((serverType, idx) => (
+                            <Badge key={idx} variant="outline" className="text-xs">
+                              {serverType}
+                            </Badge>
+                          ))}
+                          {item.serverTypes.length > 3 && (
+                            <Badge variant="outline" className="text-xs">
+                              +{item.serverTypes.length - 3} more
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {ticketAnalytics.byProblem.length > 10 && (
+                    <p className="text-xs text-muted-foreground text-center pt-2 border-t">
+                      Showing top 10 issues. {ticketAnalytics.byProblem.length - 10} more issues available.
+                    </p>
+                  )}
+                </div>
+              ) : tickets.length > 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Processing issue analysis...
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No tickets available
+                </p>
+              )}
+            </div>
+          </HoverCardContent>
+        </HoverCard>
       </div>
 
 
@@ -1573,75 +1574,6 @@ export function NyamiraDashboard() {
         </CardContent>
       </Card>
 
-      {/* Laptop Boot Issue Pattern */}
-      {laptopBootIssuePattern && laptopBootIssuePattern.totalLaptops > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              💻 Laptop Server Boot Issue Pattern
-            </CardTitle>
-            <CardDescription>
-              Analysis of boot issues across laptop facilities (all laptop facilities have boot issues except Nyamaiya which has additional issues)
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-3">
-                <Card className="p-4">
-                  <div className="text-sm text-muted-foreground mb-1">Total Laptop Facilities</div>
-                  <div className="text-2xl font-bold">{laptopBootIssuePattern.totalLaptops}</div>
-                </Card>
-                <Card className="p-4">
-                  <div className="text-sm text-muted-foreground mb-1">With Boot Issues</div>
-                  <div className="text-2xl font-bold text-red-600">{laptopBootIssuePattern.withBootIssues}</div>
-                </Card>
-                <Card className="p-4">
-                  <div className="text-sm text-muted-foreground mb-1">Boot Issue Rate</div>
-                  <div className="text-2xl font-bold text-amber-600">
-                    {laptopBootIssuePattern.totalLaptops > 0 
-                      ? ((laptopBootIssuePattern.withBootIssues / laptopBootIssuePattern.totalLaptops) * 100).toFixed(0) 
-                      : 0}%
-                  </div>
-                </Card>
-              </div>
-              
-              <div className="space-y-2">
-                <h4 className="font-semibold text-sm">Laptop Facilities Analysis</h4>
-                <div className="grid gap-2">
-                  {laptopBootIssuePattern.facilities.map((facility, idx) => (
-                    <Card key={idx} className={`p-3 ${facility.hasBootIssue ? 'border-red-200 bg-red-50 dark:bg-red-950/20' : 'border-green-200 bg-green-50 dark:bg-green-950/20'}`}>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          {facility.hasBootIssue ? (
-                            <Badge variant="destructive" className="text-xs">⚠️ Boot Issue</Badge>
-                          ) : (
-                            <Badge variant="secondary" className="text-xs">✅ No Boot Issue</Badge>
-                          )}
-                          <span className="font-medium text-sm">{facility.name}</span>
-                        </div>
-                        {facility.name.toLowerCase().includes("nyamaiya") && (
-                          <Badge variant="outline" className="text-xs">Has Additional Issues</Badge>
-                        )}
-                      </div>
-                      {facility.issues.length > 0 && (
-                        <div className="mt-2 space-y-1">
-                          <div className="text-xs text-muted-foreground">Issues:</div>
-                          {facility.issues.map((issue, i) => (
-                            <div key={i} className="text-xs p-1 bg-muted rounded">
-                              {issue}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </Card>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Comprehensive Correlation Analysis */}
       {comprehensiveAnalytics && (
         <Card>
@@ -1947,85 +1879,434 @@ export function NyamiraDashboard() {
             <div className="space-y-6">
               {/* Summary Cards */}
               <div className="grid gap-4 md:grid-cols-5">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base">Total Tickets</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{tickets.length}</div>
-                    <p className="text-xs text-muted-foreground mt-1">Nyamira tickets</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base">✅ Resolved</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold text-green-600">
-                      {tickets.filter((t: any) => t.status === "resolved").length}
+                <HoverCard>
+                  <HoverCardTrigger asChild>
+                    <Card className="cursor-pointer hover:bg-accent/50 transition-colors">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base">Total Tickets</CardTitle>
+                        <CardDescription className="text-xs">Hover for main issues</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">{tickets.length}</div>
+                        <p className="text-xs text-muted-foreground mt-1">Nyamira tickets</p>
+                      </CardContent>
+                    </Card>
+                  </HoverCardTrigger>
+                  <HoverCardContent className="w-96 max-h-96 overflow-y-auto">
+                    <div className="space-y-3">
+                      <h4 className="font-semibold text-sm mb-3">Main Issues Summary</h4>
+                      {ticketAnalytics?.byProblem && ticketAnalytics.byProblem.length > 0 ? (
+                        <div className="space-y-2">
+                          {ticketAnalytics.byProblem.slice(0, 10).map((item, index) => (
+                            <div 
+                              key={index}
+                              className={`p-3 rounded-md border ${
+                                index === 0 
+                                  ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800' 
+                                  : index === 1
+                                  ? 'bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800'
+                                  : index === 2
+                                  ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800'
+                                  : 'bg-muted/50'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-2 mb-2">
+                                <div className="flex items-center gap-2 flex-1">
+                                  <span className="text-xs font-bold text-muted-foreground">
+                                    #{index + 1}
+                                  </span>
+                                  <Badge 
+                                    variant={index < 3 ? "destructive" : "secondary"} 
+                                    className="text-xs"
+                                  >
+                                    {item.count} {item.count === 1 ? 'ticket' : 'tickets'}
+                                  </Badge>
+                                </div>
+                              </div>
+                              <p className="text-sm font-medium mb-2 line-clamp-2">
+                                {item.problem}
+                              </p>
+                              {item.serverTypes && item.serverTypes.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                  <span className="text-xs text-muted-foreground">Affects:</span>
+                                  {item.serverTypes.slice(0, 3).map((serverType, idx) => (
+                                    <Badge key={idx} variant="outline" className="text-xs">
+                                      {serverType}
+                                    </Badge>
+                                  ))}
+                                  {item.serverTypes.length > 3 && (
+                                    <Badge variant="outline" className="text-xs">
+                                      +{item.serverTypes.length - 3} more
+                                    </Badge>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                          {ticketAnalytics.byProblem.length > 10 && (
+                            <p className="text-xs text-muted-foreground text-center pt-2 border-t">
+                              Showing top 10 issues. {ticketAnalytics.byProblem.length - 10} more issues available.
+                            </p>
+                          )}
+                        </div>
+                      ) : tickets.length > 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                          Processing issue analysis...
+                        </p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                          No tickets available
+                        </p>
+                      )}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {((tickets.filter((t: any) => t.status === "resolved").length / tickets.length) * 100).toFixed(1)}% resolved
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base">🖥️ Server Issues</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold text-blue-600">
-                      {ticketAnalytics?.byIssueType?.server || 0}
+                  </HoverCardContent>
+                </HoverCard>
+                <HoverCard>
+                  <HoverCardTrigger asChild>
+                    <Card className="cursor-pointer hover:bg-accent/50 transition-colors">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base">✅ Resolved</CardTitle>
+                        <CardDescription className="text-xs">Hover for details</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold text-green-600">
+                          {tickets.filter((t: any) => t.status === "resolved").length}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {((tickets.filter((t: any) => t.status === "resolved").length / tickets.length) * 100).toFixed(1)}% resolved
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </HoverCardTrigger>
+                  <HoverCardContent className="w-80 max-h-96 overflow-y-auto">
+                    <div className="space-y-3">
+                      <h4 className="font-semibold text-sm mb-3">
+                        Resolved Tickets ({tickets.filter((t: any) => t.status === "resolved").length})
+                      </h4>
+                      <div className="space-y-2">
+                        {tickets.filter((t: any) => t.status === "resolved").slice(0, 10).map((ticket: any, idx: number) => (
+                          <div key={idx} className="p-2 rounded-md border bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800">
+                            <div className="flex items-start justify-between gap-2 mb-1">
+                              <span className="font-medium text-sm flex-1">{ticket.facilityName}</span>
+                              {ticket.resolvedAt && (
+                                <span className="text-xs text-muted-foreground">
+                                  {new Date(ticket.resolvedAt).toLocaleDateString()}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                              {ticket.problem}
+                            </p>
+                            {ticket.serverCondition && (
+                              <div className="flex flex-wrap gap-1 mt-2">
+                                {ticket.serverCondition.split(',').map((cat: string, i: number) => (
+                                  <Badge key={i} variant="outline" className="text-xs">
+                                    {cat.trim()}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {tickets.filter((t: any) => t.status === "resolved").length > 10 && (
+                          <p className="text-xs text-muted-foreground text-center pt-2 border-t">
+                            Showing 10 of {tickets.filter((t: any) => t.status === "resolved").length} resolved tickets
+                          </p>
+                        )}
+                        {tickets.filter((t: any) => t.status === "resolved").length === 0 && (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            No resolved tickets
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {ticketAnalytics?.byIssueType?.server ? ((ticketAnalytics.byIssueType.server / tickets.length) * 100).toFixed(1) : 0}% of total
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base">🌐 Network Issues</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold text-purple-600">
-                      {ticketAnalytics?.byIssueType?.network || 0}
+                  </HoverCardContent>
+                </HoverCard>
+                <HoverCard>
+                  <HoverCardTrigger asChild>
+                    <Card className="cursor-pointer hover:bg-accent/50 transition-colors">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base">🖥️ Server Issues</CardTitle>
+                        <CardDescription className="text-xs">Hover for breakdown</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold text-blue-600">
+                          {ticketAnalytics?.byIssueType?.server || 0}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {ticketAnalytics?.byIssueType?.server ? ((ticketAnalytics.byIssueType.server / tickets.length) * 100).toFixed(1) : 0}% of total
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </HoverCardTrigger>
+                  <HoverCardContent className="w-96 max-h-96 overflow-y-auto">
+                    <div className="space-y-3">
+                      <h4 className="font-semibold text-sm mb-3">
+                        Server Issues by Server Type
+                      </h4>
+                      {ticketAnalytics?.byServerType && ticketAnalytics.byServerType.length > 0 ? (
+                        <div className="space-y-2">
+                          {ticketAnalytics.byServerType
+                            .filter(item => item.serverIssues > 0)
+                            .sort((a, b) => b.serverIssues - a.serverIssues)
+                            .map((item, index) => (
+                              <div 
+                                key={item.serverType}
+                                className={`p-3 rounded-md border ${
+                                  index === 0 
+                                    ? 'bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800' 
+                                    : 'bg-muted/50'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="font-medium text-sm">{item.serverType}</span>
+                                  <Badge variant="secondary" className="text-xs">
+                                    {item.serverIssues} {item.serverIssues === 1 ? 'issue' : 'issues'}
+                                  </Badge>
+                                </div>
+                                {item.problems && item.problems.length > 0 && (
+                                  <div className="space-y-1 mt-2">
+                                    <p className="text-xs text-muted-foreground">Sample problems:</p>
+                                    {item.problems.slice(0, 2).map((problem: string, idx: number) => (
+                                      <p key={idx} className="text-xs p-1 bg-muted rounded line-clamp-1">
+                                        {problem}
+                                      </p>
+                                    ))}
+                                    {item.problems.length > 2 && (
+                                      <p className="text-xs text-muted-foreground">
+                                        +{item.problems.length - 2} more
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          {ticketAnalytics.byServerType.filter(item => item.serverIssues > 0).length === 0 && (
+                            <p className="text-sm text-muted-foreground text-center py-4">
+                              No server issues found
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                          Processing server issues...
+                        </p>
+                      )}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {ticketAnalytics?.byIssueType?.network ? ((ticketAnalytics.byIssueType.network / tickets.length) * 100).toFixed(1) : 0}% of total
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base">Most Problematic</CardTitle>
-                    <CardDescription className="text-xs">By issue rate (highest first)</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold text-red-600">
-                      {ticketAnalytics?.correlation && ticketAnalytics.correlation.length > 0 
-                        ? ticketAnalytics.correlation[0].serverType 
-                        : ticketAnalytics?.byServerType && ticketAnalytics.byServerType.length > 0
-                        ? ticketAnalytics.byServerType[0].serverType 
-                        : tickets.length > 0
-                        ? "Calculating..."
-                        : "No data"}
+                  </HoverCardContent>
+                </HoverCard>
+                <HoverCard>
+                  <HoverCardTrigger asChild>
+                    <Card className="cursor-pointer hover:bg-accent/50 transition-colors">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base">🌐 Network Issues</CardTitle>
+                        <CardDescription className="text-xs">Hover for breakdown</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold text-purple-600">
+                          {ticketAnalytics?.byIssueType?.network || 0}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {ticketAnalytics?.byIssueType?.network ? ((ticketAnalytics.byIssueType.network / tickets.length) * 100).toFixed(1) : 0}% of total
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </HoverCardTrigger>
+                  <HoverCardContent className="w-96 max-h-96 overflow-y-auto">
+                    <div className="space-y-3">
+                      <h4 className="font-semibold text-sm mb-3">
+                        Network Issues by Server Type
+                      </h4>
+                      {ticketAnalytics?.byServerType && ticketAnalytics.byServerType.length > 0 ? (
+                        <div className="space-y-2">
+                          {ticketAnalytics.byServerType
+                            .filter(item => item.networkIssues > 0)
+                            .sort((a, b) => b.networkIssues - a.networkIssues)
+                            .map((item, index) => (
+                              <div 
+                                key={item.serverType}
+                                className={`p-3 rounded-md border ${
+                                  index === 0 
+                                    ? 'bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800' 
+                                    : 'bg-muted/50'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="font-medium text-sm">{item.serverType}</span>
+                                  <Badge variant="secondary" className="text-xs">
+                                    {item.networkIssues} {item.networkIssues === 1 ? 'issue' : 'issues'}
+                                  </Badge>
+                                </div>
+                                {ticketAnalytics?.networkCorrelation && ticketAnalytics.networkCorrelation.length > 0 && (
+                                  <div className="mt-2 space-y-1">
+                                    <p className="text-xs text-muted-foreground">Infrastructure correlation:</p>
+                                    {ticketAnalytics.networkCorrelation
+                                      .filter(nc => {
+                                        // Match by checking if this server type has network issues
+                                        return item.networkIssues > 0
+                                      })
+                                      .slice(0, 2)
+                                      .map((nc, idx) => (
+                                        <div key={idx} className="text-xs p-1 bg-muted rounded">
+                                          {nc.hasSimcard ? '📱 Has Simcard' : '❌ No Simcard'} / {nc.hasLAN ? '🌐 Has LAN' : '❌ No LAN'}: {nc.networkIssues} issues
+                                        </div>
+                                      ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          {ticketAnalytics.byServerType.filter(item => item.networkIssues > 0).length === 0 && (
+                            <p className="text-sm text-muted-foreground text-center py-4">
+                              No network issues found
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                          Processing network issues...
+                        </p>
+                      )}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {ticketAnalytics?.correlation && ticketAnalytics.correlation.length > 0 
-                        ? `${ticketAnalytics.correlation[0].totalIssues} issues (${ticketAnalytics.correlation[0].totalFacilities} facilities)`
-                        : ticketAnalytics?.byServerType && ticketAnalytics.byServerType.length > 0
-                        ? `${ticketAnalytics.byServerType[0].count} total tickets` 
-                        : tickets.length > 0
-                        ? "Processing analytics..."
-                        : "No tickets available"}
-                    </p>
-                    {ticketAnalytics?.correlation && ticketAnalytics.correlation.length > 0 && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Issue rate: {ticketAnalytics.correlation[0].issueRate.toFixed(1)}%
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
+                  </HoverCardContent>
+                </HoverCard>
+                <HoverCard>
+                  <HoverCardTrigger asChild>
+                    <Card className="cursor-pointer hover:bg-accent/50 transition-colors">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base">Most Problematic</CardTitle>
+                        <CardDescription className="text-xs">By issue rate (highest first) - Hover for full ranking</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold text-red-600">
+                          {ticketAnalytics?.correlation && ticketAnalytics.correlation.length > 0 
+                            ? ticketAnalytics.correlation[0].serverType 
+                            : ticketAnalytics?.byServerType && ticketAnalytics.byServerType.length > 0
+                            ? ticketAnalytics.byServerType[0].serverType 
+                            : tickets.length > 0
+                            ? "Calculating..."
+                            : "No data"}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {ticketAnalytics?.correlation && ticketAnalytics.correlation.length > 0 
+                            ? `${ticketAnalytics.correlation[0].totalIssues} issues (${ticketAnalytics.correlation[0].totalFacilities} facilities)`
+                            : ticketAnalytics?.byServerType && ticketAnalytics.byServerType.length > 0
+                            ? `${ticketAnalytics.byServerType[0].count} total tickets` 
+                            : tickets.length > 0
+                            ? "Processing analytics..."
+                            : "No tickets available"}
+                        </p>
+                        {ticketAnalytics?.correlation && ticketAnalytics.correlation.length > 0 && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Issue rate: {ticketAnalytics.correlation[0].issueRate.toFixed(1)}%
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </HoverCardTrigger>
+                  <HoverCardContent className="w-96 max-h-96 overflow-y-auto">
+                    <div className="space-y-3">
+                      <h4 className="font-semibold text-sm mb-3">
+                        Server Type Issue Ranking
+                      </h4>
+                      <div className="space-y-2">
+                        {ticketAnalytics?.correlation && ticketAnalytics.correlation.length > 0 ? (
+                          ticketAnalytics.correlation.map((item, index) => (
+                            <div 
+                              key={item.serverType} 
+                              className={`flex items-center justify-between p-2 rounded-md border ${
+                                index === 0 
+                                  ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800' 
+                                  : index === 1
+                                  ? 'bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800'
+                                  : index === 2
+                                  ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800'
+                                  : 'bg-muted/50'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 flex-1">
+                                <span className="text-xs font-bold text-muted-foreground w-6">
+                                  #{index + 1}
+                                </span>
+                                <span className="font-medium text-sm flex-1">
+                                  {item.serverType}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-3 text-xs">
+                                <div className="text-right">
+                                  <div className="font-semibold">
+                                    {item.issueRate > 0 ? `${item.issueRate.toFixed(1)}%` : 'N/A'}
+                                  </div>
+                                  <div className="text-muted-foreground">
+                                    rate
+                                  </div>
+                                </div>
+                                <div className="text-right border-l pl-3">
+                                  <div className="font-semibold">
+                                    {item.totalIssues}
+                                  </div>
+                                  <div className="text-muted-foreground">
+                                    issues
+                                  </div>
+                                </div>
+                                {item.totalFacilities > 0 && (
+                                  <div className="text-right border-l pl-3">
+                                    <div className="font-semibold">
+                                      {item.totalFacilities}
+                                    </div>
+                                    <div className="text-muted-foreground">
+                                      facilities
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))
+                        ) : ticketAnalytics?.byServerType && ticketAnalytics.byServerType.length > 0 ? (
+                          ticketAnalytics.byServerType.map((item, index) => (
+                            <div 
+                              key={item.serverType} 
+                              className={`flex items-center justify-between p-2 rounded-md border ${
+                                index === 0 
+                                  ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800' 
+                                  : index === 1
+                                  ? 'bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800'
+                                  : index === 2
+                                  ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800'
+                                  : 'bg-muted/50'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 flex-1">
+                                <span className="text-xs font-bold text-muted-foreground w-6">
+                                  #{index + 1}
+                                </span>
+                                <span className="font-medium text-sm flex-1">
+                                  {item.serverType}
+                                </span>
+                              </div>
+                              <div className="text-right text-xs">
+                                <div className="font-semibold">
+                                  {item.count}
+                                </div>
+                                <div className="text-muted-foreground">
+                                  tickets
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            No ranking data available
+                          </p>
+                        )}
+                      </div>
+                      {ticketAnalytics?.correlation && ticketAnalytics.correlation.length > 0 && (
+                        <p className="text-xs text-muted-foreground mt-3 pt-3 border-t">
+                          Ranking based on issue rate (issues per 100 facilities). Higher rate = more problematic.
+                        </p>
+                      )}
+                    </div>
+                  </HoverCardContent>
+                </HoverCard>
               </div>
 
               {/* Show graphs only if we have ticket data */}
@@ -2033,12 +2314,14 @@ export function NyamiraDashboard() {
                 <>
 
                   {/* Server vs Network Breakdown Chart - Beautiful Area Chart */}
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Server vs Network Issues</CardTitle>
-                      <CardDescription>Breakdown of issues by type with trend visualization</CardDescription>
-                    </CardHeader>
-                    <CardContent>
+                  <HoverCard>
+                    <HoverCardTrigger asChild>
+                      <Card className="cursor-pointer hover:bg-accent/50 transition-colors">
+                        <CardHeader>
+                          <CardTitle className="text-base">Server vs Network Issues</CardTitle>
+                          <CardDescription>Breakdown of issues by type - Hover for details</CardDescription>
+                        </CardHeader>
+                        <CardContent>
                       <ChartContainer config={serverChartConfig}>
                         <ResponsiveContainer width="100%" height={250}>
                           <AreaChart
@@ -2072,18 +2355,85 @@ export function NyamiraDashboard() {
                           </AreaChart>
                         </ResponsiveContainer>
                       </ChartContainer>
-                    </CardContent>
-                  </Card>
+                        </CardContent>
+                      </Card>
+                    </HoverCardTrigger>
+                    <HoverCardContent className="w-96 max-h-96 overflow-y-auto">
+                      <div className="space-y-3">
+                        <h4 className="font-semibold text-sm mb-3">Issue Type Breakdown</h4>
+                        <div className="space-y-3">
+                          <div className="p-3 rounded-md border bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-medium text-sm">🖥️ Server Issues</span>
+                              <Badge variant="secondary" className="text-xs">
+                                {ticketAnalytics?.byIssueType?.server || 0} tickets
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {tickets.length > 0 
+                                ? `${((ticketAnalytics?.byIssueType?.server || 0) / tickets.length * 100).toFixed(1)}% of all tickets`
+                                : '0% of all tickets'}
+                            </p>
+                            {ticketAnalytics?.byServerType && ticketAnalytics.byServerType.length > 0 && (
+                              <div className="mt-2 space-y-1">
+                                <p className="text-xs font-medium mb-1">By Server Type:</p>
+                                {ticketAnalytics.byServerType
+                                  .filter(item => item.serverIssues > 0)
+                                  .sort((a, b) => b.serverIssues - a.serverIssues)
+                                  .slice(0, 5)
+                                  .map((item, idx) => (
+                                    <div key={idx} className="flex justify-between text-xs">
+                                      <span>{item.serverType}</span>
+                                      <span className="font-medium">{item.serverIssues} issues</span>
+                                    </div>
+                                  ))}
+                              </div>
+                            )}
+                          </div>
+                          <div className="p-3 rounded-md border bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-medium text-sm">🌐 Network Issues</span>
+                              <Badge variant="secondary" className="text-xs">
+                                {ticketAnalytics?.byIssueType?.network || 0} tickets
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {tickets.length > 0 
+                                ? `${((ticketAnalytics?.byIssueType?.network || 0) / tickets.length * 100).toFixed(1)}% of all tickets`
+                                : '0% of all tickets'}
+                            </p>
+                            {ticketAnalytics?.byServerType && ticketAnalytics.byServerType.length > 0 && (
+                              <div className="mt-2 space-y-1">
+                                <p className="text-xs font-medium mb-1">By Server Type:</p>
+                                {ticketAnalytics.byServerType
+                                  .filter(item => item.networkIssues > 0)
+                                  .sort((a, b) => b.networkIssues - a.networkIssues)
+                                  .slice(0, 5)
+                                  .map((item, idx) => (
+                                    <div key={idx} className="flex justify-between text-xs">
+                                      <span>{item.serverType}</span>
+                                      <span className="font-medium">{item.networkIssues} issues</span>
+                                    </div>
+                                  ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </HoverCardContent>
+                  </HoverCard>
 
                   {/* Correlation Charts - Beautiful Line & Area Charts */}
                   <div className="grid gap-6 md:grid-cols-2">
                     {/* Issues by Server Type - Line Chart */}
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="text-base">Issues by Server Type</CardTitle>
-                        <CardDescription>Ticket distribution across server types</CardDescription>
-                      </CardHeader>
-                      <CardContent>
+                    <HoverCard>
+                      <HoverCardTrigger asChild>
+                        <Card className="cursor-pointer hover:bg-accent/50 transition-colors">
+                          <CardHeader>
+                            <CardTitle className="text-base">Issues by Server Type</CardTitle>
+                            <CardDescription>Ticket distribution - Hover for details</CardDescription>
+                          </CardHeader>
+                          <CardContent>
                         <ChartContainer config={serverChartConfig}>
                           <ResponsiveContainer width="100%" height={280}>
                             <LineChart
@@ -2153,17 +2503,63 @@ export function NyamiraDashboard() {
                             </LineChart>
                           </ResponsiveContainer>
                         </ChartContainer>
-                      </CardContent>
-                    </Card>
+                          </CardContent>
+                        </Card>
+                      </HoverCardTrigger>
+                      <HoverCardContent className="w-96 max-h-96 overflow-y-auto">
+                        <div className="space-y-3">
+                          <h4 className="font-semibold text-sm mb-3">Issues by Server Type Details</h4>
+                          {ticketAnalytics?.byServerType && ticketAnalytics.byServerType.length > 0 ? (
+                            <div className="space-y-2">
+                              {ticketAnalytics.byServerType
+                                .sort((a, b) => b.count - a.count)
+                                .map((item, index) => (
+                                  <div 
+                                    key={item.serverType}
+                                    className={`p-3 rounded-md border ${
+                                      index === 0 
+                                        ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800' 
+                                        : 'bg-muted/50'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between mb-2">
+                                      <span className="font-medium text-sm">{item.serverType}</span>
+                                      <Badge variant="secondary" className="text-xs">
+                                        {item.count} total
+                                      </Badge>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 text-xs mt-2">
+                                      <div>
+                                        <span className="text-muted-foreground">Server:</span>
+                                        <span className="font-medium ml-1">{item.serverIssues}</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-muted-foreground">Network:</span>
+                                        <span className="font-medium ml-1">{item.networkIssues}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-muted-foreground text-center py-4">
+                              No server type data available
+                            </p>
+                          )}
+                        </div>
+                      </HoverCardContent>
+                    </HoverCard>
 
                     {/* Issue Rate Correlation - Area Chart */}
                     {ticketAnalytics.correlation && ticketAnalytics.correlation.length > 0 && ticketAnalytics.correlation.some(c => c.totalFacilities > 0) && (
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="text-base">Issue Rate by Server Type</CardTitle>
-                          <CardDescription>Issues per 100 facilities (sorted by highest rate first)</CardDescription>
-                        </CardHeader>
-                        <CardContent>
+                      <HoverCard>
+                        <HoverCardTrigger asChild>
+                          <Card className="cursor-pointer hover:bg-accent/50 transition-colors">
+                            <CardHeader>
+                              <CardTitle className="text-base">Issue Rate by Server Type</CardTitle>
+                              <CardDescription>Issues per 100 facilities - Hover for details</CardDescription>
+                            </CardHeader>
+                            <CardContent>
                           <ChartContainer config={serverChartConfig}>
                             <ResponsiveContainer width="100%" height={280}>
                               <AreaChart
@@ -2229,8 +2625,55 @@ export function NyamiraDashboard() {
                           <div className="mt-3 text-xs text-muted-foreground">
                             Higher rate = more issues relative to number of facilities
                           </div>
-                        </CardContent>
-                      </Card>
+                            </CardContent>
+                          </Card>
+                        </HoverCardTrigger>
+                        <HoverCardContent className="w-96 max-h-96 overflow-y-auto">
+                          <div className="space-y-3">
+                            <h4 className="font-semibold text-sm mb-3">Issue Rate Details</h4>
+                            {ticketAnalytics?.correlation && ticketAnalytics.correlation.length > 0 ? (
+                              <div className="space-y-2">
+                                {ticketAnalytics.correlation
+                                  .filter(c => c.totalFacilities > 0)
+                                  .sort((a, b) => b.issueRate - a.issueRate)
+                                  .map((item, index) => (
+                                    <div 
+                                      key={item.serverType}
+                                      className={`p-3 rounded-md border ${
+                                        index === 0 
+                                          ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800' 
+                                          : index === 1
+                                          ? 'bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800'
+                                          : 'bg-muted/50'
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-between mb-2">
+                                        <span className="font-medium text-sm">{item.serverType}</span>
+                                        <Badge variant={index < 2 ? "destructive" : "secondary"} className="text-xs">
+                                          {item.issueRate.toFixed(1)}%
+                                        </Badge>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-2 text-xs mt-2">
+                                        <div>
+                                          <span className="text-muted-foreground">Issues:</span>
+                                          <span className="font-medium ml-1">{item.totalIssues}</span>
+                                        </div>
+                                        <div>
+                                          <span className="text-muted-foreground">Facilities:</span>
+                                          <span className="font-medium ml-1">{item.totalFacilities}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-muted-foreground text-center py-4">
+                                No correlation data available
+                              </p>
+                            )}
+                          </div>
+                        </HoverCardContent>
+                      </HoverCard>
                     )}
                   </div>
 
