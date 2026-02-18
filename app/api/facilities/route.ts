@@ -32,13 +32,31 @@ export async function GET(request: NextRequest) {
     const facilities = await prisma.facility.findMany({
       where,
       orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        subcounty: true,
+        sublocation: true,
+        system: true,
+        location: true,
+        isMaster: true,
+        serverType: true,
+        facilityGroup: true,
+        simcardCount: true,
+        hasLAN: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     })
 
+    console.log(`[API] Fetched ${facilities.length} facilities for ${system}/${location} (isMaster=${isMaster})`)
+    
     return NextResponse.json({ facilities })
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching facilities:", error)
+    console.error("Error details:", error?.message, error?.stack)
     return NextResponse.json(
-      { error: "Failed to fetch facilities" },
+      { error: "Failed to fetch facilities", details: error?.message },
       { status: 500 }
     )
   }

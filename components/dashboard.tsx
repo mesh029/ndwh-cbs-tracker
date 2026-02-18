@@ -116,13 +116,13 @@ export function Dashboard() {
       const totalReported = matchedReported + unmatchedReported
       
       return {
-        ...data,
+      ...data,
         // Update reported count to include unmatched
         reported: totalReported,
         matchedReported,
         unmatchedReported,
         missing: filteredMissing.length,
-        comparison: {
+      comparison: {
           ...data.comparison,
           reported: filteredReported,
           missing: filteredMissing,
@@ -130,11 +130,11 @@ export function Dashboard() {
           // Preserve comments for filtered facilities
           reportedWithComments: data.comparison.reportedWithComments?.filter(item =>
             filteredReported.includes(item.facility)
-          ),
+        ),
           unmatchedReportedWithComments: data.comparison.unmatchedReportedWithComments?.filter(item =>
             filteredUnmatchedReported.includes(item.facility)
-          ),
-        },
+        ),
+      },
       }
     })
   }, [displayData, searchQuery])
@@ -301,30 +301,30 @@ export function Dashboard() {
                     <>
                       {/* Matched facilities */}
                       {data.comparison.reported.map((facility, index) => {
-                        // Check if this facility has a variation comment
-                        const variationComment = data.comparison.reportedWithComments?.find(
-                          item => item.facility === facility
-                        )?.comment
-                        
-                        return (
-                          <div
+                      // Check if this facility has a variation comment
+                      const variationComment = data.comparison.reportedWithComments?.find(
+                        item => item.facility === facility
+                      )?.comment
+                      
+                      return (
+                        <div
                             key={`matched-${index}`}
-                            className="flex items-start gap-2 rounded-md border p-2"
-                          >
-                            <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5" />
-                            <div className="flex-1 min-w-0">
-                              <span className="text-sm">{facility}</span>
-                              {variationComment && (
-                                <p className="text-xs text-muted-foreground mt-1 italic">
-                                  Note: {variationComment}
-                                </p>
-                              )}
-                            </div>
-                            <Badge variant="success" className="ml-auto shrink-0">
-                              Reported
-                            </Badge>
+                          className="flex items-start gap-2 rounded-md border p-2"
+                        >
+                          <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5" />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm">{facility}</span>
+                            {variationComment && (
+                              <p className="text-xs text-muted-foreground mt-1 italic">
+                                Note: {variationComment}
+                              </p>
+                            )}
                           </div>
-                        )
+                          <Badge variant="success" className="ml-auto shrink-0">
+                            Reported
+                          </Badge>
+                        </div>
+                      )
                       })}
                       {/* Unmatched reported facilities */}
                       {data.comparison.unmatchedReported && data.comparison.unmatchedReported.length > 0 && (

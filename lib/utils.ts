@@ -37,24 +37,37 @@ export function extractCoreFacilityName(name: string): string {
   normalized = normalized.replace(/\s*\([^)]+\)\s*/g, ' ').trim()
   
   // Common facility type suffixes to remove (in order of specificity)
+  // Enhanced list to handle more variations like "Kenyerere Dispensary" vs "Kenyerere Health Center"
   const facilityTypePatterns = [
+    /\s+sub\s+county\s+referral\s+hospital\s*/gi,
     /\s+sub\s+county\s+hospital\s*/gi,
+    /\s+county\s+referral\s+hospital\s*/gi,
     /\s+county\s+hospital\s*/gi,
     /\s+referral\s+hospital\s*/gi,
     /\s+general\s+hospital\s*/gi,
     /\s+district\s+hospital\s*/gi,
     /\s+hospital\s*/gi,
+    /\s+health\s+training\s+centre\s*/gi,
+    /\s+health\s+training\s+center\s*/gi,
+    /\s+rural\s+health\s+training\s+centre\s*/gi,
+    /\s+rural\s+health\s+training\s+center\s*/gi,
     /\s+health\s+centre\s*/gi,
     /\s+health\s+center\s*/gi,
+    /\s+health\s+centres\s*/gi,
+    /\s+health\s+centers\s*/gi,
     /\s+medical\s+centre\s*/gi,
     /\s+medical\s+center\s*/gi,
+    /\s+nursing\s+and\s+maternity\s+home\s*/gi,
+    /\s+nursing\s+&\s+maternity\s+home\s*/gi,
     /\s+nursing\s+home\s*/gi,
     /\s+maternity\s+&\s+nursing\s+home\s*/gi,
     /\s+maternity\s+home\s*/gi,
     /\s+dispensary\s*/gi,
+    /\s+dispensaries\s*/gi,
     /\s+clinic\s*/gi,
     /\s+health\s+clinic\s*/gi,
     /\s+medical\s+clinic\s*/gi,
+    /\s+sub\s+district\s+hospital\s*/gi,
   ]
   
   let coreName = normalized
@@ -260,4 +273,168 @@ export function deduplicateFacilities(facilities: string[]): string[] {
   }
   
   return result
+}
+
+/**
+ * Advanced data validation: Check if a string is an actual facility name
+ * Filters out administrative divisions (sub county, sub location, ward, etc.)
+ * and validates against facility type patterns
+ * 
+ * @param value - The string to validate
+ * @param masterFacilities - Optional list of known master facilities for cross-validation
+ * @returns { isValid: boolean, reason?: string }
+ */
+export function isValidFacilityName(
+  value: string, 
+  masterFacilities?: string[]
+): { isValid: boolean; reason?: string } {
+  const normalized = normalizeFacilityName(value)
+  const lower = normalized.toLowerCase()
+  
+  // 1. Filter out administrative divisions
+  const administrativeTerms = [
+    'sub county', 'subcounty', 'sub-county',
+    'sub location', 'sublocation', 'sub-location',
+    'ward', 'wards',
+    'location', 'locations',
+    'county', 'counties',
+    'constituency', 'constituencies',
+    'division', 'divisions',
+    'district', 'districts',
+    'region', 'regions',
+    'zone', 'zones',
+    'area', 'areas',
+    'sector', 'sectors',
+    'village', 'villages',
+    'town', 'towns',
+    'center', 'centre', 'centers', 'centres',
+  ]
+  
+  // Check if it's purely an administrative term
+  for (const term of administrativeTerms) {
+    if (lower === term || lower.startsWith(term + ' ') || lower.endsWith(' ' + term)) {
+      // Allow if it's part of a facility name (e.g., "Sub County Hospital")
+      if (!lower.includes('hospital') && !lower.includes('health') && !lower.includes('dispensary') && 
+          !lower.includes('clinic') && !lower.includes('centre') && !lower.includes('center')) {
+        return { isValid: false, reason: `Administrative division: ${term}` }
+      }
+    }
+  }
+  
+  // 2. Filter out headers and metadata
+  const headerPatterns = [
+    /^facility/i,
+    /^name/i,
+    /^server/i,
+    /^group/i,
+    /^type/i,
+    /^#/,
+    /^no\./i,
+    /^number/i,
+    /^id/i,
+    /^s\.?n\.?/i, // S.N. or SN
+    /^total/i,
+    /^count/i,
+  ]
+  
+  for (const pattern of headerPatterns) {
+    if (pattern.test(value)) {
+      return { isValid: false, reason: 'Header/metadata pattern' }
+    }
+  }
+  
+  // 3. Must contain facility type indicators OR match master list
+  const facilityTypeIndicators = [
+    'hospital', 'hospitals',
+    'health centre', 'health center', 'health centres', 'health centers',
+    'medical centre', 'medical center', 'medical centres', 'medical centers',
+    'dispensary', 'dispensaries',
+    'clinic', 'clinics',
+    'health clinic', 'medical clinic',
+    'maternity', 'maternity home', 'maternity & nursing home', 'nursing & maternity home',
+    'nursing home', 'nursing homes',
+    'health training centre', 'health training center',
+    'rural health training centre', 'rural health training center',
+    'referral hospital',
+    'sub county hospital', 'sub-county hospital',
+    'county hospital', 'county referral hospital',
+    'district hospital',
+    'general hospital',
+  ]
+  
+  const hasFacilityType = facilityTypeIndicators.some(type => lower.includes(type))
+  
+  // 4. Check against master facilities if provided
+  let matchesMaster = false
+  if (masterFacilities && masterFacilities.length > 0) {
+    matchesMaster = masterFacilities.some(master => {
+      const masterNormalized = normalizeFacilityName(master)
+      // Exact match or contains significant portion
+      return masterNormalized === lower || 
+             (lower.length >= 5 && masterNormalized.includes(lower)) ||
+             (masterNormalized.length >= 5 && lower.includes(masterNormalized))
+    })
+  }
+  
+  // 5. Additional validation: Must be meaningful length and structure
+  if (value.trim().length < 4) {
+    return { isValid: false, reason: 'Too short' }
+  }
+  
+  // 6. Reject if it's just numbers or special characters
+  if (/^[\d\s\-_\.]+$/.test(value)) {
+    return { isValid: false, reason: 'Only numbers/special characters' }
+  }
+  
+  // 7. Final decision: Valid if has facility type OR matches master
+  if (hasFacilityType || matchesMaster) {
+    return { isValid: true }
+  }
+  
+  // 8. If no facility type and no master match, but looks like a proper name (has capital letters, multiple words)
+  const words = value.trim().split(/\s+/).filter(w => w.length > 0)
+  if (words.length >= 2 && words.some(w => /^[A-Z]/.test(w))) {
+    // Might be a facility name without explicit type - be conservative
+    // Only accept if master list exists and we're being lenient, or if it's clearly a name
+    return { isValid: false, reason: 'No facility type indicator and no master match' }
+  }
+  
+  return { isValid: false, reason: 'Does not match facility name patterns' }
+}
+
+/**
+ * Normalize server type names to a consistent format
+ * Maps various input strings to standardized server type names
+ * 
+ * @param serverType - The server type string to normalize
+ * @returns Normalized server type string or "Unknown" if invalid
+ */
+export function normalizeServerType(serverType: string | null | undefined): string {
+  if (!serverType) {
+    return "Unknown"
+  }
+  const lowerCaseType = serverType.toLowerCase().trim()
+  
+  // Map variations to standard names
+  if (lowerCaseType.includes("hp proliant")) return "HP_Proliant_Server"
+  if (lowerCaseType.includes("hp elitedesk 800g1") || lowerCaseType.includes("800g1") || lowerCaseType.includes("800 g1")) return "HP_EliteDesk_800G1"
+  if (lowerCaseType.includes("dell optiplex") || lowerCaseType.includes("optiplex")) return "Dell_Optiplex"
+  if (lowerCaseType.includes("laptop")) return "Laptops"
+  if (lowerCaseType.includes("tickets")) return "Tickets" // Keep "Tickets" for filtering, but not as a valid server type
+  
+  // If it matches a known server type exactly (case-insensitive)
+  const knownTypes = ["HP_Proliant_Server", "HP_EliteDesk_800G1", "Dell_Optiplex", "Laptops"]
+  for (const knownType of knownTypes) {
+    if (lowerCaseType === knownType.toLowerCase() || 
+        lowerCaseType.replace(/_/g, " ").replace(/\s+/g, " ") === knownType.toLowerCase().replace(/_/g, " ")) {
+      return knownType
+    }
+  }
+  
+  // Clean up and normalize the string (replace special chars with underscores)
+  const normalized = serverType.replace(/[^a-zA-Z0-9_]/g, '_')
+    .replace(/__+/g, '_')
+    .replace(/^_|_$/g, '')
+  
+  return normalized || "Unknown"
 }

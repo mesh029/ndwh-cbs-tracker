@@ -36,11 +36,23 @@ export async function getFacilityData(
       ),
     ])
 
+    if (!masterRes.ok) {
+      console.error(`Failed to fetch master facilities: ${masterRes.status} ${masterRes.statusText}`)
+      const errorText = await masterRes.text()
+      console.error("Error response:", errorText)
+    }
+
+    if (!reportedRes.ok) {
+      console.error(`Failed to fetch reported facilities: ${reportedRes.status} ${reportedRes.statusText}`)
+    }
+
     const masterData = await masterRes.json()
     const reportedData = await reportedRes.json()
 
     const masterFacilitiesWithIds = masterData.facilities || []
     const reportedFacilitiesWithIds = reportedData.facilities || []
+
+    console.log(`[getFacilityData] Loaded ${masterFacilitiesWithIds.length} master facilities for ${system}/${location}`)
 
     return {
       masterFacilities: masterFacilitiesWithIds.map((f: Facility) => f.name),

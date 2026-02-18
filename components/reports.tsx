@@ -198,19 +198,19 @@ export function Reports() {
         text += "─".repeat(80) + "\n"
         text += `REPORTED FACILITIES - ${data.location.toUpperCase()}\n`
         text += "─".repeat(80) + "\n"
-        
-        if (data.reportedFacilities.length > 0) {
+
+      if (data.reportedFacilities.length > 0) {
           text += `\nMatched Facilities (${data.reportedFacilities.length}):\n`
-          data.reportedFacilities.forEach((facility, index) => {
-            const variationComment = data.comparison?.reportedWithComments?.find(
-              item => item.facility === facility
-            )?.comment
+        data.reportedFacilities.forEach((facility, index) => {
+          const variationComment = data.comparison?.reportedWithComments?.find(
+            item => item.facility === facility
+          )?.comment
             text += `  ${String(index + 1).padStart(3)}. ${facility}`
-            if (variationComment) {
+          if (variationComment) {
               text += `\n      [Note: ${variationComment}]`
-            }
-            text += "\n"
-          })
+          }
+          text += "\n"
+        })
         }
 
         if (data.unmatchedReportedFacilities.length > 0) {
@@ -305,7 +305,7 @@ export function Reports() {
         
         if (data.reportedFacilities.length > 0) {
           text += `Matched Facilities - Has Reported (${data.matchedReported}):\n`
-          data.reportedFacilities.forEach((facility, index) => {
+        data.reportedFacilities.forEach((facility, index) => {
             text += `  ${index + 1}. ${facility}\n`
           })
           text += "\n"
@@ -315,8 +315,8 @@ export function Reports() {
           text += `Unmatched Reported Facilities - Has Reported (${data.unmatchedReported}):\n`
           data.unmatchedReportedFacilities.forEach((facility, index) => {
             text += `  ${index + 1}. ${facility} [Not in master list]\n`
-          })
-          text += "\n"
+        })
+        text += "\n"
         }
       }
     })
@@ -480,19 +480,19 @@ export function Reports() {
                 text += "─".repeat(80) + "\n"
                 text += `REPORTED FACILITIES - ${location.toUpperCase()}\n`
                 text += "─".repeat(80) + "\n"
-                
-                if (locationData.reportedFacilities.length > 0) {
+
+              if (locationData.reportedFacilities.length > 0) {
                   text += `\nMatched Facilities (${locationData.reportedFacilities.length}):\n`
-                  locationData.reportedFacilities.forEach((facility, index) => {
-                    const variationComment = locationData.comparison?.reportedWithComments?.find(
-                      item => item.facility === facility
-                    )?.comment
+                locationData.reportedFacilities.forEach((facility, index) => {
+                  const variationComment = locationData.comparison?.reportedWithComments?.find(
+                    item => item.facility === facility
+                  )?.comment
                     text += `  ${String(index + 1).padStart(3)}. ${facility}`
-                    if (variationComment) {
+                  if (variationComment) {
                       text += `\n      [Note: ${variationComment}]`
-                    }
-                    text += "\n"
-                  })
+                  }
+                  text += "\n"
+                })
                 }
 
                 if (locationData.unmatchedReportedFacilities.length > 0) {
