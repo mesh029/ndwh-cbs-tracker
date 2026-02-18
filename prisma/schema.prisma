@@ -11,16 +11,67 @@ datasource db {
 }
 
 model Facility {
-  id        String   @id @default(cuid())
-  name      String   @db.VarChar(500)
-  subcounty String?  @db.VarChar(100) // Optional subcounty
-  system    String   @db.VarChar(10) // NDWH or CBS
-  location  String   @db.VarChar(50) // Kakamega, Vihiga, Nyamira, Kisumu
-  isMaster  Boolean  @default(true) // true for master facilities, false for reported
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String   @id @default(cuid())
+  name          String   @db.VarChar(500)
+  subcounty     String?  @db.VarChar(100) // Optional subcounty
+  sublocation   String?  @db.VarChar(100) // Optional sublocation
+  system        String   @db.VarChar(10) // NDWH or CBS
+  location      String   @db.VarChar(50) // Kakamega, Vihiga, Nyamira, Kisumu
+  isMaster      Boolean  @default(true) // true for master facilities, false for reported
+  serverType    String?  @db.VarChar(50) // Server type group (A, B, C, etc.)
+  facilityGroup String?  @db.VarChar(50) // Which sheet/group the facility belongs to
+  simcardCount  Int? // Number of simcards the facility has
+  hasLAN        Boolean  @default(false) // Whether facility has LAN available
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([system, location, isMaster])
   @@index([system, location])
+  @@index([location, serverType])
+  @@index([location, facilityGroup])
+  @@index([location, hasLAN])
   @@map("facilities")
+}
+
+model Ticket {
+  id              String    @id @default(cuid())
+  facilityName    String    @db.VarChar(500) // Facility name (can paste from list)
+  serverCondition String    @db.VarChar(200) // Server condition/status
+  problem         String    @db.Text // Problem description
+  solution        String?   @db.Text // How the problem was fixed
+  status          String    @default("open") @db.VarChar(20) // open, resolved, in-progress
+  location        String?   @db.VarChar(50) // Optional location (Kakamega, Vihiga, etc.)
+  serverType      String?   @db.VarChar(50) // Server type group (A, B, C, etc.)
+  issueType       String?   @db.VarChar(20) // "server" or "network" - separates networking issues from server issues
+  week            String?   @db.VarChar(50) // Week reference from ODS (e.g., "first week of jan")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  resolvedAt      DateTime? // When the ticket was resolved
+
+  @@index([status])
+  @@index([location])
+  @@index([facilityName])
+  @@index([serverType])
+  @@index([issueType])
+  @@map("tickets")
+}
+
+model ComparisonHistory {
+  id                  String    @id @default(cuid())
+  system              String    @db.VarChar(10) // CBS or NDWH
+  location            String    @db.VarChar(50) // Nyamira, etc.
+  uploadedFacilities  String    @db.Text // JSON array of facility names
+  matchedCount        Int       @default(0)
+  unmatchedCount      Int       @default(0)
+  matchedFacilities   String    @db.Text // JSON array of matched facility names
+  unmatchedFacilities String    @db.Text // JSON array of unmatched facility names
+  week                String?   @db.VarChar(100) // Week string (e.g., "first week of february")
+  weekDate            DateTime? // Date representing the week
+  timestamp           DateTime  @default(now())
+  createdAt           DateTime  @default(now())
+
+  @@index([system, location])
+  @@index([location, timestamp])
+  @@index([location, week])
+  @@map("comparison_history")
 }
