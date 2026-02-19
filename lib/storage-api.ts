@@ -14,9 +14,14 @@ export interface Facility {
   id: string
   name: string
   subcounty?: string | null
+  sublocation?: string | null
   system: string
   location: string
   isMaster: boolean
+  serverType?: string | null
+  simcardCount?: number | null
+  hasLAN?: boolean
+  facilityGroup?: string | null
 }
 
 /**
@@ -157,13 +162,20 @@ export async function updateReportedFacilities(
 }
 
 /**
- * Add a single master facility
+ * Add a single master facility with all optional fields
  */
 export async function addMasterFacility(
   system: SystemType,
   location: Location,
   facility: string,
-  subcounty?: string
+  subcounty?: string,
+  options?: {
+    sublocation?: string;
+    serverType?: string;
+    simcardCount?: number;
+    hasLAN?: boolean;
+    facilityGroup?: string;
+  }
 ): Promise<boolean> {
   try {
     const response = await fetch("/api/facilities", {
@@ -172,7 +184,15 @@ export async function addMasterFacility(
       body: JSON.stringify({
         system,
         location,
-        facilities: [{ name: facility, subcounty: subcounty || null }],
+        facilities: [{
+          name: facility,
+          subcounty: subcounty || null,
+          sublocation: options?.sublocation || null,
+          serverType: options?.serverType || null,
+          simcardCount: options?.simcardCount !== undefined ? options.simcardCount : null,
+          hasLAN: options?.hasLAN !== undefined ? options.hasLAN : false,
+          facilityGroup: options?.facilityGroup || null,
+        }],
         isMaster: true,
       }),
     })
@@ -208,14 +228,21 @@ export async function removeMasterFacility(
 }
 
 /**
- * Update a master facility name and subcounty
+ * Update a master facility with all optional fields
  */
 export async function updateMasterFacility(
   facilityId: string,
   newName: string,
   system: SystemType,
   location: Location,
-  subcounty?: string
+  subcounty?: string,
+  options?: {
+    sublocation?: string;
+    serverType?: string;
+    simcardCount?: number;
+    hasLAN?: boolean;
+    facilityGroup?: string;
+  }
 ): Promise<boolean> {
   try {
     const response = await fetch("/api/facilities", {
@@ -225,6 +252,11 @@ export async function updateMasterFacility(
         id: facilityId,
         name: newName,
         subcounty: subcounty || null,
+        sublocation: options?.sublocation,
+        serverType: options?.serverType,
+        simcardCount: options?.simcardCount,
+        hasLAN: options?.hasLAN,
+        facilityGroup: options?.facilityGroup,
         system,
         location,
       }),

@@ -9,12 +9,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { X, Upload, Plus, Edit2, Save, XCircle, Trash2 } from "lucide-react"
+import { X, Upload, Plus, Edit2, Save, XCircle, Trash2, Download, Copy } from "lucide-react"
 import { useFacilityData } from "@/hooks/use-facility-data"
 import { useToast } from "@/components/ui/use-toast"
 import { parseFacilityList } from "@/lib/utils"
 import type { SystemType, Location } from "@/lib/storage"
 import type { Facility } from "@/lib/storage-api"
+import * as XLSX from "xlsx"
 
 const SYSTEMS: SystemType[] = ["NDWH", "CBS"]
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
@@ -27,9 +28,24 @@ export function FacilityManager() {
   const [bulkSubcounties, setBulkSubcounties] = useState("")
   const [newFacility, setNewFacility] = useState("")
   const [newSubcounty, setNewSubcounty] = useState("")
+  const [showDetailedForm, setShowDetailedForm] = useState(false)
+  const [detailedForm, setDetailedForm] = useState({
+    name: "",
+    subcounty: "",
+    sublocation: "",
+    serverType: "",
+    simcardCount: "",
+    hasLAN: false,
+    facilityGroup: "",
+  })
   const [editingFacility, setEditingFacility] = useState<Facility | null>(null)
   const [editName, setEditName] = useState("")
   const [editSubcounty, setEditSubcounty] = useState("")
+  const [editSublocation, setEditSublocation] = useState("")
+  const [editServerType, setEditServerType] = useState("")
+  const [editSimcardCount, setEditSimcardCount] = useState("")
+  const [editHasLAN, setEditHasLAN] = useState(false)
+  const [editFacilityGroup, setEditFacilityGroup] = useState("")
   const { toast } = useToast()
 
   const {
@@ -130,6 +146,52 @@ export function FacilityManager() {
     }
   }
 
+  const handleAddDetailed = async () => {
+    if (!detailedForm.name.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a facility name",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const success = await addMasterFacility(
+      detailedForm.name.trim(),
+      detailedForm.subcounty.trim() || undefined,
+      {
+        sublocation: detailedForm.sublocation.trim() || undefined,
+        serverType: detailedForm.serverType.trim() || undefined,
+        simcardCount: detailedForm.simcardCount ? Number(detailedForm.simcardCount) : undefined,
+        hasLAN: detailedForm.hasLAN,
+        facilityGroup: detailedForm.facilityGroup.trim() || undefined,
+      }
+    )
+
+    if (success) {
+      toast({
+        title: "Success",
+        description: "Facility added with all details",
+      })
+      setDetailedForm({
+        name: "",
+        subcounty: "",
+        sublocation: "",
+        serverType: "",
+        simcardCount: "",
+        hasLAN: false,
+        facilityGroup: "",
+      })
+      setShowDetailedForm(false)
+    } else {
+      toast({
+        title: "Error",
+        description: "Facility already exists or failed to add",
+        variant: "destructive",
+      })
+    }
+  }
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -152,6 +214,11 @@ export function FacilityManager() {
     setEditingFacility(facility)
     setEditName(facility.name)
     setEditSubcounty(facility.subcounty || "")
+    setEditSublocation(facility.sublocation || "")
+    setEditServerType(facility.serverType || "")
+    setEditSimcardCount(facility.simcardCount?.toString() || "")
+    setEditHasLAN(facility.hasLAN || false)
+    setEditFacilityGroup(facility.facilityGroup || "")
   }
 
   const handleSaveEdit = async () => {
@@ -167,7 +234,14 @@ export function FacilityManager() {
     const success = await updateMasterFacility(
       editingFacility.id,
       editName,
-      editSubcounty.trim() || undefined
+      editSubcounty.trim() || undefined,
+      {
+        sublocation: editSublocation.trim() || undefined,
+        serverType: editServerType.trim() || undefined,
+        simcardCount: editSimcardCount ? Number(editSimcardCount) : undefined,
+        hasLAN: editHasLAN,
+        facilityGroup: editFacilityGroup.trim() || undefined,
+      }
     )
     if (success) {
       toast({
@@ -177,6 +251,11 @@ export function FacilityManager() {
       setEditingFacility(null)
       setEditName("")
       setEditSubcounty("")
+      setEditSublocation("")
+      setEditServerType("")
+      setEditSimcardCount("")
+      setEditHasLAN(false)
+      setEditFacilityGroup("")
     } else {
       toast({
         title: "Error",
@@ -190,6 +269,11 @@ export function FacilityManager() {
     setEditingFacility(null)
     setEditName("")
     setEditSubcounty("")
+    setEditSublocation("")
+    setEditServerType("")
+    setEditSimcardCount("")
+    setEditHasLAN(false)
+    setEditFacilityGroup("")
   }
 
   const handleRemoveAll = async () => {
@@ -219,6 +303,111 @@ export function FacilityManager() {
       toast({
         title: "Error",
         description: "Failed to remove facilities",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const generateExportData = () => {
+    // Create data array with headers
+    const data = masterFacilitiesWithIds.map((facility, index) => ({
+      "No.": index + 1,
+      "Facility Name": facility.name,
+      "Subcounty": facility.subcounty || "",
+      "Sublocation": facility.sublocation || "",
+      "Server Type": facility.serverType || "",
+      "Simcard Count": facility.simcardCount !== null && facility.simcardCount !== undefined ? facility.simcardCount : "",
+      "Has LAN": facility.hasLAN ? "Yes" : "No",
+      "Facility Group": facility.facilityGroup || "",
+      "System": facility.system,
+      "Location": facility.location,
+    }))
+
+    return data
+  }
+
+  const handleCopyToClipboard = async () => {
+    try {
+      const data = generateExportData()
+      // Convert to tab-separated text for clipboard
+      const headers = Object.keys(data[0] || {})
+      const text = [
+        `FACILITY LIST EXPORT`,
+        `System: ${selectedSystem}`,
+        `Location: ${selectedLocation}`,
+        `Total Facilities: ${masterFacilitiesWithIds.length}`,
+        `Export Date: ${new Date().toLocaleString()}`,
+        "",
+        headers.join("\t"),
+        ...data.map(row => headers.map(header => row[header as keyof typeof row] || "").join("\t"))
+      ].join("\n")
+      
+      await navigator.clipboard.writeText(text)
+      toast({
+        title: "Success",
+        description: "Facility list copied to clipboard",
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to copy to clipboard",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleDownload = () => {
+    try {
+      const data = generateExportData()
+      
+      // Create a new workbook
+      const wb = XLSX.utils.book_new()
+      
+      // Create metadata sheet
+      const metadata = [
+        ["FACILITY LIST EXPORT"],
+        ["System", selectedSystem],
+        ["Location", selectedLocation],
+        ["Total Facilities", masterFacilitiesWithIds.length],
+        ["Export Date", new Date().toLocaleString()],
+        [""],
+      ]
+      const metadataWs = XLSX.utils.aoa_to_sheet(metadata)
+      XLSX.utils.book_append_sheet(wb, metadataWs, "Info")
+      
+      // Create main data sheet
+      const ws = XLSX.utils.json_to_sheet(data)
+      
+      // Set column widths for better readability
+      const colWidths = [
+        { wch: 5 },   // No.
+        { wch: 40 },  // Facility Name
+        { wch: 20 },  // Subcounty
+        { wch: 20 },  // Sublocation
+        { wch: 20 },  // Server Type
+        { wch: 12 },  // Simcard Count
+        { wch: 10 },  // Has LAN
+        { wch: 15 },  // Facility Group
+        { wch: 10 },  // System
+        { wch: 15 },  // Location
+      ]
+      ws["!cols"] = colWidths
+      
+      XLSX.utils.book_append_sheet(wb, ws, "Facilities")
+      
+      // Generate Excel file
+      const fileName = `${selectedSystem}_${selectedLocation}_facilities_${new Date().toISOString().split("T")[0]}.xlsx`
+      XLSX.writeFile(wb, fileName)
+      
+      toast({
+        title: "Success",
+        description: "Facility list exported to Excel",
+      })
+    } catch (error) {
+      console.error("Error exporting to Excel:", error)
+      toast({
+        title: "Error",
+        description: "Failed to export to Excel",
         variant: "destructive",
       })
     }
@@ -296,10 +485,20 @@ export function FacilityManager() {
                     onKeyDown={(e) => e.key === "Enter" && handleAddSingle()}
                     placeholder="Enter subcounty (optional)"
                   />
-                  <Button onClick={handleAddSingle} className="w-full">
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Facility
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button onClick={handleAddSingle} className="flex-1">
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Basic
+                    </Button>
+                    <Button 
+                      onClick={() => setShowDetailedForm(true)} 
+                      variant="outline" 
+                      className="flex-1"
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Detailed
+                    </Button>
+                  </div>
                 </div>
               </TabsContent>
               <TabsContent value="bulk" className="space-y-4">
@@ -375,15 +574,35 @@ export function FacilityManager() {
                 </CardDescription>
               </div>
               {masterFacilities.length > 0 && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleRemoveAll}
-                  className="gap-2"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Remove All
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCopyToClipboard}
+                    className="gap-2"
+                  >
+                    <Copy className="h-4 w-4" />
+                    Copy
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDownload}
+                    className="gap-2"
+                  >
+                    <Download className="h-4 w-4" />
+                    Export Excel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleRemoveAll}
+                    className="gap-2"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Remove All
+                  </Button>
+                </div>
               )}
             </div>
           </CardHeader>
@@ -401,11 +620,33 @@ export function FacilityManager() {
                   >
                     <div className="flex-1">
                       <div className="text-sm font-medium">{facility.name}</div>
-                      {facility.subcounty && (
-                        <div className="text-xs text-muted-foreground">
-                          {facility.subcounty}
-                        </div>
-                      )}
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {facility.subcounty && (
+                          <Badge variant="outline" className="text-xs">
+                            📍 {facility.subcounty}
+                          </Badge>
+                        )}
+                        {facility.sublocation && (
+                          <Badge variant="outline" className="text-xs">
+                            📌 {facility.sublocation}
+                          </Badge>
+                        )}
+                        {facility.serverType && (
+                          <Badge variant="secondary" className="text-xs">
+                            🖥️ {facility.serverType}
+                          </Badge>
+                        )}
+                        {facility.simcardCount !== null && facility.simcardCount !== undefined && (
+                          <Badge variant="secondary" className="text-xs">
+                            📱 {facility.simcardCount} simcards
+                          </Badge>
+                        )}
+                        {facility.hasLAN && (
+                          <Badge variant="secondary" className="text-xs">
+                            🌐 LAN
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                     <div className="flex gap-1">
                       <Button
@@ -439,35 +680,196 @@ export function FacilityManager() {
         </Card>
       </div>
 
+      {/* Detailed Add Facility Dialog */}
+      <Dialog open={showDetailedForm} onOpenChange={setShowDetailedForm}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add Facility with Full Details</DialogTitle>
+            <DialogDescription>
+              Add a new facility with all details including server type, simcards, and LAN availability
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Facility Name *</label>
+                <Input
+                  value={detailedForm.name}
+                  onChange={(e) => setDetailedForm({ ...detailedForm, name: e.target.value })}
+                  placeholder="Enter facility name"
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Subcounty</label>
+                <Input
+                  value={detailedForm.subcounty}
+                  onChange={(e) => setDetailedForm({ ...detailedForm, subcounty: e.target.value })}
+                  placeholder="Enter subcounty (optional)"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Sublocation</label>
+                <Input
+                  value={detailedForm.sublocation}
+                  onChange={(e) => setDetailedForm({ ...detailedForm, sublocation: e.target.value })}
+                  placeholder="Enter sublocation (optional)"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Server Type</label>
+                <Select
+                  value={detailedForm.serverType || undefined}
+                  onValueChange={(value) => setDetailedForm({ ...detailedForm, serverType: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select server type (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Laptops">Laptops</SelectItem>
+                    <SelectItem value="Dell_Optiplex">Dell Optiplex</SelectItem>
+                    <SelectItem value="HP_EliteDesk_800G1">HP EliteDesk 800G1</SelectItem>
+                    <SelectItem value="HP_Proliant_Server">HP Proliant Server</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Simcard Count</label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={detailedForm.simcardCount}
+                  onChange={(e) => setDetailedForm({ ...detailedForm, simcardCount: e.target.value })}
+                  placeholder="Number of simcards (optional)"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Facility Group</label>
+                <Input
+                  value={detailedForm.facilityGroup}
+                  onChange={(e) => setDetailedForm({ ...detailedForm, facilityGroup: e.target.value })}
+                  placeholder="Enter facility group (optional)"
+                />
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="hasLAN"
+                checked={detailedForm.hasLAN}
+                onChange={(e) => setDetailedForm({ ...detailedForm, hasLAN: e.target.checked })}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              <label htmlFor="hasLAN" className="text-sm font-medium">
+                Facility has LAN available
+              </label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDetailedForm(false)}>
+              <XCircle className="mr-2 h-4 w-4" />
+              Cancel
+            </Button>
+            <Button onClick={handleAddDetailed}>
+              <Save className="mr-2 h-4 w-4" />
+              Add Facility
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Dialog */}
       <Dialog open={editingFacility !== null} onOpenChange={(open) => !open && handleCancelEdit()}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Facility</DialogTitle>
             <DialogDescription>
-              Update the facility name. Case-insensitive matching will prevent duplicates.
+              Update facility details. Case-insensitive matching will prevent duplicates.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4 space-y-3">
-            <Input
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              placeholder="Enter facility name"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleSaveEdit()
-                if (e.key === "Escape") handleCancelEdit()
-              }}
-              autoFocus
-            />
-            <Input
-              value={editSubcounty}
-              onChange={(e) => setEditSubcounty(e.target.value)}
-              placeholder="Enter subcounty (optional)"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleSaveEdit()
-                if (e.key === "Escape") handleCancelEdit()
-              }}
-            />
+          <div className="py-4 space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Facility Name *</label>
+                <Input
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="Enter facility name"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSaveEdit()
+                    if (e.key === "Escape") handleCancelEdit()
+                  }}
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Subcounty</label>
+                <Input
+                  value={editSubcounty}
+                  onChange={(e) => setEditSubcounty(e.target.value)}
+                  placeholder="Enter subcounty (optional)"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSaveEdit()
+                    if (e.key === "Escape") handleCancelEdit()
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Sublocation</label>
+                <Input
+                  value={editSublocation}
+                  onChange={(e) => setEditSublocation(e.target.value)}
+                  placeholder="Enter sublocation (optional)"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Server Type</label>
+                <Select
+                  value={editServerType || undefined}
+                  onValueChange={(value) => setEditServerType(value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select server type (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Laptops">Laptops</SelectItem>
+                    <SelectItem value="Dell_Optiplex">Dell Optiplex</SelectItem>
+                    <SelectItem value="HP_EliteDesk_800G1">HP EliteDesk 800G1</SelectItem>
+                    <SelectItem value="HP_Proliant_Server">HP Proliant Server</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Simcard Count</label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={editSimcardCount}
+                  onChange={(e) => setEditSimcardCount(e.target.value)}
+                  placeholder="Number of simcards (optional)"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Facility Group</label>
+                <Input
+                  value={editFacilityGroup}
+                  onChange={(e) => setEditFacilityGroup(e.target.value)}
+                  placeholder="Enter facility group (optional)"
+                />
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="editHasLAN"
+                checked={editHasLAN}
+                onChange={(e) => setEditHasLAN(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              <label htmlFor="editHasLAN" className="text-sm font-medium">
+                Facility has LAN available
+              </label>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={handleCancelEdit}>
