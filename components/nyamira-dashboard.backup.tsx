@@ -1574,6 +1574,295 @@ export function NyamiraDashboard() {
         </CardContent>
       </Card>
 
+      {/* Comprehensive Correlation Analysis */}
+      {comprehensiveAnalytics && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              🔗 Comprehensive Issue Correlation
+            </CardTitle>
+            <CardDescription>
+              Correlating ticket categories with server types, simcards, and LAN connectivity
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue="category">
+              <TabsList>
+                <TabsTrigger value="category">By Category</TabsTrigger>
+                <TabsTrigger value="server">By Server Type</TabsTrigger>
+                <TabsTrigger value="network">By Network Type</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="category" className="mt-4">
+                <div className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {comprehensiveAnalytics.byCategory.map((item, index) => (
+                      <Card key={item.category} className="p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <Badge variant="secondary" className="text-xs">
+                            {item.count} tickets
+                          </Badge>
+                        </div>
+                        <div className="mb-2">
+                          <Badge 
+                            variant="secondary"
+                            className="font-semibold text-sm bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300"
+                          >
+                            {item.category}
+                          </Badge>
+                        </div>
+                        <div className="space-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Facilities:</span>
+                            <span className="font-medium">{item.facilities.length}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Server Types:</span>
+                            <span className="font-medium">{item.serverTypes.length}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">With Simcards:</span>
+                            <span className="font-medium text-blue-600">{item.withSimcards}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">With LAN:</span>
+                            <span className="font-medium text-green-600">{item.withLAN}</span>
+                          </div>
+                          {item.serverTypes.length > 0 && (
+                            <div className="mt-2 pt-2 border-t">
+                              <div className="text-muted-foreground mb-1">Server Types:</div>
+                              <div className="flex flex-wrap gap-1">
+                                {item.serverTypes.map((st, idx) => (
+                                  <Badge key={idx} variant="outline" className="text-xs">
+                                    {st}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="server" className="mt-4">
+                <div className="space-y-4">
+                  {/* Beautiful Multi-Line Chart for Server Type Analysis */}
+                  <ChartContainer config={serverChartConfig}>
+                    <ResponsiveContainer width="100%" height={350}>
+                      <LineChart
+                        data={comprehensiveAnalytics.byServerType
+                          .sort((a, b) => a.serverType.localeCompare(b.serverType))
+                          .map(item => ({
+                            serverType: item.serverType,
+                            tickets: item.tickets,
+                            facilities: item.facilities,
+                            simcards: item.simcards,
+                            lan: item.lanFacilities,
+                          }))}
+                      >
+                        <defs>
+                          <linearGradient id="ticketsLineGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#F59E0B" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="#F59E0B" stopOpacity={0.1}/>
+                          </linearGradient>
+                          <linearGradient id="facilitiesLineGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#D97706" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="#D97706" stopOpacity={0.1}/>
+                          </linearGradient>
+                          <linearGradient id="simcardsLineGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#FCD34D" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="#FCD34D" stopOpacity={0.1}/>
+                          </linearGradient>
+                          <linearGradient id="lanLineGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#FBBF24" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="#FBBF24" stopOpacity={0.1}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis 
+                          dataKey="serverType" 
+                          tickLine={false} 
+                          axisLine={false} 
+                          className="text-xs"
+                          angle={-45}
+                          textAnchor="end"
+                          height={80}
+                        />
+                        <YAxis tickLine={false} axisLine={false} className="text-xs" />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Legend />
+                        <Line 
+                          type="monotone" 
+                          dataKey="tickets" 
+                          stroke="#F59E0B" 
+                          strokeWidth={3}
+                          dot={{ fill: "#F59E0B", r: 5 }}
+                          activeDot={{ r: 7 }}
+                          name="Tickets"
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey="facilities" 
+                          stroke="#D97706" 
+                          strokeWidth={2.5}
+                          dot={{ fill: "#D97706", r: 4 }}
+                          activeDot={{ r: 6 }}
+                          name="Facilities"
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey="simcards" 
+                          stroke="#FCD34D" 
+                          strokeWidth={2.5}
+                          dot={{ fill: "#FCD34D", r: 4 }}
+                          activeDot={{ r: 6 }}
+                          name="Simcards"
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey="lan" 
+                          stroke="#FBBF24" 
+                          strokeWidth={2.5}
+                          dot={{ fill: "#FBBF24", r: 4 }}
+                          activeDot={{ r: 6 }}
+                          name="LAN Facilities"
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </ChartContainer>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {comprehensiveAnalytics.byServerType.map((item) => (
+                      <Card key={item.serverType} className="p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="font-semibold">{item.serverType}</h4>
+                          <Badge variant="secondary">{item.tickets} tickets</Badge>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <div className="text-muted-foreground">Facilities</div>
+                            <div className="font-bold text-lg">{item.facilities}</div>
+                          </div>
+                          <div>
+                            <div className="text-muted-foreground">Simcards</div>
+                            <div className="font-bold text-lg text-blue-600">{item.simcards}</div>
+                          </div>
+                          <div>
+                            <div className="text-muted-foreground">Tickets</div>
+                            <div className="font-bold text-lg text-red-600">{item.tickets}</div>
+                          </div>
+                          <div>
+                            <div className="text-muted-foreground">LAN Facilities</div>
+                            <div className="font-bold text-lg text-green-600">{item.lanFacilities}</div>
+                          </div>
+                        </div>
+                        {item.facilities > 0 && (
+                          <div className="mt-2 pt-2 border-t text-xs">
+                            <div className="text-muted-foreground">
+                              Ticket rate: {((item.tickets / item.facilities) * 100).toFixed(1)}%
+                            </div>
+                            <div className="text-muted-foreground">
+                              Simcard coverage: {((item.simcards > 0 ? 1 : 0) * 100).toFixed(0)}%
+                            </div>
+                            <div className="text-muted-foreground">
+                              LAN coverage: {((item.lanFacilities / item.facilities) * 100).toFixed(1)}%
+                            </div>
+                          </div>
+                        )}
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="network" className="mt-4">
+                <div className="space-y-4">
+                  {/* Beautiful Area Chart for Network Type Analysis */}
+                  <ChartContainer config={serverChartConfig}>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <AreaChart
+                        data={comprehensiveAnalytics.byNetworkType.map(item => ({
+                          name: `${item.hasSimcard ? 'Has Simcard' : 'No Simcard'} / ${item.hasLAN ? 'Has LAN' : 'No LAN'}`,
+                          tickets: item.tickets,
+                          facilities: item.facilities,
+                        }))}
+                      >
+                        <defs>
+                          <linearGradient id="networkTicketsGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#F59E0B" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="#F59E0B" stopOpacity={0.1}/>
+                          </linearGradient>
+                          <linearGradient id="networkFacilitiesGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#D97706" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="#D97706" stopOpacity={0.1}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis 
+                          dataKey="name" 
+                          tickLine={false} 
+                          axisLine={false} 
+                          className="text-xs"
+                          angle={-45}
+                          textAnchor="end"
+                          height={80}
+                        />
+                        <YAxis tickLine={false} axisLine={false} className="text-xs" />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Legend />
+                        <Area 
+                          type="monotone" 
+                          dataKey="tickets" 
+                          stroke="#F59E0B" 
+                          strokeWidth={3}
+                          fill="url(#networkTicketsGradient)" 
+                          fillOpacity={0.6}
+                          name="Tickets"
+                        />
+                        <Area 
+                          type="monotone" 
+                          dataKey="facilities" 
+                          stroke="#D97706" 
+                          strokeWidth={3}
+                          fill="url(#networkFacilitiesGradient)" 
+                          fillOpacity={0.6}
+                          name="Facilities"
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </ChartContainer>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {comprehensiveAnalytics.byNetworkType.map((item, index) => (
+                      <Card key={index} className="p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          {item.hasSimcard && <Badge variant="secondary">📱 Simcard</Badge>}
+                          {item.hasLAN && <Badge variant="secondary">🌐 LAN</Badge>}
+                          {!item.hasSimcard && !item.hasLAN && <Badge variant="outline">No Network</Badge>}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <div className="text-muted-foreground">Tickets</div>
+                            <div className="font-bold text-lg">{item.tickets}</div>
+                          </div>
+                          <div>
+                            <div className="text-muted-foreground">Facilities</div>
+                            <div className="font-bold text-lg">{item.facilities}</div>
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Tickets & Server Issue Correlation Section */}
       <Card>
         <CardHeader>
@@ -2023,6 +2312,117 @@ export function NyamiraDashboard() {
               {/* Show graphs only if we have ticket data */}
               {ticketAnalytics && tickets.length > 0 ? (
                 <>
+
+                  {/* Server vs Network Breakdown Chart - Beautiful Area Chart */}
+                  <HoverCard>
+                    <HoverCardTrigger asChild>
+                      <Card className="cursor-pointer hover:bg-accent/50 transition-colors">
+                        <CardHeader>
+                          <CardTitle className="text-base">Server vs Network Issues</CardTitle>
+                          <CardDescription>Breakdown of issues by type - Hover for details</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                      <ChartContainer config={serverChartConfig}>
+                        <ResponsiveContainer width="100%" height={250}>
+                          <AreaChart
+                            data={[
+                              { category: "Server Issues", count: ticketAnalytics.byIssueType?.server || 0 },
+                              { category: "Network Issues", count: ticketAnalytics.byIssueType?.network || 0 },
+                            ]}
+                          >
+                        <defs>
+                          <linearGradient id="serverGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#F59E0B" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="#F59E0B" stopOpacity={0.1}/>
+                          </linearGradient>
+                          <linearGradient id="networkGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#D97706" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="#D97706" stopOpacity={0.1}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis dataKey="category" tickLine={false} axisLine={false} className="text-xs" />
+                        <YAxis tickLine={false} axisLine={false} className="text-xs" />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Area 
+                          type="monotone" 
+                          dataKey="count" 
+                          stroke="#F59E0B" 
+                          strokeWidth={3}
+                          fill="url(#serverGradient)" 
+                          fillOpacity={0.6}
+                        />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </ChartContainer>
+                        </CardContent>
+                      </Card>
+                    </HoverCardTrigger>
+                    <HoverCardContent className="w-96 max-h-96 overflow-y-auto">
+                      <div className="space-y-3">
+                        <h4 className="font-semibold text-sm mb-3">Issue Type Breakdown</h4>
+                        <div className="space-y-3">
+                          <div className="p-3 rounded-md border bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-medium text-sm">🖥️ Server Issues</span>
+                              <Badge variant="secondary" className="text-xs">
+                                {ticketAnalytics?.byIssueType?.server || 0} tickets
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {tickets.length > 0 
+                                ? `${((ticketAnalytics?.byIssueType?.server || 0) / tickets.length * 100).toFixed(1)}% of all tickets`
+                                : '0% of all tickets'}
+                            </p>
+                            {ticketAnalytics?.byServerType && ticketAnalytics.byServerType.length > 0 && (
+                              <div className="mt-2 space-y-1">
+                                <p className="text-xs font-medium mb-1">By Server Type:</p>
+                                {ticketAnalytics.byServerType
+                                  .filter(item => item.serverIssues > 0)
+                                  .sort((a, b) => b.serverIssues - a.serverIssues)
+                                  .slice(0, 5)
+                                  .map((item, idx) => (
+                                    <div key={idx} className="flex justify-between text-xs">
+                                      <span>{item.serverType}</span>
+                                      <span className="font-medium">{item.serverIssues} issues</span>
+                                    </div>
+                                  ))}
+                              </div>
+                            )}
+                          </div>
+                          <div className="p-3 rounded-md border bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-medium text-sm">🌐 Network Issues</span>
+                              <Badge variant="secondary" className="text-xs">
+                                {ticketAnalytics?.byIssueType?.network || 0} tickets
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {tickets.length > 0 
+                                ? `${((ticketAnalytics?.byIssueType?.network || 0) / tickets.length * 100).toFixed(1)}% of all tickets`
+                                : '0% of all tickets'}
+                            </p>
+                            {ticketAnalytics?.byServerType && ticketAnalytics.byServerType.length > 0 && (
+                              <div className="mt-2 space-y-1">
+                                <p className="text-xs font-medium mb-1">By Server Type:</p>
+                                {ticketAnalytics.byServerType
+                                  .filter(item => item.networkIssues > 0)
+                                  .sort((a, b) => b.networkIssues - a.networkIssues)
+                                  .slice(0, 5)
+                                  .map((item, idx) => (
+                                    <div key={idx} className="flex justify-between text-xs">
+                                      <span>{item.serverType}</span>
+                                      <span className="font-medium">{item.networkIssues} issues</span>
+                                    </div>
+                                  ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </HoverCardContent>
+                  </HoverCard>
+
                   {/* Correlation Charts - Beautiful Line & Area Charts */}
                   <div className="grid gap-6 md:grid-cols-2">
                     {/* Issues by Server Type - Line Chart */}

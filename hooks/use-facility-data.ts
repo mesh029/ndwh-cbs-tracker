@@ -123,7 +123,17 @@ export function useFacilityData(system: SystemType, location: Location) {
 
   // Add master facility
   const addMasterFacility = useCallback(
-    async (facility: string, subcounty?: string) => {
+    async (
+      facility: string, 
+      subcounty?: string,
+      options?: {
+        sublocation?: string;
+        serverType?: string;
+        simcardCount?: number;
+        hasLAN?: boolean;
+        facilityGroup?: string;
+      }
+    ) => {
       const trimmed = facility.trim()
       if (!trimmed) return false
 
@@ -133,7 +143,7 @@ export function useFacilityData(system: SystemType, location: Location) {
       )
       if (exists) return false
 
-      const success = await apiAddMasterFacility(system, location, trimmed, subcounty)
+      const success = await apiAddMasterFacility(system, location, trimmed, subcounty, options)
       if (success) {
         // Reload data to get the new facility with ID
         const data = await getFacilityData(system, location)
@@ -174,7 +184,18 @@ export function useFacilityData(system: SystemType, location: Location) {
 
   // Update master facility
   const updateMasterFacility = useCallback(
-    async (facilityId: string, newName: string, subcounty?: string) => {
+    async (
+      facilityId: string, 
+      newName: string, 
+      subcounty?: string,
+      options?: {
+        sublocation?: string;
+        serverType?: string;
+        simcardCount?: number;
+        hasLAN?: boolean;
+        facilityGroup?: string;
+      }
+    ) => {
       const trimmed = newName.trim()
       if (!trimmed) return false
 
@@ -186,7 +207,7 @@ export function useFacilityData(system: SystemType, location: Location) {
       )
       if (exists) return false
 
-      const success = await apiUpdateMasterFacility(facilityId, trimmed, system, location, subcounty)
+      const success = await apiUpdateMasterFacility(facilityId, trimmed, system, location, subcounty, options)
       if (success) {
         // Reload data
         const data = await getFacilityData(system, location)

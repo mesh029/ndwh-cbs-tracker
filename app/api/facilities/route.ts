@@ -78,15 +78,36 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Normalize facilities - can be string (name) or object {name, subcounty}
+    // Normalize facilities - can be string (name) or object with all fields
     const normalizedFacilities = facilities
-      .map((facility: string | { name: string; subcounty?: string }) => {
+      .map((facility: string | { 
+        name: string; 
+        subcounty?: string; 
+        sublocation?: string;
+        serverType?: string;
+        simcardCount?: number;
+        hasLAN?: boolean;
+        facilityGroup?: string;
+      }) => {
         if (typeof facility === "string") {
-          return { name: facility.trim(), subcounty: null }
+          return { 
+            name: facility.trim(), 
+            subcounty: null,
+            sublocation: null,
+            serverType: null,
+            simcardCount: null,
+            hasLAN: false,
+            facilityGroup: null,
+          }
         }
         return {
           name: facility.name.trim(),
           subcounty: facility.subcounty?.trim() || null,
+          sublocation: facility.sublocation?.trim() || null,
+          serverType: facility.serverType?.trim() || null,
+          simcardCount: facility.simcardCount !== undefined && facility.simcardCount !== null ? Number(facility.simcardCount) : null,
+          hasLAN: facility.hasLAN !== undefined ? Boolean(facility.hasLAN) : false,
+          facilityGroup: facility.facilityGroup?.trim() || null,
         }
       })
       .filter((f: { name: string }) => f.name.length > 0)
@@ -120,9 +141,22 @@ export async function POST(request: NextRequest) {
 
     // Create facilities
     const created = await prisma.facility.createMany({
-      data: newFacilities.map((f: { name: string; subcounty: string | null }) => ({
+      data: newFacilities.map((f: { 
+        name: string; 
+        subcounty: string | null;
+        sublocation?: string | null;
+        serverType?: string | null;
+        simcardCount?: number | null;
+        hasLAN?: boolean;
+        facilityGroup?: string | null;
+      }) => ({
         name: f.name.trim(),
         subcounty: f.subcounty,
+        sublocation: f.sublocation || null,
+        serverType: f.serverType || null,
+        simcardCount: f.simcardCount !== undefined && f.simcardCount !== null ? Number(f.simcardCount) : null,
+        hasLAN: f.hasLAN !== undefined ? Boolean(f.hasLAN) : false,
+        facilityGroup: f.facilityGroup || null,
         system,
         location,
         isMaster: isMaster ?? true,
@@ -150,7 +184,18 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json()
-    const { id, name, subcounty, system, location } = body
+    const { 
+      id, 
+      name, 
+      subcounty, 
+      sublocation,
+      serverType,
+      simcardCount,
+      hasLAN,
+      facilityGroup,
+      system, 
+      location 
+    } = body
 
     if (!id || !name || !system || !location) {
       return NextResponse.json(
@@ -159,12 +204,31 @@ export async function PATCH(request: NextRequest) {
       )
     }
 
+    const updateData: any = {
+      name: name.trim(),
+      subcounty: subcounty?.trim() || null,
+    }
+
+    // Add optional fields if provided
+    if (sublocation !== undefined) {
+      updateData.sublocation = sublocation?.trim() || null
+    }
+    if (serverType !== undefined) {
+      updateData.serverType = serverType?.trim() || null
+    }
+    if (simcardCount !== undefined) {
+      updateData.simcardCount = simcardCount !== null ? Number(simcardCount) : null
+    }
+    if (hasLAN !== undefined) {
+      updateData.hasLAN = Boolean(hasLAN)
+    }
+    if (facilityGroup !== undefined) {
+      updateData.facilityGroup = facilityGroup?.trim() || null
+    }
+
     const updated = await prisma.facility.update({
       where: { id },
-      data: {
-        name: name.trim(),
-        subcounty: subcounty?.trim() || null,
-      },
+      data: updateData,
     })
 
     return NextResponse.json({
