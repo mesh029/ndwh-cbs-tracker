@@ -19,18 +19,90 @@ model Facility {
   location      String   @db.VarChar(50) // Kakamega, Vihiga, Nyamira, Kisumu
   isMaster      Boolean  @default(true) // true for master facilities, false for reported
   serverType    String?  @db.VarChar(50) // Server type group (A, B, C, etc.)
+  routerType    String?  @db.VarChar(50) // Router type (auto-determined from router assets)
   facilityGroup String?  @db.VarChar(50) // Which sheet/group the facility belongs to
   simcardCount  Int? // Number of simcards the facility has
   hasLAN        Boolean  @default(false) // Whether facility has LAN available
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  // Asset details relationships
+  servers       ServerAsset[]
+  routers       RouterAsset[]
+  simcards      SimcardAsset[]
+
   @@index([system, location, isMaster])
   @@index([system, location])
   @@index([location, serverType])
+  @@index([location, routerType])
   @@index([location, facilityGroup])
   @@index([location, hasLAN])
   @@map("facilities")
+}
+
+model ServerAsset {
+  id          String   @id @default(cuid())
+  facilityId  String
+  facility    Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  serverType  String   @db.VarChar(50) // e.g., "Dell Optiplex", "HP EliteDesk 800G1"
+  assetTag    String?  @db.VarChar(100) // Asset tag number
+  serialNumber String? @db.VarChar(100) // Serial number
+  location    String   @db.VarChar(50) // Location for filtering
+  subcounty   String?  @db.VarChar(100)
+  sublocation String?  @db.VarChar(100)
+  notes       String?  @db.Text // Additional notes
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([facilityId])
+  @@index([location])
+  @@index([assetTag])
+  @@index([serialNumber])
+  @@map("server_assets")
+}
+
+model RouterAsset {
+  id          String   @id @default(cuid())
+  facilityId  String
+  facility    Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  routerType  String?  @db.VarChar(50) // Router model/type
+  assetTag    String?  @db.VarChar(100) // Asset tag number
+  serialNumber String? @db.VarChar(100) // Serial number
+  location    String   @db.VarChar(50) // Location for filtering
+  subcounty   String?  @db.VarChar(100)
+  sublocation String?  @db.VarChar(100)
+  notes       String?  @db.Text // Additional notes
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([facilityId])
+  @@index([location])
+  @@index([assetTag])
+  @@index([serialNumber])
+  @@map("router_assets")
+}
+
+model SimcardAsset {
+  id          String   @id @default(cuid())
+  facilityId  String
+  facility    Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  phoneNumber String?  @db.VarChar(20) // Phone number/line
+  assetTag    String?  @db.VarChar(100) // Asset tag number
+  serialNumber String? @db.VarChar(100) // Serial number/ICCID
+  provider    String?  @db.VarChar(50) // Service provider (Safaricom, Airtel, etc.)
+  location    String   @db.VarChar(50) // Location for filtering
+  subcounty   String?  @db.VarChar(100)
+  sublocation String?  @db.VarChar(100)
+  notes       String?  @db.Text // Additional notes
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([facilityId])
+  @@index([location])
+  @@index([assetTag])
+  @@index([serialNumber])
+  @@index([phoneNumber])
+  @@map("simcard_assets")
 }
 
 model Ticket {
@@ -39,8 +111,15 @@ model Ticket {
   serverCondition String    @db.VarChar(200) // Server condition/status
   problem         String    @db.Text // Problem description
   solution        String?   @db.Text // How the problem was fixed
+  reportedBy      String?   @db.VarChar(120) // Person reporting the ticket
+  assignedTo      String?   @db.VarChar(120) // Person assigned to handle ticket
+  reporterDetails String?   @db.Text // Optional reporter contact/extra details
+  resolvedBy      String?   @db.VarChar(120) // Person who resolved the ticket
+  resolverDetails String?   @db.Text // Optional resolver details
+  resolutionSteps String?   @db.Text // Steps taken to resolve ticket
   status          String    @default("open") @db.VarChar(20) // open, resolved, in-progress
-  location        String?   @db.VarChar(50) // Optional location (Kakamega, Vihiga, etc.)
+  location        String    @db.VarChar(50) // REQUIRED location (Kakamega, Vihiga, Nyamira, Kisumu)
+  subcounty       String    @db.VarChar(100) // REQUIRED subcounty - for categorization
   serverType      String?   @db.VarChar(50) // Server type group (A, B, C, etc.)
   issueType       String?   @db.VarChar(20) // "server" or "network" - separates networking issues from server issues
   week            String?   @db.VarChar(50) // Week reference from ODS (e.g., "first week of jan")
@@ -50,6 +129,8 @@ model Ticket {
 
   @@index([status])
   @@index([location])
+  @@index([location, subcounty]) // For efficient filtering by location and subcounty
+  @@index([subcounty]) // For categorization queries
   @@index([facilityName])
   @@index([serverType])
   @@index([issueType])

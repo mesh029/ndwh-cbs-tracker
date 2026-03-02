@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Plus, Edit2, Trash2, CheckCircle2, Clock, AlertCircle, Search, X, TrendingUp, Server } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { cn } from "@/lib/utils"
@@ -21,6 +20,7 @@ import {
 } from "@/components/ui/chart"
 import type { Location } from "@/lib/storage"
 import type { ChartConfig } from "@/components/ui/chart"
+import { SectionUpload } from "@/components/section-upload"
 
 const pieChartConfig = {
   open: {
@@ -76,8 +76,15 @@ export interface Ticket {
   serverCondition: string
   problem: string
   solution: string | null
+  reportedBy: string | null
+  assignedTo: string | null
+  reporterDetails: string | null
+  resolvedBy: string | null
+  resolverDetails: string | null
+  resolutionSteps: string | null
   status: TicketStatus
-  location: string | null
+  location: string // REQUIRED - no longer nullable
+  subcounty: string // REQUIRED - for categorization
   issueType: string | null
   week: string | null
   serverType: string | null
@@ -87,11 +94,12 @@ export interface Ticket {
 }
 
 export function Tickets() {
+  const [role, setRole] = useState<"admin" | "guest" | null>(null)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
-  const [locationFilter, setLocationFilter] = useState<string>("all")
+  const [selectedLocation, setSelectedLocation] = useState<Location>("Nyamira")
   const [issueTypeFilter, setIssueTypeFilter] = useState<string>("all")
   const [editingTicket, setEditingTicket] = useState<Ticket | null>(null)
   const { toast } = useToast()
@@ -101,7 +109,16 @@ export function Tickets() {
   const [serverCondition, setServerCondition] = useState("")
   const [problem, setProblem] = useState("")
   const [solution, setSolution] = useState("")
+  const [reportedBy, setReportedBy] = useState("")
+  const [assignedTo, setAssignedTo] = useState("")
+  const [reporterDetails, setReporterDetails] = useState("")
+  const [resolvedBy, setResolvedBy] = useState("")
+  const [resolverDetails, setResolverDetails] = useState("")
+  const [resolutionSteps, setResolutionSteps] = useState("")
   const [location, setLocation] = useState<string>("Nyamira")
+  const [subcounty, setSubcounty] = useState<string>("")
+  const [subcounties, setSubcounties] = useState<string[]>([])
+  const [isLoadingSubcounties, setIsLoadingSubcounties] = useState(false)
   const [status, setStatus] = useState<TicketStatus>("open")
   const [issueType, setIssueType] = useState<"server" | "network">("server")
   const [week, setWeek] = useState("")
@@ -109,35 +126,97 @@ export function Tickets() {
   const [facilities, setFacilities] = useState<Array<{ name: string }>>([])
   const [isLoadingFacilities, setIsLoadingFacilities] = useState(false)
 
-  // Load tickets
+
+  // Load tickets when filters change
   useEffect(() => {
     loadTickets()
-  }, [statusFilter, locationFilter])
+  }, [statusFilter, selectedLocation])
 
-  // Load facilities when location changes
   useEffect(() => {
-    if (location) {
-      loadFacilities(location)
+    const loadRole = async () => {
+      try {
+        const response = await fetch("/api/auth/me")
+        const data = await response.json()
+        if (response.ok && data.role) {
+          setRole(data.role)
+        }
+      } catch {
+        setRole(null)
+      }
     }
-  }, [location])
+    loadRole()
+  }, [])
+
+  // Load facilities and subcounties when selectedLocation changes
+  useEffect(() => {
+    if (selectedLocation) {
+      loadFacilities(selectedLocation)
+      loadSubcounties(selectedLocation)
+      // Update form location to match selected location
+      setLocation(selectedLocation)
+    }
+  }, [selectedLocation])
+
+  const loadSubcounties = async (loc: string) => {
+    setIsLoadingSubcounties(true)
+    try {
+      const response = await fetch(`/api/facilities?system=NDWH&location=${loc}&isMaster=true`)
+      const data = await response.json()
+      const facilities = data.facilities || []
+      
+      // Extract unique subcounties
+      const uniqueSubcounties = Array.from(
+        new Set(
+          facilities
+            .map((f: any) => f.subcounty)
+            .filter((sc: string | null) => sc && sc.trim().length > 0)
+        )
+      ).sort() as string[]
+      
+      setSubcounties(uniqueSubcounties)
+      
+      // If only one subcounty, auto-select it
+      if (uniqueSubcounties.length === 1) {
+        setSubcounty(uniqueSubcounties[0])
+      } else if (uniqueSubcounties.length > 0 && !subcounty) {
+        // Reset subcounty when location changes (unless editing)
+        setSubcounty("")
+      }
+    } catch (error) {
+      console.error("Error loading subcounties:", error)
+      setSubcounties([])
+    } finally {
+      setIsLoadingSubcounties(false)
+    }
+  }
 
   const loadTickets = async () => {
     setIsLoading(true)
     try {
       const params = new URLSearchParams()
+      
+      // Location is REQUIRED by API - use selectedLocation
+      params.append("location", selectedLocation)
+      
       if (statusFilter !== "all") params.append("status", statusFilter)
-      if (locationFilter !== "all") params.append("location", locationFilter)
 
       const response = await fetch(`/api/tickets?${params.toString()}`)
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || "Failed to load tickets")
+      }
+      
       const data = await response.json()
       setTickets(data.tickets || [])
     } catch (error) {
       console.error("Error loading tickets:", error)
       toast({
         title: "Error",
-        description: "Failed to load tickets",
+        description: error instanceof Error ? error.message : "Failed to load tickets",
         variant: "destructive",
       })
+      setTickets([])
     } finally {
       setIsLoading(false)
     }
@@ -160,10 +239,11 @@ export function Tickets() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!facilityName.trim() || !serverCondition.trim() || !problem.trim() || !location) {
+    // Validate required fields including subcounty
+    if (!facilityName.trim() || !serverCondition.trim() || !problem.trim() || !location || !subcounty.trim() || !reportedBy.trim() || !assignedTo.trim()) {
       toast({
         title: "Error",
-        description: "Please fill in all required fields (Location, Facility, Categories, and Problem)",
+        description: "Please fill all required fields (Location, Subcounty, Facility, Categories, Problem, Your Name, Assigned To)",
         variant: "destructive",
       })
       return
@@ -181,8 +261,15 @@ export function Tickets() {
           serverCondition: serverCondition.trim(),
           problem: problem.trim(),
           solution: solution.trim() || null,
-          location: location || null,
-          status,
+          reportedBy: reportedBy.trim(),
+          assignedTo: assignedTo.trim(),
+          reporterDetails: reporterDetails.trim() || null,
+          resolvedBy: resolvedBy.trim() || null,
+          resolverDetails: resolverDetails.trim() || null,
+          resolutionSteps: resolutionSteps.trim() || null,
+          location: location.trim(),
+          subcounty: subcounty.trim(),
+          status: role === "guest" ? "open" : status,
           issueType,
           week: week.trim() || null,
         }),
@@ -215,10 +302,23 @@ export function Tickets() {
     setServerCondition(ticket.serverCondition)
     setProblem(ticket.problem)
     setSolution(ticket.solution || "")
-    setLocation(ticket.location || "")
+    setReportedBy(ticket.reportedBy || "")
+    setAssignedTo(ticket.assignedTo || "")
+    setReporterDetails(ticket.reporterDetails || "")
+    setResolvedBy(ticket.resolvedBy || "")
+    setResolverDetails(ticket.resolverDetails || "")
+    setResolutionSteps(ticket.resolutionSteps || "")
+    setLocation(ticket.location || "Nyamira")
+    setSubcounty((ticket as any).subcounty || "")
     setStatus(ticket.status)
     setIssueType((ticket.issueType as "server" | "network") || "server")
     setWeek(ticket.week || "")
+    
+    // Load subcounties for the ticket's location
+    if (ticket.location) {
+      loadSubcounties(ticket.location)
+    }
+    
     setShowForm(true)
   }
 
@@ -255,7 +355,14 @@ export function Tickets() {
     setServerCondition("")
     setProblem("")
     setSolution("")
-    setLocation("Nyamira")
+    setReportedBy("")
+    setAssignedTo("")
+    setReporterDetails("")
+    setResolvedBy("")
+    setResolverDetails("")
+    setResolutionSteps("")
+    setLocation(selectedLocation)
+    setSubcounty("")
     setStatus("open")
     setIssueType("server")
     setWeek("")
@@ -265,13 +372,8 @@ export function Tickets() {
   const handleNewTicket = () => {
     resetForm()
     setShowForm(true)
-    // Load facilities for default location
-    if (!location) {
-      setLocation("Nyamira")
-      loadFacilities("Nyamira")
-    } else {
-      loadFacilities(location)
-    }
+    // Load facilities for selected location
+    loadFacilities(selectedLocation)
   }
 
   const getStatusBadge = (status: TicketStatus) => {
@@ -284,19 +386,6 @@ export function Tickets() {
         return <Badge variant="success">Resolved</Badge>
       default:
         return <Badge>{status}</Badge>
-    }
-  }
-
-  const getStatusIcon = (status: TicketStatus) => {
-    switch (status) {
-      case "open":
-        return <AlertCircle className="h-4 w-4" />
-      case "in-progress":
-        return <Clock className="h-4 w-4" />
-      case "resolved":
-        return <CheckCircle2 className="h-4 w-4" />
-      default:
-        return null
     }
   }
 
@@ -337,15 +426,15 @@ export function Tickets() {
     { name: "Resolved", value: stats.resolved },
   ], [stats])
 
-  // Chart data - Tickets by location
-  const locationChartData = useMemo(() => {
-    const locationCounts: Record<string, number> = {}
+  // Chart data - Tickets by subcounty
+  const subcountyChartData = useMemo(() => {
+    const subcountyCounts: Record<string, number> = {}
     tickets.forEach(ticket => {
-      const loc = ticket.location || "Unknown"
-      locationCounts[loc] = (locationCounts[loc] || 0) + 1
+      const subcounty = ticket.subcounty || "Unknown"
+      subcountyCounts[subcounty] = (subcountyCounts[subcounty] || 0) + 1
     })
-    return Object.entries(locationCounts).map(([location, count]) => ({
-      location,
+    return Object.entries(subcountyCounts).map(([subcounty, count]) => ({
+      subcounty,
       Count: count,
     }))
   }, [tickets])
@@ -387,16 +476,44 @@ export function Tickets() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">EMR Server Tickets</h1>
+        <div className="flex-1">
+          <h1 className="text-3xl font-bold">EMR Tickets Dashboard</h1>
           <p className="text-muted-foreground">
-            Comprehensive ticketing solution for EMR server and networking issues
+            Comprehensive ticketing solution for EMR server and networking issues across all locations
           </p>
         </div>
-        <Button onClick={handleNewTicket}>
-          <Plus className="mr-2 h-4 w-4" />
-          New Ticket
-        </Button>
+        <div className="flex items-center gap-3">
+          <label htmlFor="ticket-location-select" className="text-sm font-medium text-muted-foreground">
+            Location:
+          </label>
+          <Select 
+            value={selectedLocation} 
+            onValueChange={(value) => setSelectedLocation(value as Location)}
+          >
+            <SelectTrigger id="ticket-location-select" className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LOCATIONS.map((loc) => (
+                <SelectItem key={loc} value={loc}>
+                  {loc}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button onClick={handleNewTicket}>
+            <Plus className="mr-2 h-4 w-4" />
+            New Ticket
+          </Button>
+          <SectionUpload section="ticket" location={selectedLocation} onUploadComplete={loadTickets} />
+        </div>
+      </div>
+
+      <div className="mb-4">
+        <h2 className="text-2xl font-semibold">{selectedLocation} Tickets</h2>
+        <p className="text-sm text-muted-foreground">
+          View and manage tickets for {selectedLocation}
+        </p>
       </div>
 
       {/* Statistics Cards */}
@@ -518,15 +635,15 @@ export function Tickets() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Tickets by Location</CardTitle>
-            <CardDescription>Number of tickets per location</CardDescription>
+            <CardTitle>Tickets by Subcounty</CardTitle>
+            <CardDescription>Number of tickets per subcounty in {selectedLocation}</CardDescription>
           </CardHeader>
           <CardContent>
             <ChartContainer config={barChartConfig}>
-              <BarChart data={locationChartData}>
+              <BarChart data={subcountyChartData}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis
-                  dataKey="location"
+                  dataKey="subcounty"
                   tickLine={false}
                   axisLine={false}
                   tickMargin={8}
@@ -655,7 +772,9 @@ export function Tickets() {
                     onValueChange={(v) => {
                       setLocation(v)
                       loadFacilities(v)
+                      loadSubcounties(v)
                       setFacilityName("") // Reset facility when location changes
+                      setSubcounty("") // Reset subcounty when location changes
                     }}
                   >
                     <SelectTrigger>
@@ -670,6 +789,50 @@ export function Tickets() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                <div>
+                  <label className="text-sm font-medium mb-2 block">
+                    Subcounty <span className="text-red-500">*</span>
+                  </label>
+                  {isLoadingSubcounties ? (
+                    <Input disabled placeholder="Loading subcounties..." />
+                  ) : subcounties.length > 0 ? (
+                    <Select 
+                      value={subcounty || ""} 
+                      onValueChange={setSubcounty}
+                      required
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select subcounty" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {subcounties.map((sc) => (
+                          <SelectItem key={sc} value={sc}>
+                            {sc}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : location ? (
+                    <Input
+                      value={subcounty}
+                      onChange={(e) => setSubcounty(e.target.value)}
+                      placeholder="Type subcounty name"
+                      required
+                    />
+                  ) : (
+                    <Input
+                      disabled
+                      placeholder="Select location first"
+                    />
+                  )}
+                  {location && !isLoadingSubcounties && subcounties.length === 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      No subcounties found for {location}. You can type the subcounty name manually.
+                    </p>
+                  )}
+                </div>
+              </div>
 
                 <div>
                   <label className="text-sm font-medium mb-2 block">
@@ -709,7 +872,6 @@ export function Tickets() {
                     </p>
                   )}
                 </div>
-              </div>
 
               <div>
                 <label className="text-sm font-medium mb-2 block">
@@ -731,7 +893,7 @@ export function Tickets() {
                   required
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Separate multiple categories with commas (e.g., "network, simcard" or "server, boot, ssd")
+                  Separate multiple categories with commas (e.g., &quot;network, simcard&quot; or &quot;server, boot, ssd&quot;)
                 </p>
               </div>
 
@@ -749,6 +911,43 @@ export function Tickets() {
                 />
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium mb-2 block">
+                    Reported By (Your Name) <span className="text-red-500">*</span>
+                  </label>
+                  <Input
+                    value={reportedBy}
+                    onChange={(e) => setReportedBy(e.target.value)}
+                    placeholder="Enter your full name"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-2 block">
+                    Assigned To <span className="text-red-500">*</span>
+                  </label>
+                  <Input
+                    value={assignedTo}
+                    onChange={(e) => setAssignedTo(e.target.value)}
+                    placeholder="Person handling this ticket"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-2 block">
+                  Reporter Details (Optional)
+                </label>
+                <Textarea
+                  value={reporterDetails}
+                  onChange={(e) => setReporterDetails(e.target.value)}
+                  placeholder="Contacts or extra context from reporter..."
+                  rows={2}
+                />
+              </div>
+
               <div>
                 <label className="text-sm font-medium mb-2 block">
                   Solution / How Fixed
@@ -758,18 +957,58 @@ export function Tickets() {
                   onChange={(e) => setSolution(e.target.value)}
                   placeholder="Describe how you fixed the problem (can be filled later)..."
                   rows={4}
+                  disabled={role === "guest"}
                 />
               </div>
+
+              {role === "admin" && (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">
+                        Resolved By
+                      </label>
+                      <Input
+                        value={resolvedBy}
+                        onChange={(e) => setResolvedBy(e.target.value)}
+                        placeholder="Who resolved this ticket?"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">
+                        Resolver Details
+                      </label>
+                      <Input
+                        value={resolverDetails}
+                        onChange={(e) => setResolverDetails(e.target.value)}
+                        placeholder="Phone/title/team (optional)"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">
+                      Resolution Steps Taken
+                    </label>
+                    <Textarea
+                      value={resolutionSteps}
+                      onChange={(e) => setResolutionSteps(e.target.value)}
+                      placeholder="Steps taken to resolve the issue..."
+                      rows={3}
+                    />
+                  </div>
+                </>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium mb-2 block">Status</label>
-                  <Select value={status} onValueChange={(v) => setStatus(v as TicketStatus)}>
+                  <Select value={status} onValueChange={(v) => setStatus(v as TicketStatus)} disabled={role === "guest"}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {STATUSES.map((s) => (
+                      {(role === "guest" ? ["open"] : STATUSES).map((s) => (
                         <SelectItem key={s} value={s}>
                           {s.charAt(0).toUpperCase() + s.slice(1).replace("-", " ")}
                         </SelectItem>
@@ -836,19 +1075,6 @@ export function Tickets() {
                     {STATUSES.map((s) => (
                       <SelectItem key={s} value={s}>
                         {s.charAt(0).toUpperCase() + s.slice(1).replace("-", " ")}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={locationFilter} onValueChange={setLocationFilter}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Filter by location" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Locations</SelectItem>
-                    {LOCATIONS.map((loc) => (
-                      <SelectItem key={loc} value={loc}>
-                        {loc}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1003,49 +1229,32 @@ export function Tickets() {
                               </div>
                             )}
                           </div>
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            {ticket.reportedBy && (
+                              <Badge variant="outline">Reported by: {ticket.reportedBy}</Badge>
+                            )}
+                            {ticket.assignedTo && (
+                              <Badge variant="outline">Assigned to: {ticket.assignedTo}</Badge>
+                            )}
+                            {ticket.resolvedBy && (
+                              <Badge variant="outline" className="bg-green-50 text-green-700">
+                                Resolved by: {ticket.resolvedBy}
+                              </Badge>
+                            )}
+                          </div>
+                          {ticket.resolutionSteps && (
+                            <div className="bg-blue-50 dark:bg-blue-950/20 rounded-lg p-3 border border-blue-200 dark:border-blue-900">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+                                Resolution Steps
+                              </p>
+                              <p className="text-sm mt-1 text-blue-700 dark:text-blue-300">{ticket.resolutionSteps}</p>
+                            </div>
+                          )}
                         </div>
 
                         {/* Action buttons */}
-                        <div className="flex flex-col gap-1 shrink-0">
-                          {ticket.status !== "resolved" && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={async () => {
-                                try {
-                                  const response = await fetch(`/api/tickets/${ticket.id}`, {
-                                    method: "PATCH",
-                                    headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({
-                                      status: "resolved",
-                                      solution: ticket.solution || "Ticket resolved",
-                                    }),
-                                  })
-
-                                  if (response.ok) {
-                                    toast({
-                                      title: "Success",
-                                      description: "Ticket resolved",
-                                    })
-                                    loadTickets()
-                                  } else {
-                                    throw new Error("Failed to resolve ticket")
-                                  }
-                                } catch (error) {
-                                  console.error("Error resolving ticket:", error)
-                                  toast({
-                                    title: "Error",
-                                    description: "Failed to resolve ticket",
-                                    variant: "destructive",
-                                  })
-                                }
-                              }}
-                              className="h-9 w-9 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950/20"
-                              title="Resolve ticket"
-                            >
-                              <CheckCircle2 className="h-4 w-4" />
-                            </Button>
-                          )}
+                        {role === "admin" && (
+                          <div className="flex flex-col gap-1 shrink-0">
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1064,7 +1273,8 @@ export function Tickets() {
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
-                        </div>
+                          </div>
+                        )}
                       </div>
                     </Card>
                   )

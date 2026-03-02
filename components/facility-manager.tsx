@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { X, Upload, Plus, Edit2, Save, XCircle, Trash2, Download, Copy } from "lucide-react"
+import { X, Upload, Plus, Edit2, Save, XCircle, Trash2, Download, Copy, ChevronDown, ChevronRight, Server, Router, Smartphone } from "lucide-react"
 import { useFacilityData } from "@/hooks/use-facility-data"
 import { useToast } from "@/components/ui/use-toast"
 import { parseFacilityList } from "@/lib/utils"
@@ -29,11 +29,17 @@ export function FacilityManager() {
   const [newFacility, setNewFacility] = useState("")
   const [newSubcounty, setNewSubcounty] = useState("")
   const [showDetailedForm, setShowDetailedForm] = useState(false)
+  const [expandedFacilityId, setExpandedFacilityId] = useState<string | null>(null)
+  const [facilityAssets, setFacilityAssets] = useState<Record<string, {
+    servers: any[]
+    routers: any[]
+    simcards: any[]
+  }>>({})
   const [detailedForm, setDetailedForm] = useState({
     name: "",
     subcounty: "",
-    sublocation: "",
     serverType: "",
+    routerType: "",
     simcardCount: "",
     hasLAN: false,
     facilityGroup: "",
@@ -41,11 +47,24 @@ export function FacilityManager() {
   const [editingFacility, setEditingFacility] = useState<Facility | null>(null)
   const [editName, setEditName] = useState("")
   const [editSubcounty, setEditSubcounty] = useState("")
-  const [editSublocation, setEditSublocation] = useState("")
   const [editServerType, setEditServerType] = useState("")
+  const [editRouterType, setEditRouterType] = useState("")
   const [editSimcardCount, setEditSimcardCount] = useState("")
   const [editHasLAN, setEditHasLAN] = useState(false)
   const [editFacilityGroup, setEditFacilityGroup] = useState("")
+  const [excelFile, setExcelFile] = useState<File | null>(null)
+  const [importMode, setImportMode] = useState<"merge" | "overwrite">("merge")
+  const [isImporting, setIsImporting] = useState(false)
+  const [importPreview, setImportPreview] = useState<Array<{
+    name: string
+    subcounty?: string
+    serverType?: string
+    simcardCount?: number
+    hasLAN?: boolean
+    facilityGroup?: string
+    status: "new" | "existing" | "update"
+  }> | null>(null)
+  const [showImportDialog, setShowImportDialog] = useState(false)
   const { toast } = useToast()
 
   const {
@@ -58,6 +77,38 @@ export function FacilityManager() {
     addMasterFacilitiesFromText,
     addMasterFacilitiesFromTextWithSubcounties,
   } = useFacilityData(selectedSystem, selectedLocation)
+
+  const loadFacilityAssets = async (facilityId: string) => {
+    if (facilityAssets[facilityId]) return // Already loaded
+    
+    try {
+      const [serversRes, routersRes, simcardsRes] = await Promise.all([
+        fetch(`/api/assets/servers?location=${selectedLocation}&facilityId=${facilityId}`).catch(() => ({ ok: false })),
+        fetch(`/api/assets/routers?location=${selectedLocation}&facilityId=${facilityId}`).catch(() => ({ ok: false })),
+        fetch(`/api/assets/simcards?location=${selectedLocation}&facilityId=${facilityId}`).catch(() => ({ ok: false })),
+      ])
+
+      const servers = serversRes.ok ? (await serversRes.json()).assets || [] : []
+      const routers = routersRes.ok ? (await routersRes.json()).assets || [] : []
+      const simcards = simcardsRes.ok ? (await simcardsRes.json()).assets || [] : []
+
+      setFacilityAssets(prev => ({
+        ...prev,
+        [facilityId]: { servers, routers, simcards }
+      }))
+    } catch (error) {
+      console.error("Error loading facility assets:", error)
+    }
+  }
+
+  const toggleFacilityExpansion = (facilityId: string) => {
+    if (expandedFacilityId === facilityId) {
+      setExpandedFacilityId(null)
+    } else {
+      setExpandedFacilityId(facilityId)
+      loadFacilityAssets(facilityId)
+    }
+  }
 
   const handleBulkAdd = async () => {
     if (!bulkFacilities.trim()) {
@@ -160,8 +211,8 @@ export function FacilityManager() {
       detailedForm.name.trim(),
       detailedForm.subcounty.trim() || undefined,
       {
-        sublocation: detailedForm.sublocation.trim() || undefined,
         serverType: detailedForm.serverType.trim() || undefined,
+        routerType: detailedForm.routerType.trim() || undefined,
         simcardCount: detailedForm.simcardCount ? Number(detailedForm.simcardCount) : undefined,
         hasLAN: detailedForm.hasLAN,
         facilityGroup: detailedForm.facilityGroup.trim() || undefined,
@@ -176,8 +227,8 @@ export function FacilityManager() {
       setDetailedForm({
         name: "",
         subcounty: "",
-        sublocation: "",
         serverType: "",
+        routerType: "",
         simcardCount: "",
         hasLAN: false,
         facilityGroup: "",
@@ -214,8 +265,8 @@ export function FacilityManager() {
     setEditingFacility(facility)
     setEditName(facility.name)
     setEditSubcounty(facility.subcounty || "")
-    setEditSublocation(facility.sublocation || "")
     setEditServerType(facility.serverType || "")
+    setEditRouterType(facility.routerType || "")
     setEditSimcardCount(facility.simcardCount?.toString() || "")
     setEditHasLAN(facility.hasLAN || false)
     setEditFacilityGroup(facility.facilityGroup || "")
@@ -236,8 +287,8 @@ export function FacilityManager() {
       editName,
       editSubcounty.trim() || undefined,
       {
-        sublocation: editSublocation.trim() || undefined,
         serverType: editServerType.trim() || undefined,
+        routerType: editRouterType.trim() || undefined,
         simcardCount: editSimcardCount ? Number(editSimcardCount) : undefined,
         hasLAN: editHasLAN,
         facilityGroup: editFacilityGroup.trim() || undefined,
@@ -251,7 +302,6 @@ export function FacilityManager() {
       setEditingFacility(null)
       setEditName("")
       setEditSubcounty("")
-      setEditSublocation("")
       setEditServerType("")
       setEditSimcardCount("")
       setEditHasLAN(false)
@@ -269,7 +319,6 @@ export function FacilityManager() {
     setEditingFacility(null)
     setEditName("")
     setEditSubcounty("")
-    setEditSublocation("")
     setEditServerType("")
     setEditSimcardCount("")
     setEditHasLAN(false)
@@ -314,11 +363,9 @@ export function FacilityManager() {
       "No.": index + 1,
       "Facility Name": facility.name,
       "Subcounty": facility.subcounty || "",
-      "Sublocation": facility.sublocation || "",
       "Server Type": facility.serverType || "",
       "Simcard Count": facility.simcardCount !== null && facility.simcardCount !== undefined ? facility.simcardCount : "",
       "Has LAN": facility.hasLAN ? "Yes" : "No",
-      "Facility Group": facility.facilityGroup || "",
       "System": facility.system,
       "Location": facility.location,
     }))
@@ -356,6 +403,71 @@ export function FacilityManager() {
     }
   }
 
+  const handleDownloadTemplate = () => {
+    try {
+      // Create template data with current facilities (editable format)
+      // Note: Server Type is auto-determined from server inventory uploads
+      const templateData = masterFacilitiesWithIds.length > 0
+        ? masterFacilitiesWithIds.map((facility) => ({
+            "Facility Name": facility.name,
+            "Subcounty": facility.subcounty || "",
+            "Server Type": facility.serverType || "",
+            "Simcard Count": facility.simcardCount !== null && facility.simcardCount !== undefined ? facility.simcardCount : "",
+            "Has LAN": facility.hasLAN ? "Yes" : "No",
+          }))
+        : [
+            // Empty template with example row if no facilities
+            {
+              "Facility Name": "Example Facility Name",
+              "Subcounty": "Example Subcounty",
+              "Server Type": "",
+              "Simcard Count": "",
+              "Has LAN": "No",
+            },
+            {
+              "Facility Name": "",
+              "Subcounty": "",
+              "Server Type": "",
+              "Simcard Count": "",
+              "Has LAN": "",
+            },
+          ]
+      
+      // Create a new workbook
+      const wb = XLSX.utils.book_new()
+      
+      // Create template sheet
+      const ws = XLSX.utils.json_to_sheet(templateData)
+      
+      // Set column widths for better readability
+      ws["!cols"] = [
+        { wch: 40 },  // Facility Name
+        { wch: 20 },  // Subcounty
+        { wch: 20 },  // Server Type
+        { wch: 12 },  // Simcard Count
+        { wch: 10 },  // Has LAN
+      ]
+      
+      XLSX.utils.book_append_sheet(wb, ws, "Facilities")
+      
+      // Generate Excel file
+      const fileName = `${selectedSystem}_${selectedLocation}_Facility_Template_${new Date().toISOString().split("T")[0]}.xlsx`
+      XLSX.writeFile(wb, fileName)
+      
+      toast({
+        title: "Success",
+        description: `Template downloaded with ${masterFacilitiesWithIds.length} facility${masterFacilitiesWithIds.length !== 1 ? "ies" : ""}. Note: Server Type is auto-determined from server inventory uploads.`,
+      })
+    } catch (error) {
+      console.error("Error downloading template:", error)
+      toast({
+        title: "Error",
+        description: "Failed to download template",
+        variant: "destructive",
+      })
+    }
+  }
+
   const handleDownload = () => {
     try {
       const data = generateExportData()
@@ -383,11 +495,9 @@ export function FacilityManager() {
         { wch: 5 },   // No.
         { wch: 40 },  // Facility Name
         { wch: 20 },  // Subcounty
-        { wch: 20 },  // Sublocation
         { wch: 20 },  // Server Type
         { wch: 12 },  // Simcard Count
         { wch: 10 },  // Has LAN
-        { wch: 15 },  // Facility Group
         { wch: 10 },  // System
         { wch: 15 },  // Location
       ]
@@ -410,6 +520,249 @@ export function FacilityManager() {
         description: "Failed to export to Excel",
         variant: "destructive",
       })
+    }
+  }
+
+  const handleExcelFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (!file.name.match(/\.(xlsx|xls)$/i)) {
+      toast({
+        title: "Error",
+        description: "Please select an Excel file (.xlsx or .xls)",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setExcelFile(file)
+
+    try {
+      const arrayBuffer = await file.arrayBuffer()
+      const workbook = XLSX.read(arrayBuffer, { type: "array" })
+      
+      // Get first sheet (or "Facilities" sheet if it exists)
+      const sheetName = workbook.SheetNames.find(name => name.toLowerCase().includes("facility")) || workbook.SheetNames[0]
+      const worksheet = workbook.Sheets[sheetName]
+      const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[]
+
+      if (jsonData.length === 0) {
+        toast({
+          title: "Error",
+          description: "Excel file appears to be empty",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Parse facilities from Excel
+      // Skip rows with "No." column (from export format) and empty facility names
+      const parsedFacilities = jsonData
+        .filter((row) => {
+          const name = row["Facility Name"] || row["Facility"] || row["Name"] || ""
+          const hasNoColumn = row["No."] !== undefined
+          // Include if has name and doesn't have "No." column (export format)
+          return name && name.trim() !== "" && !hasNoColumn
+        })
+        .map((row) => {
+          const name = row["Facility Name"] || row["Facility"] || row["Name"] || ""
+          if (!name || name.trim() === "") return null
+
+          // Handle "Has LAN" field - can be "Yes"/"No", boolean, or empty
+          let hasLAN = false
+          const hasLANValue = row["Has LAN"] || row["hasLAN"]
+          if (hasLANValue !== undefined && hasLANValue !== null && hasLANValue !== "") {
+            if (typeof hasLANValue === "boolean") {
+              hasLAN = hasLANValue
+            } else {
+              const strValue = String(hasLANValue).trim().toLowerCase()
+              hasLAN = strValue === "yes" || strValue === "true" || strValue === "1"
+            }
+          }
+
+          // Handle Simcard Count - can be number or empty string
+          let simcardCount: number | undefined = undefined
+          const simcardValue = row["Simcard Count"] || row["simcardCount"]
+          if (simcardValue !== undefined && simcardValue !== null && simcardValue !== "") {
+            const numValue = Number(simcardValue)
+            if (!isNaN(numValue)) {
+              simcardCount = numValue
+            }
+          }
+
+          // Handle Server Type - skip if it contains "(Auto from inventory)" as it's informational only
+          // Server type will be auto-determined from server asset uploads
+          let serverType: string | undefined = undefined
+          const serverTypeValue = row["Server Type"] || row["serverType"]
+          if (serverTypeValue && typeof serverTypeValue === "string") {
+            const trimmed = serverTypeValue.trim()
+            // Remove the "(Auto from inventory)" note if present
+            const cleaned = trimmed.replace(/\s*\(Auto from inventory.*?\)/gi, "").trim()
+            if (cleaned && cleaned.length > 0 && !cleaned.toLowerCase().includes("auto from inventory")) {
+              serverType = cleaned
+            }
+          }
+
+          return {
+            name: String(name).trim(),
+            subcounty: row["Subcounty"] ? String(row["Subcounty"]).trim() : undefined,
+            serverType, // Will be undefined if not provided (will be auto-set from server assets)
+            simcardCount,
+            hasLAN,
+          }
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null)
+
+      if (parsedFacilities.length === 0) {
+        toast({
+          title: "Error",
+          description: "No valid facilities found in Excel file",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Check against existing facilities to determine status
+      const existingFacilities = masterFacilitiesWithIds.map(f => f.name.toLowerCase())
+      const preview = parsedFacilities.map(facility => {
+        const exists = existingFacilities.some(existing => 
+          existing === facility.name.toLowerCase() || 
+          existing.includes(facility.name.toLowerCase()) ||
+          facility.name.toLowerCase().includes(existing)
+        )
+        
+        return {
+          ...facility,
+          status: exists ? "update" : "new" as "new" | "existing" | "update"
+        }
+      })
+
+      setImportPreview(preview)
+      setShowImportDialog(true)
+    } catch (error) {
+      console.error("Error reading Excel file:", error)
+      toast({
+        title: "Error",
+        description: "Failed to read Excel file",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleConfirmImport = async () => {
+    if (!importPreview || importPreview.length === 0) {
+      toast({
+        title: "Error",
+        description: "No facilities to import",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsImporting(true)
+
+    try {
+      if (importMode === "overwrite") {
+        // Remove all existing facilities first
+        await removeAllMasterFacilities()
+      }
+
+      // Import facilities
+      let successCount = 0
+      let errorCount = 0
+
+      for (const facility of importPreview) {
+        try {
+          // Check if facility already exists (for merge mode)
+          if (importMode === "merge") {
+            const existing = masterFacilitiesWithIds.find(f => 
+              f.name.toLowerCase() === facility.name.toLowerCase()
+            )
+            
+            if (existing) {
+              // Update existing facility
+              const success = await updateMasterFacility(
+                existing.id,
+                facility.name,
+                facility.subcounty,
+                {
+                  serverType: facility.serverType,
+                  simcardCount: facility.simcardCount,
+                  hasLAN: facility.hasLAN,
+                  facilityGroup: facility.facilityGroup,
+                }
+              )
+              if (success) {
+                successCount++
+              } else {
+                errorCount++
+              }
+            } else {
+              // Add new facility
+              const success = await addMasterFacility(
+                facility.name,
+                selectedSystem,
+                selectedLocation,
+                facility.subcounty,
+                {
+                  serverType: facility.serverType,
+                  simcardCount: facility.simcardCount,
+                  hasLAN: facility.hasLAN,
+                  facilityGroup: facility.facilityGroup,
+                }
+              )
+              if (success) {
+                successCount++
+              } else {
+                errorCount++
+              }
+            }
+          } else {
+            // Overwrite mode - just add (we already removed all)
+            const success = await addMasterFacility(
+              facility.name,
+              selectedSystem,
+              selectedLocation,
+              facility.subcounty,
+              {
+                serverType: facility.serverType,
+                simcardCount: facility.simcardCount,
+                hasLAN: facility.hasLAN,
+                facilityGroup: facility.facilityGroup,
+              }
+            )
+            if (success) {
+              successCount++
+            } else {
+              errorCount++
+            }
+          }
+        } catch (error) {
+          console.error(`Error importing facility ${facility.name}:`, error)
+          errorCount++
+        }
+      }
+
+      toast({
+        title: "Import Complete",
+        description: `Successfully imported ${successCount} facility${successCount !== 1 ? "ies" : ""}${errorCount > 0 ? `. ${errorCount} failed.` : ""}`,
+      })
+
+      // Reset state
+      setShowImportDialog(false)
+      setImportPreview(null)
+      setExcelFile(null)
+      setImportMode("merge")
+    } catch (error) {
+      console.error("Error during import:", error)
+      toast({
+        title: "Error",
+        description: "Failed to import facilities",
+        variant: "destructive",
+      })
+    } finally {
+      setIsImporting(false)
     }
   }
 
@@ -574,7 +927,7 @@ export function FacilityManager() {
                 </CardDescription>
               </div>
               {masterFacilities.length > 0 && (
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     variant="outline"
                     size="sm"
@@ -587,12 +940,42 @@ export function FacilityManager() {
                   <Button
                     variant="outline"
                     size="sm"
+                    onClick={handleDownloadTemplate}
+                    className="gap-2"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download Template
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={handleDownload}
                     className="gap-2"
                   >
                     <Download className="h-4 w-4" />
                     Export Excel
                   </Button>
+                  <label>
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleExcelFileSelect}
+                      className="hidden"
+                      disabled={isImporting}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      asChild
+                      disabled={isImporting}
+                    >
+                      <span>
+                        <Upload className="h-4 w-4" />
+                        Import Excel
+                      </span>
+                    </Button>
+                  </label>
                   <Button
                     variant="destructive"
                     size="sm"
@@ -613,67 +996,140 @@ export function FacilityManager() {
                   No facilities added yet
                 </p>
               ) : (
-                masterFacilitiesWithIds.map((facility) => (
-                  <div
-                    key={facility.id}
-                    className="flex items-center justify-between rounded-md border p-2 hover:bg-accent/50 transition-colors"
-                  >
-                    <div className="flex-1">
-                      <div className="text-sm font-medium">{facility.name}</div>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {facility.subcounty && (
-                          <Badge variant="outline" className="text-xs">
-                            📍 {facility.subcounty}
-                          </Badge>
-                        )}
-                        {facility.sublocation && (
-                          <Badge variant="outline" className="text-xs">
-                            📌 {facility.sublocation}
-                          </Badge>
-                        )}
-                        {facility.serverType && (
-                          <Badge variant="secondary" className="text-xs">
-                            🖥️ {facility.serverType}
-                          </Badge>
-                        )}
-                        {facility.simcardCount !== null && facility.simcardCount !== undefined && (
-                          <Badge variant="secondary" className="text-xs">
-                            📱 {facility.simcardCount} simcards
-                          </Badge>
-                        )}
-                        {facility.hasLAN && (
-                          <Badge variant="secondary" className="text-xs">
-                            🌐 LAN
-                          </Badge>
-                        )}
+                masterFacilitiesWithIds.map((facility) => {
+                  const isExpanded = expandedFacilityId === facility.id
+                  const assets = facilityAssets[facility.id] || { servers: [], routers: [], simcards: [] }
+                  
+                  return (
+                    <div key={facility.id} className="rounded-md border">
+                      <div className="flex items-center justify-between p-2 hover:bg-accent/50 transition-colors">
+                        <div className="flex-1 flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => toggleFacilityExpansion(facility.id)}
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="h-4 w-4" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4" />
+                            )}
+                          </Button>
+                          <div className="flex-1">
+                            <div className="text-sm font-medium">{facility.name}</div>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {facility.subcounty && (
+                                <Badge variant="outline" className="text-xs">
+                                  📍 {facility.subcounty}
+                                </Badge>
+                              )}
+                              {facility.serverType && (
+                                <Badge variant="secondary" className="text-xs">
+                                  🖥️ {facility.serverType}
+                                </Badge>
+                              )}
+                              {facility.routerType && (
+                                <Badge variant="secondary" className="text-xs">
+                                  📡 {facility.routerType}
+                                </Badge>
+                              )}
+                              {facility.simcardCount !== null && facility.simcardCount !== undefined && (
+                                <Badge variant="secondary" className="text-xs">
+                                  📱 {facility.simcardCount} simcards
+                                </Badge>
+                              )}
+                              {facility.hasLAN && (
+                                <Badge variant="secondary" className="text-xs">
+                                  🌐 LAN
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleEdit(facility)}
+                            className="h-8 w-8"
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={async () => {
+                              await removeMasterFacility(facility.id)
+                              toast({
+                                title: "Success",
+                                description: "Facility removed",
+                              })
+                            }}
+                            className="h-8 w-8"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
+                      {isExpanded && (
+                        <div className="border-t p-3 bg-muted/30 space-y-3">
+                          {/* Server Assets */}
+                          {assets.servers.length > 0 && (
+                            <div>
+                              <div className="flex items-center gap-2 mb-2">
+                                <Server className="h-4 w-4" />
+                                <span className="text-sm font-medium">Servers ({assets.servers.length})</span>
+                              </div>
+                              <div className="space-y-1 ml-6">
+                                {assets.servers.map((server: any) => (
+                                  <div key={server.id} className="text-xs text-muted-foreground">
+                                    {server.serverType} {server.assetTag && `• Tag: ${server.assetTag}`} {server.serialNumber && `• SN: ${server.serialNumber}`}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {/* Router Assets */}
+                          {assets.routers.length > 0 && (
+                            <div>
+                              <div className="flex items-center gap-2 mb-2">
+                                <Router className="h-4 w-4" />
+                                <span className="text-sm font-medium">Routers ({assets.routers.length})</span>
+                              </div>
+                              <div className="space-y-1 ml-6">
+                                {assets.routers.map((router: any) => (
+                                  <div key={router.id} className="text-xs text-muted-foreground">
+                                    {router.routerType || "Unknown"} {router.assetTag && `• Tag: ${router.assetTag}`} {router.serialNumber && `• SN: ${router.serialNumber}`}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {/* Simcard Assets */}
+                          {assets.simcards.length > 0 && (
+                            <div>
+                              <div className="flex items-center gap-2 mb-2">
+                                <Smartphone className="h-4 w-4" />
+                                <span className="text-sm font-medium">Simcards ({assets.simcards.length})</span>
+                              </div>
+                              <div className="space-y-1 ml-6">
+                                {assets.simcards.map((simcard: any) => (
+                                  <div key={simcard.id} className="text-xs text-muted-foreground">
+                                    {simcard.phoneNumber || "N/A"} {simcard.provider && `• ${simcard.provider}`} {simcard.assetTag && `• Tag: ${simcard.assetTag}`}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {assets.servers.length === 0 && assets.routers.length === 0 && assets.simcards.length === 0 && (
+                            <p className="text-xs text-muted-foreground">No assets recorded for this facility</p>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleEdit(facility)}
-                        className="h-8 w-8"
-                      >
-                        <Edit2 className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={async () => {
-                          await removeMasterFacility(facility.id)
-                          toast({
-                            title: "Success",
-                            description: "Facility removed",
-                          })
-                        }}
-                        className="h-8 w-8"
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))
+                  )
+                })
               )}
             </div>
           </CardContent>
@@ -709,14 +1165,6 @@ export function FacilityManager() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Sublocation</label>
-                <Input
-                  value={detailedForm.sublocation}
-                  onChange={(e) => setDetailedForm({ ...detailedForm, sublocation: e.target.value })}
-                  placeholder="Enter sublocation (optional)"
-                />
-              </div>
-              <div className="space-y-2">
                 <label className="text-sm font-medium">Server Type</label>
                 <Select
                   value={detailedForm.serverType || undefined}
@@ -732,6 +1180,17 @@ export function FacilityManager() {
                     <SelectItem value="HP_Proliant_Server">HP Proliant Server</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Router Type</label>
+                <Input
+                  value={detailedForm.routerType}
+                  onChange={(e) => setDetailedForm({ ...detailedForm, routerType: e.target.value })}
+                  placeholder="Router type (auto-determined from router assets)"
+                  disabled
+                  className="bg-muted"
+                />
+                <p className="text-xs text-muted-foreground">Router type is automatically determined from router asset uploads</p>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Simcard Count</label>
@@ -815,14 +1274,6 @@ export function FacilityManager() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Sublocation</label>
-                <Input
-                  value={editSublocation}
-                  onChange={(e) => setEditSublocation(e.target.value)}
-                  placeholder="Enter sublocation (optional)"
-                />
-              </div>
-              <div className="space-y-2">
                 <label className="text-sm font-medium">Server Type</label>
                 <Select
                   value={editServerType || undefined}
@@ -838,6 +1289,17 @@ export function FacilityManager() {
                     <SelectItem value="HP_Proliant_Server">HP Proliant Server</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Router Type</label>
+                <Input
+                  value={editRouterType}
+                  onChange={(e) => setEditRouterType(e.target.value)}
+                  placeholder="Router type (auto-determined from router assets)"
+                  disabled
+                  className="bg-muted"
+                />
+                <p className="text-xs text-muted-foreground">Router type is automatically determined from router asset uploads</p>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Simcard Count</label>
@@ -879,6 +1341,119 @@ export function FacilityManager() {
             <Button onClick={handleSaveEdit}>
               <Save className="mr-2 h-4 w-4" />
               Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Excel Import Dialog */}
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Excel Import Preview</DialogTitle>
+            <DialogDescription>
+              Review the facilities to be imported. {importPreview?.length || 0} facilities found.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-sm">
+              <p className="font-medium text-blue-900 dark:text-blue-100 mb-1">📌 Note about Server Type:</p>
+              <p className="text-blue-800 dark:text-blue-200">
+                Server Type is automatically determined from server inventory uploads. Upload server assets to automatically set facility server types.
+              </p>
+            </div>
+            <div className="flex gap-4">
+              <div className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  id="merge-mode"
+                  name="import-mode"
+                  checked={importMode === "merge"}
+                  onChange={() => setImportMode("merge")}
+                />
+                <label htmlFor="merge-mode" className="text-sm">
+                  Merge: Update existing facilities, add new ones
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  id="overwrite-mode"
+                  name="import-mode"
+                  checked={importMode === "overwrite"}
+                  onChange={() => setImportMode("overwrite")}
+                />
+                <label htmlFor="overwrite-mode" className="text-sm">
+                  Overwrite: Replace all facilities with imported data
+                </label>
+              </div>
+            </div>
+
+            {importPreview && importPreview.length > 0 && (
+              <div className="border rounded-lg overflow-hidden">
+                <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted sticky top-0">
+                      <tr>
+                        <th className="p-2 text-left">Status</th>
+                        <th className="p-2 text-left">Facility Name</th>
+                        <th className="p-2 text-left">Subcounty</th>
+                        <th className="p-2 text-left">Server Type</th>
+                        <th className="p-2 text-left">Simcards</th>
+                        <th className="p-2 text-left">LAN</th>
+                        <th className="p-2 text-left">Group</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.map((facility, index) => (
+                        <tr key={index} className="border-t">
+                          <td className="p-2">
+                            <Badge variant={facility.status === "new" ? "default" : "secondary"}>
+                              {facility.status === "new" ? "New" : "Update"}
+                            </Badge>
+                          </td>
+                          <td className="p-2 font-medium">{facility.name}</td>
+                          <td className="p-2">{facility.subcounty || "-"}</td>
+                          <td className="p-2">{facility.serverType || "-"}</td>
+                          <td className="p-2">{facility.simcardCount || 0}</td>
+                          <td className="p-2">{facility.hasLAN ? "Yes" : "No"}</td>
+                          <td className="p-2">{facility.facilityGroup || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="text-sm text-muted-foreground">
+              <p>
+                <strong>New:</strong> {importPreview?.filter(f => f.status === "new").length || 0} facilities
+              </p>
+              <p>
+                <strong>Update:</strong> {importPreview?.filter(f => f.status === "update").length || 0} facilities
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowImportDialog(false)
+                setImportPreview(null)
+                setExcelFile(null)
+              }}
+              disabled={isImporting}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmImport}
+              disabled={isImporting || !importPreview || importPreview.length === 0}
+            >
+              {isImporting ? "Importing..." : `Import ${importPreview?.length || 0} Facilities`}
             </Button>
           </DialogFooter>
         </DialogContent>

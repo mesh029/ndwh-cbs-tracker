@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
+import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
@@ -29,6 +30,83 @@ export function Dashboard() {
   const [selectedLocation, setSelectedLocation] = useState<Location | "all">("all")
   const [searchQuery, setSearchQuery] = useState("")
   const { toast } = useToast()
+  const [comparisonStats, setComparisonStats] = useState<{
+    cbs: { total: number; matched: number; unmatched: number; week?: string; timestamp?: Date; uploadedWhen?: string }
+    ndwh: { total: number; matched: number; unmatched: number; week?: string; timestamp?: Date; uploadedWhen?: string }
+  }>({
+    cbs: { total: 0, matched: 0, unmatched: 0 },
+    ndwh: { total: 0, matched: 0, unmatched: 0 },
+  })
+
+  // Helper function to calculate "uploaded when" text
+  const getUploadedWhen = (timestamp: Date | string | undefined): string => {
+    if (!timestamp) return ""
+    const now = new Date()
+    const uploadDate = new Date(timestamp)
+    const diffInMs = now.getTime() - uploadDate.getTime()
+    const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24))
+    const diffInWeeks = Math.floor(diffInDays / 7)
+    
+    if (diffInWeeks === 0) {
+      if (diffInDays === 0) return "today"
+      if (diffInDays === 1) return "yesterday"
+      return `${diffInDays} days ago`
+    } else if (diffInWeeks === 1) {
+      return "previous week"
+    } else if (diffInWeeks < 4) {
+      return `${diffInWeeks} weeks ago`
+    } else {
+      const diffInMonths = Math.floor(diffInWeeks / 4)
+      if (diffInMonths === 1) return "1 month ago"
+      return `${diffInMonths} months ago`
+    }
+  }
+
+  // Load comparison stats for selected location
+  useEffect(() => {
+    const loadComparisonStats = async () => {
+      const location = selectedLocation === "all" ? "Nyamira" : selectedLocation // Default to Nyamira for "all"
+      try {
+        const masterFacilitiesRes = await fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
+        const masterFacilitiesData = await masterFacilitiesRes.json()
+        const totalMasterFacilities = masterFacilitiesData.facilities?.length || 0
+        
+        const [cbsRes, ndwhRes] = await Promise.all([
+          fetch(`/api/comparisons?system=CBS&location=${location}`),
+          fetch(`/api/comparisons?system=NDWH&location=${location}`),
+        ])
+
+        if (cbsRes.ok && ndwhRes.ok) {
+          const cbsData = await cbsRes.json()
+          const ndwhData = await ndwhRes.json()
+          const cbsLatest = cbsData.comparisons?.[0]
+          const ndwhLatest = ndwhData.comparisons?.[0]
+
+          setComparisonStats({
+            cbs: {
+              total: totalMasterFacilities,
+              matched: cbsLatest?.matchedCount || 0,
+              unmatched: cbsLatest?.unmatchedCount || 0,
+              week: cbsLatest?.week,
+              timestamp: cbsLatest?.timestamp ? new Date(cbsLatest.timestamp) : undefined,
+              uploadedWhen: getUploadedWhen(cbsLatest?.timestamp),
+            },
+            ndwh: {
+              total: totalMasterFacilities,
+              matched: ndwhLatest?.matchedCount || 0,
+              unmatched: ndwhLatest?.unmatchedCount || 0,
+              week: ndwhLatest?.week,
+              timestamp: ndwhLatest?.timestamp ? new Date(ndwhLatest.timestamp) : undefined,
+              uploadedWhen: getUploadedWhen(ndwhLatest?.timestamp),
+            },
+          })
+        }
+      } catch (error) {
+        console.error("Error loading comparison stats:", error)
+      }
+    }
+    loadComparisonStats()
+  }, [selectedLocation])
 
   // Get data for all locations - using hooks properly
   const kakamegaData = useFacilityData(selectedSystem, "Kakamega")
@@ -163,9 +241,9 @@ export function Dashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
+          <h1 className="text-3xl font-bold">NDWH/CBS Upload Monitoring</h1>
           <p className="text-muted-foreground">
-            View reporting status across all locations
+            Monitor upload compliance and track facility reporting status across all locations
           </p>
         </div>
         <Select value={selectedSystem} onValueChange={(v) => setSelectedSystem(v as SystemType)}>
@@ -180,6 +258,117 @@ export function Dashboard() {
             ))}
           </SelectContent>
         </Select>
+      </div>
+
+      {/* NDWH/CBS Status Cards */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg">NDWH Status</CardTitle>
+            <CardDescription>
+              National Data Warehouse
+              {selectedLocation !== "all" && ` - ${selectedLocation}`}
+              {comparisonStats.ndwh.uploadedWhen && (
+                <span className="ml-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+                  • Uploaded {comparisonStats.ndwh.uploadedWhen}
+                </span>
+              )}
+              {comparisonStats.ndwh.week && (
+                <span className="ml-2 text-xs font-medium text-muted-foreground">
+                  • Week: {comparisonStats.ndwh.week}
+                </span>
+              )}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {comparisonStats.ndwh.total > 0 ? (
+              <>
+                <div className="text-2xl font-bold">{comparisonStats.ndwh.matched}/{comparisonStats.ndwh.total}</div>
+                <Progress value={(comparisonStats.ndwh.matched / comparisonStats.ndwh.total) * 100} className="mt-2" />
+                <div className="flex justify-between text-xs text-muted-foreground mt-2">
+                  <span>Unmatched: {comparisonStats.ndwh.unmatched}</span>
+                  <span>{((comparisonStats.ndwh.matched / comparisonStats.ndwh.total) * 100).toFixed(1)}%</span>
+                </div>
+                {comparisonStats.ndwh.timestamp && (
+                  <p className="text-xs text-muted-foreground mt-2 pt-2 border-t">
+                    Last updated: {comparisonStats.ndwh.timestamp.toLocaleDateString("en-US", { 
+                      weekday: "short", 
+                      year: "numeric", 
+                      month: "short", 
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit"
+                    })}
+                  </p>
+                )}
+              </>
+            ) : (
+              <div className="space-y-2">
+                <div className="text-2xl font-bold text-muted-foreground">0/0</div>
+                <p className="text-xs text-muted-foreground">
+                  No upload data found. Upload NDWH data via the{" "}
+                  <Link href="/uploads" className="text-primary underline hover:no-underline">
+                    Uploads page
+                  </Link>
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg">CBS Status</CardTitle>
+            <CardDescription>
+              Case-Based Surveillance
+              {selectedLocation !== "all" && ` - ${selectedLocation}`}
+              {comparisonStats.cbs.uploadedWhen && (
+                <span className="ml-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+                  • Uploaded {comparisonStats.cbs.uploadedWhen}
+                </span>
+              )}
+              {comparisonStats.cbs.week && (
+                <span className="ml-2 text-xs font-medium text-muted-foreground">
+                  • Week: {comparisonStats.cbs.week}
+                </span>
+              )}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {comparisonStats.cbs.total > 0 ? (
+              <>
+                <div className="text-2xl font-bold">{comparisonStats.cbs.matched}/{comparisonStats.cbs.total}</div>
+                <Progress value={(comparisonStats.cbs.matched / comparisonStats.cbs.total) * 100} className="mt-2" />
+                <div className="flex justify-between text-xs text-muted-foreground mt-2">
+                  <span>Unmatched: {comparisonStats.cbs.unmatched}</span>
+                  <span>{((comparisonStats.cbs.matched / comparisonStats.cbs.total) * 100).toFixed(1)}%</span>
+                </div>
+                {comparisonStats.cbs.timestamp && (
+                  <p className="text-xs text-muted-foreground mt-2 pt-2 border-t">
+                    Last updated: {comparisonStats.cbs.timestamp.toLocaleDateString("en-US", { 
+                      weekday: "short", 
+                      year: "numeric", 
+                      month: "short", 
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit"
+                    })}
+                  </p>
+                )}
+              </>
+            ) : (
+              <div className="space-y-2">
+                <div className="text-2xl font-bold text-muted-foreground">0/0</div>
+                <p className="text-xs text-muted-foreground">
+                  No upload data found. Upload CBS data via the{" "}
+                  <Link href="/uploads" className="text-primary underline hover:no-underline">
+                    Uploads page
+                  </Link>
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       <ReportingInput />
@@ -329,32 +518,17 @@ export function Dashboard() {
                       {/* Unmatched reported facilities */}
                       {data.comparison.unmatchedReported && data.comparison.unmatchedReported.length > 0 && (
                         <>
-                          <div className="mb-2 p-2 bg-yellow-50 dark:bg-yellow-950/20 rounded-md border border-yellow-300">
-                            <p className="text-xs text-yellow-700 dark:text-yellow-400 font-medium mb-1">
+                          <div className="mb-2 p-3 bg-yellow-50 dark:bg-yellow-950/20 rounded-md border border-yellow-300">
+                            <p className="text-xs text-yellow-700 dark:text-yellow-400 font-medium mb-2">
                               {data.comparison.unmatchedReported.length} unmatched reported {data.comparison.unmatchedReported.length === 1 ? 'facility' : 'facilities'} (not in master list)
                             </p>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 text-xs"
-                              onClick={async () => {
-                                const hookData = data.location === "Kakamega" ? kakamegaData :
-                                                 data.location === "Vihiga" ? vihigaData :
-                                                 data.location === "Nyamira" ? nyamiraData :
-                                                 kisumuData
-                                
-                                const count = await hookData.addMasterFacilitiesFromText(
-                                  data.comparison.unmatchedReported!.join('\n')
-                                )
-                                toast({
-                                  title: "Success",
-                                  description: `Added ${count} facility${count !== 1 ? 'ies' : ''} to master list`,
-                                })
-                              }}
-                            >
-                              <Plus className="mr-1 h-3 w-3" />
-                              Add All to Master List
-                            </Button>
+                            <p className="text-xs text-yellow-600 dark:text-yellow-500 mb-2">
+                              These facilities were reported but are not in the master facility list. To add them to the master list, please use the{" "}
+                              <Link href="/facility-manager" className="font-semibold underline hover:text-yellow-700 dark:hover:text-yellow-400">
+                                Facility Manager
+                              </Link>
+                              .
+                            </p>
                           </div>
                           {data.comparison.unmatchedReported.map((facility, index) => {
                             const locationHook = data.location === "Kakamega" ? kakamegaData :
@@ -378,31 +552,13 @@ export function Dashboard() {
                                   <p className="text-xs text-muted-foreground mt-1 italic">
                                     Note: {unmatchedComment}
                                   </p>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    <Link href="/facility-manager" className="text-primary hover:underline">
+                                      Add to master list in Facility Manager →
+                                    </Link>
+                                  </p>
                                 </div>
                                 <div className="flex gap-1 shrink-0">
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-7 w-7 p-0"
-                                    onClick={async () => {
-                                      const success = await locationHook.addMasterFacility(facility)
-                                      if (success) {
-                                        toast({
-                                          title: "Success",
-                                          description: "Facility added to master list",
-                                        })
-                                      } else {
-                                        toast({
-                                          title: "Error",
-                                          description: "Failed to add facility",
-                                          variant: "destructive",
-                                        })
-                                      }
-                                    }}
-                                    title="Add to master list"
-                                  >
-                                    <Plus className="h-3 w-3" />
-                                  </Button>
                                   <Badge variant="outline" className="border-yellow-300 text-yellow-700 dark:text-yellow-400">
                                     Unmatched
                                   </Badge>
