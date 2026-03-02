@@ -19,6 +19,7 @@ export interface Facility {
   location: string
   isMaster: boolean
   serverType?: string | null
+  routerType?: string | null
   simcardCount?: number | null
   hasLAN?: boolean
   facilityGroup?: string | null
@@ -189,6 +190,7 @@ export async function addMasterFacility(
           subcounty: subcounty || null,
           sublocation: options?.sublocation || null,
           serverType: options?.serverType || null,
+          routerType: options?.routerType || null,
           simcardCount: options?.simcardCount !== undefined ? options.simcardCount : null,
           hasLAN: options?.hasLAN !== undefined ? options.hasLAN : false,
           facilityGroup: options?.facilityGroup || null,
@@ -239,6 +241,7 @@ export async function updateMasterFacility(
   options?: {
     sublocation?: string;
     serverType?: string;
+    routerType?: string;
     simcardCount?: number;
     hasLAN?: boolean;
     facilityGroup?: string;
@@ -254,6 +257,7 @@ export async function updateMasterFacility(
         subcounty: subcounty || null,
         sublocation: options?.sublocation,
         serverType: options?.serverType,
+        routerType: options?.routerType,
         simcardCount: options?.simcardCount,
         hasLAN: options?.hasLAN,
         facilityGroup: options?.facilityGroup,

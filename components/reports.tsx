@@ -8,6 +8,7 @@ import { Download, Copy, FileText } from "lucide-react"
 import { useFacilityData } from "@/hooks/use-facility-data"
 import { useToast } from "@/components/ui/use-toast"
 import type { SystemType, Location } from "@/lib/storage"
+import * as XLSX from "xlsx"
 
 const SYSTEMS: SystemType[] = ["NDWH", "CBS"]
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
@@ -328,13 +329,301 @@ export function Reports() {
     })
   }
 
+  const exportToExcel = async () => {
+    try {
+      const wb = XLSX.utils.book_new()
+      const timestamp = new Date().toISOString().split("T")[0]
+
+      // 1. Summary Sheet - Facility Reporting Status
+      const summaryRows = displayData.map((data) => ({
+        Location: data.location,
+        System: selectedSystem,
+        "Total Facilities": data.total,
+        "Reported (Matched)": data.matchedReported,
+        "Unmatched Reported": data.unmatchedReported,
+        "Total Reported": data.reported,
+        Missing: data.missing,
+        "Progress %": data.total > 0 ? Number(((data.matchedReported / data.total) * 100).toFixed(1)) : 0,
+      }))
+      const summaryWs = XLSX.utils.json_to_sheet(summaryRows)
+      summaryWs["!cols"] = [
+        { wch: 15 }, { wch: 10 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 15 }, { wch: 12 }, { wch: 12 }
+      ]
+      XLSX.utils.book_append_sheet(wb, summaryWs, "Summary")
+
+      // 2. Facility Status Sheet - Detailed facility reporting status
+      const detailRows = displayData.flatMap((data) => [
+        ...data.reportedFacilities.map((facility) => ({
+          Location: data.location,
+          "Facility Name": facility,
+          Status: "Has Reported",
+          Category: "Matched",
+        })),
+        ...data.unmatchedReportedFacilities.map((facility) => ({
+          Location: data.location,
+          "Facility Name": facility,
+          Status: "Has Reported",
+          Category: "Unmatched",
+        })),
+        ...data.missingFacilities.map((facility) => ({
+          Location: data.location,
+          "Facility Name": facility,
+          Status: "Has Not Reported",
+          Category: "Missing",
+        })),
+      ])
+      const detailWs = XLSX.utils.json_to_sheet(detailRows)
+      detailWs["!cols"] = [{ wch: 15 }, { wch: 40 }, { wch: 15 }, { wch: 15 }]
+      XLSX.utils.book_append_sheet(wb, detailWs, "Facility Status")
+
+      // 3. Facility Inventory Sheet - Server types, router types, simcards, LAN per facility
+      const locations = selectedLocation === "all" ? LOCATIONS : [selectedLocation]
+      const facilityInventoryRows: any[] = []
+      
+      for (const loc of locations) {
+        // Fetch facilities with inventory data from both systems
+        const systems = ["NDWH", "CBS"]
+        for (const sys of systems) {
+          try {
+            const facRes = await fetch(`/api/facilities?system=${sys}&location=${loc}&isMaster=true`)
+            if (facRes.ok) {
+              const facData = await facRes.json()
+              for (const facility of facData.facilities || []) {
+                facilityInventoryRows.push({
+                  Location: loc,
+                  System: sys,
+                  "Facility Name": facility.name || "",
+                  Subcounty: facility.subcounty || "",
+                  "Server Type": facility.serverType || "",
+                  "Router Type": facility.routerType || "",
+                  "Simcard Count": facility.simcardCount || 0,
+                  "Has LAN": facility.hasLAN === true ? "Yes" : facility.hasLAN === false ? "No" : "",
+                  "Facility Group": facility.facilityGroup || "",
+                })
+              }
+            }
+          } catch (error) {
+            console.error(`Error fetching ${sys} facilities for ${loc}:`, error)
+          }
+        }
+      }
+      
+      if (facilityInventoryRows.length > 0) {
+        const inventoryWs = XLSX.utils.json_to_sheet(facilityInventoryRows)
+        inventoryWs["!cols"] = [
+          { wch: 15 }, { wch: 10 }, { wch: 40 }, { wch: 20 }, { wch: 25 }, { wch: 25 }, { wch: 15 }, { wch: 12 }, { wch: 20 }
+        ]
+        XLSX.utils.book_append_sheet(wb, inventoryWs, "Facility Inventory")
+      }
+
+      // 4. Separate Asset Sheets - Servers, Routers, Simcards, LAN
+      const serverRows: any[] = []
+      const routerRows: any[] = []
+      const simcardRows: any[] = []
+      const lanRows: any[] = []
+
+      for (const loc of locations) {
+        // Servers
+        try {
+          const serverRes = await fetch(`/api/assets/servers?location=${loc}`)
+          if (serverRes.ok) {
+            const serverData = await serverRes.json()
+            for (const asset of serverData.assets || []) {
+              serverRows.push({
+                Location: loc,
+                "Facility Name": asset.facilityName || "",
+                Subcounty: asset.subcounty || "",
+                "Server Type": asset.serverType || "",
+                "Asset Tag": asset.assetTag || "",
+                "Serial Number": asset.serialNumber || "",
+                Notes: asset.notes || "",
+              })
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching servers for ${loc}:`, error)
+        }
+
+        // Routers
+        try {
+          const routerRes = await fetch(`/api/assets/routers?location=${loc}`)
+          if (routerRes.ok) {
+            const routerData = await routerRes.json()
+            for (const asset of routerData.assets || []) {
+              routerRows.push({
+                Location: loc,
+                "Facility Name": asset.facilityName || "",
+                Subcounty: asset.subcounty || "",
+                "Router Type": asset.routerType || "",
+                "Asset Tag": asset.assetTag || "",
+                "Serial Number": asset.serialNumber || "",
+                Notes: asset.notes || "",
+              })
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching routers for ${loc}:`, error)
+        }
+
+        // Simcards
+        try {
+          const simcardRes = await fetch(`/api/assets/simcards?location=${loc}`)
+          if (simcardRes.ok) {
+            const simcardData = await simcardRes.json()
+            for (const asset of simcardData.assets || []) {
+              simcardRows.push({
+                Location: loc,
+                "Facility Name": asset.facilityName || "",
+                Subcounty: asset.subcounty || "",
+                "Phone Number": asset.phoneNumber || "",
+                Provider: asset.provider || "",
+                "Asset Tag": asset.assetTag || "",
+                "Serial Number": asset.serialNumber || "",
+                Notes: asset.notes || "",
+              })
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching simcards for ${loc}:`, error)
+        }
+
+        // LAN
+        try {
+          const lanRes = await fetch(`/api/assets/lan?location=${loc}`)
+          if (lanRes.ok) {
+            const lanData = await lanRes.json()
+            for (const asset of lanData.assets || []) {
+              lanRows.push({
+                Location: loc,
+                "Facility Name": asset.facilityName || "",
+                Subcounty: asset.subcounty || "",
+                "Has LAN": asset.hasLAN === true ? "Yes" : asset.hasLAN === false ? "No" : "",
+                "LAN Type": asset.lanType || "",
+                Notes: asset.notes || "",
+              })
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching LAN for ${loc}:`, error)
+        }
+      }
+
+      if (serverRows.length > 0) {
+        const serverWs = XLSX.utils.json_to_sheet(serverRows)
+        serverWs["!cols"] = [{ wch: 15 }, { wch: 40 }, { wch: 20 }, { wch: 25 }, { wch: 15 }, { wch: 20 }, { wch: 30 }]
+        XLSX.utils.book_append_sheet(wb, serverWs, "Servers")
+      }
+      if (routerRows.length > 0) {
+        const routerWs = XLSX.utils.json_to_sheet(routerRows)
+        routerWs["!cols"] = [{ wch: 15 }, { wch: 40 }, { wch: 20 }, { wch: 25 }, { wch: 15 }, { wch: 20 }, { wch: 30 }]
+        XLSX.utils.book_append_sheet(wb, routerWs, "Routers")
+      }
+      if (simcardRows.length > 0) {
+        const simcardWs = XLSX.utils.json_to_sheet(simcardRows)
+        simcardWs["!cols"] = [{ wch: 15 }, { wch: 40 }, { wch: 20 }, { wch: 18 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 30 }]
+        XLSX.utils.book_append_sheet(wb, simcardWs, "Simcards")
+      }
+      if (lanRows.length > 0) {
+        const lanWs = XLSX.utils.json_to_sheet(lanRows)
+        lanWs["!cols"] = [{ wch: 15 }, { wch: 40 }, { wch: 20 }, { wch: 12 }, { wch: 15 }, { wch: 30 }]
+        XLSX.utils.book_append_sheet(wb, lanWs, "LAN")
+      }
+
+      // 5. Tickets Sheet - Complete ticket information with all new fields
+      const ticketRows: any[] = []
+
+      for (const loc of locations) {
+        try {
+          const ticketRes = await fetch(`/api/tickets?location=${loc}`)
+          if (ticketRes.ok) {
+            const ticketData = await ticketRes.json()
+            for (const t of ticketData.tickets || []) {
+              ticketRows.push({
+                Location: t.location || loc,
+                Subcounty: t.subcounty || "",
+                "Facility Name": t.facilityName || "",
+                Status: t.status || "",
+                "Issue Type": t.issueType || "",
+                Categories: t.serverCondition || "",
+                Problem: t.problem || "",
+                Solution: t.solution || "",
+                "Reported By": t.reportedBy || "",
+                "Assigned To": t.assignedTo || "",
+                "Reporter Details": t.reporterDetails || "",
+                "Resolved By": t.resolvedBy || "",
+                "Resolver Details": t.resolverDetails || "",
+                "Resolution Steps": t.resolutionSteps || "",
+                "Server Type": t.serverType || "",
+                Week: t.week || "",
+                "Created At": t.createdAt ? new Date(t.createdAt).toLocaleString() : "",
+                "Updated At": t.updatedAt ? new Date(t.updatedAt).toLocaleString() : "",
+                "Resolved At": t.resolvedAt ? new Date(t.resolvedAt).toLocaleString() : "",
+              })
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching tickets for ${loc}:`, error)
+        }
+      }
+
+      if (ticketRows.length > 0) {
+        const ticketWs = XLSX.utils.json_to_sheet(ticketRows)
+        ticketWs["!cols"] = [
+          { wch: 15 }, { wch: 20 }, { wch: 40 }, { wch: 15 }, { wch: 15 }, { wch: 30 }, { wch: 50 }, { wch: 50 },
+          { wch: 20 }, { wch: 20 }, { wch: 30 }, { wch: 20 }, { wch: 30 }, { wch: 50 }, { wch: 15 }, { wch: 25 },
+          { wch: 20 }, { wch: 20 }, { wch: 20 }
+        ]
+        XLSX.utils.book_append_sheet(wb, ticketWs, "Tickets")
+      }
+
+      // 6. Asset Summary Sheet - Statistics by asset type and location
+      const assetSummaryRows: any[] = []
+      for (const loc of locations) {
+        const counts = {
+          servers: serverRows.filter(r => r.Location === loc).length,
+          routers: routerRows.filter(r => r.Location === loc).length,
+          simcards: simcardRows.filter(r => r.Location === loc).length,
+          lan: lanRows.filter(r => r.Location === loc).length,
+        }
+        assetSummaryRows.push({
+          Location: loc,
+          Servers: counts.servers,
+          Routers: counts.routers,
+          Simcards: counts.simcards,
+          "LAN Facilities": counts.lan,
+          "Total Assets": counts.servers + counts.routers + counts.simcards + counts.lan,
+        })
+      }
+      if (assetSummaryRows.length > 0) {
+        const assetSummaryWs = XLSX.utils.json_to_sheet(assetSummaryRows)
+        assetSummaryWs["!cols"] = [{ wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 15 }]
+        XLSX.utils.book_append_sheet(wb, assetSummaryWs, "Asset Summary")
+      }
+
+      const locationSuffix = selectedLocation !== "all" ? `-${selectedLocation}` : "-AllLocations"
+      XLSX.writeFile(wb, `comprehensive-report-${selectedSystem}${locationSuffix}-${timestamp}.xlsx`)
+
+      toast({
+        title: "Success",
+        description: "Comprehensive Excel report exported with all system data",
+      })
+    } catch (error) {
+      console.error("Error exporting Excel report:", error)
+      toast({
+        title: "Error",
+        description: "Failed to export Excel report",
+        variant: "destructive",
+      })
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Reports & Export</h1>
           <p className="text-muted-foreground">
-            Generate and export facility reporting summaries
+            Generate comprehensive reports including facility status, assets (servers, routers, simcards, LAN), tickets, and inventory data
           </p>
         </div>
         <Select value={selectedSystem} onValueChange={(v) => setSelectedSystem(v as SystemType)}>
@@ -371,6 +660,10 @@ export function Reports() {
       </div>
 
       <div className="flex flex-wrap gap-4">
+        <Button onClick={exportToExcel}>
+          <Download className="mr-2 h-4 w-4" />
+          Export Comprehensive Excel {selectedLocation !== "all" ? `(${selectedLocation})` : "(All Locations)"}
+        </Button>
         <Button onClick={exportToCSV}>
           <Download className="mr-2 h-4 w-4" />
           Export CSV {selectedLocation !== "all" ? `(${selectedLocation})` : "(All Locations)"}

@@ -14,8 +14,11 @@ import {
   Server, 
   AlertCircle, 
   Building2,
-  MapPin
+  MapPin,
+  ChevronDown,
+  Wifi
 } from "lucide-react"
+import { SectionUpload } from "./section-upload"
 import { useToast } from "@/components/ui/use-toast"
 import { useFacilityData } from "@/hooks/use-facility-data"
 import { facilitiesMatch, normalizeServerType } from "@/lib/utils"
@@ -27,11 +30,21 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart"
 import type { ChartConfig } from "@/components/ui/chart"
+import type { Location } from "@/lib/storage"
 
 const STATUSES = ["open", "in-progress", "resolved"] as const
 type TicketStatus = typeof STATUSES[number]
 
-export function NyamiraDashboard() {
+interface NyamiraDashboardProps {
+  location?: Location
+}
+
+const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
+
+export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardProps = {}) {
+  // Use state for location so users can switch
+  const [selectedLocation, setSelectedLocation] = useState<Location>(propLocation || "Nyamira")
+  const location: Location = selectedLocation
   const [serverDistribution, setServerDistribution] = useState<Array<{ serverType: string; count: number; facilities: string[] }>>([])
   const [tickets, setTickets] = useState<any[]>([])
   const [simcardDistribution, setSimcardDistribution] = useState<{ totalSimcards: number; facilitiesWithSimcards: number; facilitiesWithLAN: number }>({
@@ -63,8 +76,8 @@ export function NyamiraDashboard() {
     cbs: { total: 0, matched: 0, unmatched: 0 },
     ndwh: { total: 0, matched: 0, unmatched: 0 },
   })
-  const [sublocationDistribution, setSublocationDistribution] = useState<Array<{
-    sublocation: string;
+  const [subcountyDistribution, setSubcountyDistribution] = useState<Array<{
+    subcounty: string;
     serverTypes: Array<{ serverType: string; count: number; facilities: string[] }>;
     totalFacilities: number;
   }>>([])
@@ -84,8 +97,8 @@ export function NyamiraDashboard() {
   const { toast } = useToast()
 
   // Get facility data for both systems
-  const ndwhData = useFacilityData("NDWH", "Nyamira")
-  const cbsData = useFacilityData("CBS", "Nyamira")
+  const ndwhData = useFacilityData("NDWH", location)
+  const cbsData = useFacilityData("CBS", location)
 
   // Load comparison stats, server distribution, tickets, and simcard data
   useEffect(() => {
@@ -98,7 +111,7 @@ export function NyamiraDashboard() {
           loadComparisonStats(),
           loadServerDistribution(),
           loadSimcardDistribution(),
-          loadSublocationDistribution(),
+          loadSubcountyDistribution(),
         ])
         console.log("✅ Initial data loaded, loading tickets...")
         // Load tickets immediately (don't wait for serverDistribution)
@@ -112,7 +125,7 @@ export function NyamiraDashboard() {
       loadAllData()
     }, 100)
     return () => clearTimeout(timer)
-  }, [])
+  }, [location]) // Reload when location changes
 
   // Helper function to calculate "uploaded when" text
   const getUploadedWhen = (timestamp: Date | string | undefined, weekDate: Date | string | undefined): string => {
@@ -146,13 +159,13 @@ export function NyamiraDashboard() {
       console.log("🔄 Loading comparison stats...")
       
       // Get the total master facilities count (use NDWH master list for both CBS and NDWH)
-      const masterFacilitiesRes = await fetch("/api/facilities?system=NDWH&location=Nyamira&isMaster=true")
+      const masterFacilitiesRes = await fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
       const masterFacilitiesData = await masterFacilitiesRes.json()
       const totalMasterFacilities = masterFacilitiesData.facilities?.length || 0
       
       const [cbsRes, ndwhRes] = await Promise.all([
-        fetch("/api/comparisons?system=CBS&location=Nyamira"),
-        fetch("/api/comparisons?system=NDWH&location=Nyamira"),
+        fetch(`/api/comparisons?system=CBS&location=${location}`),
+        fetch(`/api/comparisons?system=NDWH&location=${location}`),
       ])
 
       if (!cbsRes.ok || !ndwhRes.ok) {
@@ -214,12 +227,12 @@ export function NyamiraDashboard() {
 
   const loadTicketsAndAnalytics = async () => {
     try {
-      console.log("🔄 Loading tickets for Nyamira...")
+      console.log(`🔄 Loading tickets for ${location}...`)
       
       // Load tickets and facilities in parallel
       const [ticketsRes, facilitiesRes] = await Promise.all([
-        fetch("/api/tickets?location=Nyamira"),
-        fetch("/api/facilities?system=NDWH&location=Nyamira&isMaster=true"),
+        fetch(`/api/tickets?location=${location}`),
+        fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`),
       ])
       
       if (!ticketsRes.ok) {
@@ -237,11 +250,11 @@ export function NyamiraDashboard() {
       }
       
       const ticketsData = await ticketsRes.json()
-      const nyamiraTickets = ticketsData.tickets || []
-      console.log(`✅ Loaded ${nyamiraTickets.length} tickets for Nyamira`)
+      const locationTickets = ticketsData.tickets || []
+      console.log(`✅ Loaded ${locationTickets.length} tickets for ${location}`)
       
       // ALWAYS set tickets state first
-      setTickets(nyamiraTickets)
+      setTickets(locationTickets)
       
       // Load facilities
       let facilities: any[] = []
@@ -252,8 +265,8 @@ export function NyamiraDashboard() {
       }
       
       // Always set analytics, even if no tickets (to prevent loading state)
-      if (nyamiraTickets.length === 0) {
-        console.warn("⚠️ No tickets found for Nyamira")
+      if (locationTickets.length === 0) {
+        console.warn(`⚠️ No tickets found for ${location}`)
         setTicketAnalytics({
           byServerType: [],
           byProblem: [],
@@ -271,7 +284,7 @@ export function NyamiraDashboard() {
       const byServerTypeComprehensive: Record<string, { tickets: number; facilities: number; simcards: number; lanFacilities: number }> = {}
       const byNetworkType: Record<string, { tickets: number; facilities: number }> = {}
 
-      nyamiraTickets.forEach((ticket: any) => {
+      locationTickets.forEach((ticket: any) => {
         // Get categories from serverCondition (split by comma)
         const categories = (ticket.serverCondition || "Unknown")
           .split(',')
@@ -404,7 +417,7 @@ export function NyamiraDashboard() {
       const networkCorrelation: Record<string, { networkIssues: number; facilities: number }> = {}
 
       // Process each ticket
-      nyamiraTickets.forEach((ticket: any) => {
+      locationTickets.forEach((ticket: any) => {
         // Get issue type - use ticket.issueType if available, otherwise determine from serverCondition
         let issueType: string = ticket.issueType || "server"
         if (!ticket.issueType && ticket.serverCondition) {
@@ -595,7 +608,7 @@ export function NyamiraDashboard() {
 
       // Log detailed analytics before setting
       console.log("📊 Ticket Analytics Summary:", {
-        totalTickets: nyamiraTickets.length,
+        totalTickets: locationTickets.length,
         byIssueType: {
           server: byIssueType.server,
           network: byIssueType.network,
@@ -647,11 +660,11 @@ export function NyamiraDashboard() {
         return () => clearTimeout(timer)
       }
     }
-  }, [serverDistribution.length, tickets.length]) // Recalculate when server distribution or tickets change
+  }, [serverDistribution.length, tickets.length, location]) // Recalculate when server distribution, tickets, or location changes
 
   const loadServerDistribution = async () => {
     try {
-      const response = await fetch("/api/facilities?system=NDWH&location=Nyamira&isMaster=true")
+      const response = await fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
       if (!response.ok) {
         console.error("Failed to fetch facilities for server distribution:", response.status, response.statusText)
         const errorText = await response.text()
@@ -702,7 +715,7 @@ export function NyamiraDashboard() {
 
   const loadSimcardDistribution = async () => {
     try {
-      const response = await fetch("/api/facilities?system=NDWH&location=Nyamira&isMaster=true")
+      const response = await fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
       if (!response.ok) {
         console.error("Failed to fetch facilities for simcard distribution:", response.status, response.statusText)
         const errorText = await response.text()
@@ -766,22 +779,22 @@ export function NyamiraDashboard() {
     }
   }
 
-  const loadSublocationDistribution = async () => {
+  const loadSubcountyDistribution = async () => {
     try {
-      console.log("🔄 Loading sublocation distribution...")
-      const response = await fetch("/api/facilities?system=NDWH&location=Nyamira&isMaster=true")
+      console.log("🔄 Loading subcounty distribution...")
+      const response = await fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
       if (!response.ok) {
-        console.error("Failed to fetch facilities for sublocation distribution:", response.status)
+        console.error("Failed to fetch facilities for subcounty distribution:", response.status)
         return
       }
       const data = await response.json()
       const facilities = data.facilities || []
       
-      // Group by sublocation, then by server type
-      const sublocationMap: Record<string, Record<string, { count: number; facilities: string[] }>> = {}
+      // Group by subcounty, then by server type
+      const subcountyMap: Record<string, Record<string, { count: number; facilities: string[] }>> = {}
       
       facilities.forEach((facility: any) => {
-        const sublocation = facility.sublocation || "Unknown Sublocation"
+        const subcounty = facility.subcounty || "Unknown Subcounty"
         const serverType = normalizeServerType(facility.serverType) || "Unknown"
         
         // Skip "Tickets" as it's not a server type
@@ -789,22 +802,22 @@ export function NyamiraDashboard() {
           return
         }
         
-        if (!sublocationMap[sublocation]) {
-          sublocationMap[sublocation] = {}
+        if (!subcountyMap[subcounty]) {
+          subcountyMap[subcounty] = {}
         }
         
-        if (!sublocationMap[sublocation][serverType]) {
-          sublocationMap[sublocation][serverType] = { count: 0, facilities: [] }
+        if (!subcountyMap[subcounty][serverType]) {
+          subcountyMap[subcounty][serverType] = { count: 0, facilities: [] }
         }
         
-        sublocationMap[sublocation][serverType].count++
-        sublocationMap[sublocation][serverType].facilities.push(facility.name)
+        subcountyMap[subcounty][serverType].count++
+        subcountyMap[subcounty][serverType].facilities.push(facility.name)
       })
       
       // Convert to array format
-      const distributionArray = Object.entries(sublocationMap)
-        .map(([sublocation, serverTypes]) => ({
-          sublocation,
+      const distributionArray = Object.entries(subcountyMap)
+        .map(([subcounty, serverTypes]) => ({
+          subcounty,
           serverTypes: Object.entries(serverTypes)
             .map(([serverType, data]) => ({
               serverType,
@@ -816,10 +829,10 @@ export function NyamiraDashboard() {
         }))
         .sort((a, b) => b.totalFacilities - a.totalFacilities)
       
-      console.log(`✅ Loaded sublocation distribution: ${distributionArray.length} sublocations`)
-      setSublocationDistribution(distributionArray)
+      console.log(`✅ Loaded subcounty distribution: ${distributionArray.length} subcounties`)
+      setSubcountyDistribution(distributionArray)
     } catch (error) {
-      console.error("Error loading sublocation distribution:", error)
+      console.error("Error loading subcounty distribution:", error)
     }
   }
 
@@ -862,122 +875,43 @@ export function NyamiraDashboard() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Nyamira Dashboard</h1>
+        <div className="flex-1">
+          <h1 className="text-3xl font-bold">County Dashboard</h1>
           <p className="text-muted-foreground">
-            Comprehensive facility and upload management for Nyamira
+            Comprehensive facility and upload management dashboard
           </p>
         </div>
+        <div className="flex items-center gap-3">
+          <label htmlFor="location-select" className="text-sm font-medium text-muted-foreground">
+            Location:
+          </label>
+          <Select 
+            value={selectedLocation} 
+            onValueChange={(value) => setSelectedLocation(value as Location)}
+          >
+            <SelectTrigger id="location-select" className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LOCATIONS.map((loc) => (
+                <SelectItem key={loc} value={loc}>
+                  {loc}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      
+      <div className="mb-4">
+        <h2 className="text-2xl font-semibold">{location} Analytics</h2>
+        <p className="text-sm text-muted-foreground">
+          View detailed analytics and insights for {location}
+        </p>
       </div>
 
       {/* Overview Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">NDWH Status</CardTitle>
-            <CardDescription>
-              National Data Warehouse
-              {comparisonStats.ndwh.uploadedWhen && (
-                <span className="ml-2 text-xs font-medium text-amber-600 dark:text-amber-400">
-                  • Uploaded {comparisonStats.ndwh.uploadedWhen}
-                </span>
-              )}
-              {comparisonStats.ndwh.week && (
-                <span className="ml-2 text-xs font-medium text-muted-foreground">
-                  • Week: {comparisonStats.ndwh.week}
-                </span>
-              )}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {comparisonStats.ndwh.total > 0 ? (
-              <>
-                <div className="text-2xl font-bold">{comparisonStats.ndwh.matched}/{comparisonStats.ndwh.total}</div>
-                <Progress value={(comparisonStats.ndwh.matched / comparisonStats.ndwh.total) * 100} className="mt-2" />
-                <div className="flex justify-between text-xs text-muted-foreground mt-2">
-                  <span>Unmatched: {comparisonStats.ndwh.unmatched}</span>
-                  <span>{((comparisonStats.ndwh.matched / comparisonStats.ndwh.total) * 100).toFixed(1)}%</span>
-                </div>
-                {comparisonStats.ndwh.timestamp && (
-                  <p className="text-xs text-muted-foreground mt-2 pt-2 border-t">
-                    Last updated: {new Date(comparisonStats.ndwh.timestamp).toLocaleDateString("en-US", { 
-                      weekday: "short", 
-                      year: "numeric", 
-                      month: "short", 
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit"
-                    })}
-                  </p>
-                )}
-              </>
-            ) : (
-              <div className="space-y-2">
-                <div className="text-2xl font-bold text-muted-foreground">0/0</div>
-                <p className="text-xs text-muted-foreground">
-                  No upload data found. Upload NDWH data via the{" "}
-                  <a href="/uploads" className="text-primary underline hover:no-underline">
-                    Uploads page
-                  </a>
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">CBS Status</CardTitle>
-            <CardDescription>
-              Case-Based Surveillance
-              {comparisonStats.cbs.uploadedWhen && (
-                <span className="ml-2 text-xs font-medium text-amber-600 dark:text-amber-400">
-                  • Uploaded {comparisonStats.cbs.uploadedWhen}
-                </span>
-              )}
-              {comparisonStats.cbs.week && (
-                <span className="ml-2 text-xs font-medium text-muted-foreground">
-                  • Week: {comparisonStats.cbs.week}
-                </span>
-              )}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {comparisonStats.cbs.total > 0 ? (
-              <>
-                <div className="text-2xl font-bold">{comparisonStats.cbs.matched}/{comparisonStats.cbs.total}</div>
-                <Progress value={(comparisonStats.cbs.matched / comparisonStats.cbs.total) * 100} className="mt-2" />
-                <div className="flex justify-between text-xs text-muted-foreground mt-2">
-                  <span>Unmatched: {comparisonStats.cbs.unmatched}</span>
-                  <span>{((comparisonStats.cbs.matched / comparisonStats.cbs.total) * 100).toFixed(1)}%</span>
-                </div>
-                {comparisonStats.cbs.timestamp && (
-                  <p className="text-xs text-muted-foreground mt-2 pt-2 border-t">
-                    Last updated: {new Date(comparisonStats.cbs.timestamp).toLocaleDateString("en-US", { 
-                      weekday: "short", 
-                      year: "numeric", 
-                      month: "short", 
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit"
-                    })}
-                  </p>
-                )}
-              </>
-            ) : (
-              <div className="space-y-2">
-                <div className="text-2xl font-bold text-muted-foreground">0/0</div>
-                <p className="text-xs text-muted-foreground">
-                  No upload data found. Upload CBS data via the{" "}
-                  <a href="/uploads" className="text-primary underline hover:no-underline">
-                    Uploads page
-                  </a>
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-lg">Total Facilities</CardTitle>
@@ -989,7 +923,7 @@ export function NyamiraDashboard() {
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               <Building2 className="inline h-3 w-3 mr-1" />
-              Nyamira facilities ({serverDistribution.reduce((sum, item) => sum + item.count, 0)} with servers)
+              {location} facilities ({serverDistribution.reduce((sum, item) => sum + item.count, 0)} with servers)
             </p>
           </CardContent>
         </Card>
@@ -998,14 +932,21 @@ export function NyamiraDashboard() {
           <HoverCardTrigger asChild>
             <Card className="cursor-pointer hover:bg-accent/50 transition-colors">
               <CardHeader className="pb-2">
-                <CardTitle className="text-lg">Total Tickets</CardTitle>
-                <CardDescription>All issues reported - Hover for main issues</CardDescription>
+                <div>
+                  <CardTitle className="text-lg">Total Tickets</CardTitle>
+                  <CardDescription>All issues reported - Hover for main issues</CardDescription>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{tickets.length || 0}</div>
                 <p className="text-xs text-muted-foreground mt-1">
                   {tickets.filter((t: any) => t.status === "resolved").length} resolved
                 </p>
+                <div className="mt-4 pt-4 border-t">
+                  <SectionUpload section="ticket" location={location} onUploadComplete={() => {
+                    loadTicketsAndAnalytics()
+                  }} />
+                </div>
               </CardContent>
             </Card>
           </HoverCardTrigger>
@@ -1088,13 +1029,23 @@ export function NyamiraDashboard() {
       {serverDistribution.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Server className="h-5 w-5" />
-              Server Distribution by Facility
-            </CardTitle>
-            <CardDescription>
-              Distribution of facilities across different server types from the ODS file
-            </CardDescription>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <CardTitle className="flex items-center gap-2">
+                  <Server className="h-5 w-5" />
+                  Server Distribution by Facility
+                </CardTitle>
+                <CardDescription>
+                  Distribution of facilities across different server types from the ODS file
+                </CardDescription>
+              </div>
+              <div className="flex-shrink-0">
+                <SectionUpload section="server" location={location} onUploadComplete={() => {
+                  loadServerDistribution()
+                  loadTicketsAndAnalytics()
+                }} />
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="grid gap-6 md:grid-cols-2">
@@ -1249,29 +1200,29 @@ export function NyamiraDashboard() {
         </Card>
       )}
 
-      {/* Server Type Distribution by Sublocation */}
-      {sublocationDistribution.length > 0 && (
+      {/* Server Type Distribution by Subcounty */}
+      {subcountyDistribution.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <MapPin className="h-5 w-5" />
-              Server Type Distribution by Sublocation
+              Server Type Distribution by Subcounty
             </CardTitle>
             <CardDescription>
-              Compare server type distributions across different sublocations in Nyamira
+              Compare server type distributions across different subcounties in {location}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-6">
               {/* Stacked Bar Chart - Server Types per Sublocation */}
               <div>
-                <h3 className="text-lg font-semibold mb-4">Server Types by Sublocation (Stacked)</h3>
+                <h3 className="text-lg font-semibold mb-4">Server Types by Subcounty (Stacked)</h3>
                 <ChartContainer config={serverChartConfig}>
                   <ResponsiveContainer width="100%" height={400}>
                     <BarChart
-                      data={sublocationDistribution.map(subloc => {
-                        const data: any = { sublocation: subloc.sublocation }
-                        subloc.serverTypes.forEach(st => {
+                      data={subcountyDistribution.map(subcounty => {
+                        const data: any = { subcounty: subcounty.subcounty }
+                        subcounty.serverTypes.forEach(st => {
                           data[st.serverType] = st.count
                         })
                         return data
@@ -1280,7 +1231,7 @@ export function NyamiraDashboard() {
                     >
                       <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                       <XAxis 
-                        dataKey="sublocation" 
+                        dataKey="subcounty" 
                         tickLine={false} 
                         axisLine={false} 
                         className="text-xs"
@@ -1316,7 +1267,7 @@ export function NyamiraDashboard() {
                         }}
                       />
                       <Legend />
-                      {sublocationDistribution[0]?.serverTypes.map((st, index) => (
+                      {subcountyDistribution[0]?.serverTypes.map((st, index) => (
                         <Bar 
                           key={st.serverType}
                           dataKey={st.serverType}
@@ -1332,13 +1283,13 @@ export function NyamiraDashboard() {
 
               {/* Grouped Bar Chart - Comparison View */}
               <div>
-                <h3 className="text-lg font-semibold mb-4">Server Type Comparison Across Sublocations</h3>
+                <h3 className="text-lg font-semibold mb-4">Server Type Comparison Across Subcounties</h3>
                 <ChartContainer config={serverChartConfig}>
                   <ResponsiveContainer width="100%" height={400}>
                     <BarChart
-                      data={sublocationDistribution.map(subloc => {
-                        const data: any = { sublocation: subloc.sublocation }
-                        subloc.serverTypes.forEach(st => {
+                      data={subcountyDistribution.map(subcounty => {
+                        const data: any = { subcounty: subcounty.subcounty }
+                        subcounty.serverTypes.forEach(st => {
                           data[st.serverType] = st.count
                         })
                         return data
@@ -1347,7 +1298,7 @@ export function NyamiraDashboard() {
                     >
                       <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                       <XAxis 
-                        dataKey="sublocation" 
+                        dataKey="subcounty" 
                         tickLine={false} 
                         axisLine={false} 
                         className="text-xs"
@@ -1383,7 +1334,7 @@ export function NyamiraDashboard() {
                         }}
                       />
                       <Legend />
-                      {sublocationDistribution[0]?.serverTypes.map((st, index) => (
+                      {subcountyDistribution[0]?.serverTypes.map((st, index) => (
                         <Bar 
                           key={st.serverType}
                           dataKey={st.serverType}
@@ -1397,18 +1348,18 @@ export function NyamiraDashboard() {
                 </ChartContainer>
               </div>
 
-              {/* Detailed Breakdown by Sublocation */}
+              {/* Detailed Breakdown by Subcounty */}
               <div>
-                <h3 className="text-lg font-semibold mb-4">Detailed Breakdown by Sublocation</h3>
+                <h3 className="text-lg font-semibold mb-4">Detailed Breakdown by Subcounty</h3>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {sublocationDistribution.map((subloc) => (
-                    <Card key={subloc.sublocation} className="p-4">
+                  {subcountyDistribution.map((subcounty) => (
+                    <Card key={subcounty.subcounty} className="p-4">
                       <div className="flex items-center justify-between mb-3">
-                        <h4 className="font-semibold text-base">{subloc.sublocation}</h4>
-                        <Badge variant="secondary">{subloc.totalFacilities} facilities</Badge>
+                        <h4 className="font-semibold text-base">{subcounty.subcounty}</h4>
+                        <Badge variant="secondary">{subcounty.totalFacilities} facilities</Badge>
                       </div>
                       <div className="space-y-2">
-                        {subloc.serverTypes.map((st, index) => (
+                        {subcounty.serverTypes.map((st, index) => (
                           <div key={st.serverType} className="flex items-center justify-between text-sm">
                             <div className="flex items-center gap-2">
                               <div 
@@ -1421,7 +1372,7 @@ export function NyamiraDashboard() {
                           </div>
                         ))}
                       </div>
-                      {subloc.serverTypes.length === 0 && (
+                      {subcounty.serverTypes.length === 0 && (
                         <p className="text-xs text-muted-foreground">No server type data</p>
                       )}
                     </Card>
@@ -1436,12 +1387,24 @@ export function NyamiraDashboard() {
       {/* Simcard & LAN Distribution Section */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            📱 Simcard & LAN Distribution
-          </CardTitle>
-          <CardDescription>
-            Distribution of simcards and LAN availability across Nyamira facilities
-          </CardDescription>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <CardTitle className="flex items-center gap-2">
+                📱 Simcard & LAN Distribution
+              </CardTitle>
+              <CardDescription>
+                Distribution of simcards and LAN availability across {location} facilities
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap gap-2 flex-shrink-0">
+              <SectionUpload section="simcard" location={location} onUploadComplete={() => {
+                loadSimcardDistribution()
+              }} />
+              <SectionUpload section="lan" location={location} onUploadComplete={() => {
+                loadSimcardDistribution()
+              }} />
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="grid gap-6 md:grid-cols-3">
@@ -1599,7 +1562,7 @@ export function NyamiraDashboard() {
                       </CardHeader>
                       <CardContent>
                         <div className="text-2xl font-bold">{tickets.length}</div>
-                        <p className="text-xs text-muted-foreground mt-1">Nyamira tickets</p>
+                        <p className="text-xs text-muted-foreground mt-1">{location} tickets</p>
                       </CardContent>
                     </Card>
                   </HoverCardTrigger>
@@ -2504,7 +2467,7 @@ export function NyamiraDashboard() {
             </div>
           ) : (
             <div className="text-center py-8">
-              <p className="text-muted-foreground">No ticket data available for Nyamira</p>
+              <p className="text-muted-foreground">No ticket data available for {location}</p>
               <p className="text-sm text-muted-foreground mt-2">
                 Create tickets to see server type correlation analysis
               </p>

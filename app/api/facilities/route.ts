@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import type { SystemType, Location } from "@/lib/storage"
 
+function sanitizeInventoryType(value?: string | null): string | null {
+  if (!value) return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const normalized = trimmed.toLowerCase()
+  if (normalized === "unknown" || normalized === "n/a" || normalized === "na" || normalized === "-") {
+    return null
+  }
+  return trimmed
+}
+
 /**
  * GET /api/facilities
  * Get facilities for a specific system and location
@@ -41,6 +52,7 @@ export async function GET(request: NextRequest) {
         location: true,
         isMaster: true,
         serverType: true,
+        routerType: true,
         facilityGroup: true,
         simcardCount: true,
         hasLAN: true,
@@ -49,9 +61,15 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    console.log(`[API] Fetched ${facilities.length} facilities for ${system}/${location} (isMaster=${isMaster})`)
+    const normalizedFacilities = facilities.map((facility) => ({
+      ...facility,
+      serverType: sanitizeInventoryType(facility.serverType),
+      routerType: sanitizeInventoryType(facility.routerType),
+    }))
+
+    console.log(`[API] Fetched ${normalizedFacilities.length} facilities for ${system}/${location} (isMaster=${isMaster})`)
     
-    return NextResponse.json({ facilities })
+    return NextResponse.json({ facilities: normalizedFacilities })
   } catch (error: any) {
     console.error("Error fetching facilities:", error)
     console.error("Error details:", error?.message, error?.stack)
@@ -104,7 +122,8 @@ export async function POST(request: NextRequest) {
           name: facility.name.trim(),
           subcounty: facility.subcounty?.trim() || null,
           sublocation: facility.sublocation?.trim() || null,
-          serverType: facility.serverType?.trim() || null,
+          serverType: sanitizeInventoryType(facility.serverType),
+          routerType: sanitizeInventoryType(facility.routerType),
           simcardCount: facility.simcardCount !== undefined && facility.simcardCount !== null ? Number(facility.simcardCount) : null,
           hasLAN: facility.hasLAN !== undefined ? Boolean(facility.hasLAN) : false,
           facilityGroup: facility.facilityGroup?.trim() || null,
@@ -146,6 +165,7 @@ export async function POST(request: NextRequest) {
         subcounty: string | null;
         sublocation?: string | null;
         serverType?: string | null;
+        routerType?: string | null;
         simcardCount?: number | null;
         hasLAN?: boolean;
         facilityGroup?: string | null;
@@ -154,6 +174,7 @@ export async function POST(request: NextRequest) {
         subcounty: f.subcounty,
         sublocation: f.sublocation || null,
         serverType: f.serverType || null,
+        routerType: f.routerType || null,
         simcardCount: f.simcardCount !== undefined && f.simcardCount !== null ? Number(f.simcardCount) : null,
         hasLAN: f.hasLAN !== undefined ? Boolean(f.hasLAN) : false,
         facilityGroup: f.facilityGroup || null,
@@ -190,6 +211,7 @@ export async function PATCH(request: NextRequest) {
       subcounty, 
       sublocation,
       serverType,
+      routerType,
       simcardCount,
       hasLAN,
       facilityGroup,
@@ -214,7 +236,10 @@ export async function PATCH(request: NextRequest) {
       updateData.sublocation = sublocation?.trim() || null
     }
     if (serverType !== undefined) {
-      updateData.serverType = serverType?.trim() || null
+      updateData.serverType = sanitizeInventoryType(serverType)
+    }
+    if (routerType !== undefined) {
+      updateData.routerType = sanitizeInventoryType(routerType)
     }
     if (simcardCount !== undefined) {
       updateData.simcardCount = simcardCount !== null ? Number(simcardCount) : null
