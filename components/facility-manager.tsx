@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -15,6 +15,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { parseFacilityList } from "@/lib/utils"
 import type { SystemType, Location } from "@/lib/storage"
 import type { Facility } from "@/lib/storage-api"
+import { canDownloadTemplates, canUploadData } from "@/lib/auth"
 import * as XLSX from "xlsx"
 
 const SYSTEMS: SystemType[] = ["NDWH", "CBS"]
@@ -65,7 +66,24 @@ export function FacilityManager() {
     status: "new" | "existing" | "update"
   }> | null>(null)
   const [showImportDialog, setShowImportDialog] = useState(false)
+  const [role, setRole] = useState<"admin" | "guest" | "superadmin" | null>(null)
   const { toast } = useToast()
+
+  // Load user role
+  useEffect(() => {
+    const loadRole = async () => {
+      try {
+        const response = await fetch("/api/auth/me")
+        const data = await response.json()
+        if (response.ok && data.role) {
+          setRole(data.role)
+        }
+      } catch {
+        setRole(null)
+      }
+    }
+    loadRole()
+  }, [])
 
   const {
     masterFacilities,
@@ -937,15 +955,17 @@ export function FacilityManager() {
                     <Copy className="h-4 w-4" />
                     Copy
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleDownloadTemplate}
-                    className="gap-2"
-                  >
-                    <Download className="h-4 w-4" />
-                    Download Template
-                  </Button>
+                  {canDownloadTemplates(role) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDownloadTemplate}
+                      className="gap-2"
+                    >
+                      <Download className="h-4 w-4" />
+                      Download Template
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
@@ -955,18 +975,19 @@ export function FacilityManager() {
                     <Download className="h-4 w-4" />
                     Export Excel
                   </Button>
-                  <label>
-                    <input
-                      type="file"
-                      accept=".xlsx,.xls"
-                      onChange={handleExcelFileSelect}
-                      className="hidden"
-                      disabled={isImporting}
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-2"
+                  {canUploadData(role) && (
+                    <label>
+                      <input
+                        type="file"
+                        accept=".xlsx,.xls"
+                        onChange={handleExcelFileSelect}
+                        className="hidden"
+                        disabled={isImporting}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
                       asChild
                       disabled={isImporting}
                     >
@@ -976,6 +997,7 @@ export function FacilityManager() {
                       </span>
                     </Button>
                   </label>
+                  )}
                   <Button
                     variant="destructive"
                     size="sm"

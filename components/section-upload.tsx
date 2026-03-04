@@ -26,6 +26,7 @@ import {
 import { facilitiesMatch } from "@/lib/utils"
 import type { Location } from "@/lib/storage"
 import * as XLSX from "xlsx"
+import { canDownloadTemplates, canUploadData } from "@/lib/auth"
 
 interface SectionUploadProps {
   section: "server" | "router" | "simcard" | "lan" | "ticket"
@@ -49,7 +50,24 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
   const [selectedFacilities, setSelectedFacilities] = useState<Set<string>>(new Set())
   const [facilitySearch, setFacilitySearch] = useState("")
   const [selectAll, setSelectAll] = useState(true)
+  const [role, setRole] = useState<"admin" | "guest" | "superadmin" | null>(null)
   const { toast } = useToast()
+
+  // Load user role
+  useEffect(() => {
+    const loadRole = async () => {
+      try {
+        const response = await fetch("/api/auth/me")
+        const data = await response.json()
+        if (response.ok && data.role) {
+          setRole(data.role)
+        }
+      } catch {
+        setRole(null)
+      }
+    }
+    loadRole()
+  }, [])
 
   // Load facilities when dialog opens
   useEffect(() => {
@@ -488,45 +506,54 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
     ticket: "Ticket",
   }
 
+  // Only show template download/upload for superadmin
+  if (!canDownloadTemplates(role) && !canUploadData(role)) {
+    return null
+  }
+
   return (
     <>
       <div className="flex flex-wrap gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleDownloadTemplate}
-          className="gap-2"
-        >
-          <Download className="h-4 w-4" />
-          <span className="hidden sm:inline">Download Template</span>
-          <span className="sm:hidden">Template</span>
-        </Button>
-        <label>
-          <input
-            type="file"
-            accept=".xlsx,.xls"
-            onChange={handleFileUpload}
-            className="hidden"
-            disabled={isUploading}
-          />
+        {canDownloadTemplates(role) && (
           <Button
             variant="outline"
             size="sm"
+            onClick={handleDownloadTemplate}
             className="gap-2"
-            asChild
-            disabled={isUploading}
           >
-            <span>
-              <Upload className="h-4 w-4" />
-              {isUploading ? "Uploading..." : (
-                <>
-                  <span className="hidden sm:inline">Upload {sectionLabels[section]}</span>
-                  <span className="sm:hidden">Upload</span>
-                </>
-              )}
-            </span>
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">Download Template</span>
+            <span className="sm:hidden">Template</span>
           </Button>
-        </label>
+        )}
+        {canUploadData(role) && (
+          <label>
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={handleFileUpload}
+              className="hidden"
+              disabled={isUploading}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              asChild
+              disabled={isUploading}
+            >
+              <span>
+                <Upload className="h-4 w-4" />
+                {isUploading ? "Uploading..." : (
+                  <>
+                    <span className="hidden sm:inline">Upload {sectionLabels[section]}</span>
+                    <span className="sm:hidden">Upload</span>
+                  </>
+                )}
+              </span>
+            </Button>
+          </label>
+        )}
       </div>
 
       {/* Import Dialog with Overwrite/Merge Options */}

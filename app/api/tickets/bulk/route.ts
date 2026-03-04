@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { determineIssueType } from "@/lib/date-utils"
-import { getRoleFromRequest } from "@/lib/auth"
+import { getRoleFromRequest, isSuperAdmin } from "@/lib/auth"
 
 export async function POST(request: NextRequest) {
   try {
     const role = getRoleFromRequest(request)
     if (!role) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    if (!isSuperAdmin(role)) {
+      return NextResponse.json({ error: "Forbidden: superadmin only" }, { status: 403 })
     }
 
     const body = await request.json()
@@ -125,13 +128,13 @@ export async function POST(request: NextRequest) {
 
 /**
  * DELETE /api/tickets/bulk
- * Delete multiple tickets by IDs - admin only
+ * Delete multiple tickets by IDs - admin and superadmin only
  */
 export async function DELETE(request: NextRequest) {
   try {
     const role = getRoleFromRequest(request)
-    if (role !== "admin") {
-      return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 })
+    if (role !== "admin" && role !== "superadmin") {
+      return NextResponse.json({ error: "Forbidden: admin or superadmin only" }, { status: 403 })
     }
 
     const body = await request.json()

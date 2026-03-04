@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { getRoleFromRequest, isSuperAdmin } from "@/lib/auth"
 import type { Location } from "@/lib/storage"
 
 const VALID_LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
 export async function POST(request: NextRequest) {
   try {
+    const role = getRoleFromRequest(request)
+    if (!isSuperAdmin(role)) {
+      return NextResponse.json({ error: "Forbidden: superadmin only" }, { status: 403 })
+    }
+
     const body = await request.json()
     const { data, mode = "merge" } = body
 
