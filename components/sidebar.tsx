@@ -61,7 +61,7 @@ export function Sidebar() {
   const router = useRouter()
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
-  const [role, setRole] = useState<"admin" | "guest" | null>(null)
+  const [role, setRole] = useState<"admin" | "guest" | "superadmin" | null>(null)
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(navigationSections.map((section, index) => `section-${index}`))
   )
@@ -171,7 +171,7 @@ export function Sidebar() {
       <div className="flex h-16 items-center justify-between border-b px-2 sm:px-4 relative gap-2">
         {!isCollapsed && (
           <h1 className="text-lg sm:text-xl font-bold text-primary whitespace-nowrap truncate flex-1 min-w-0">
-            Facility Dashboard
+            PATH HIS Dashboards
           </h1>
         )}
         {isCollapsed && (
@@ -281,8 +281,8 @@ export function Sidebar() {
       </nav>
       <div className="border-t p-3 space-y-2">
         {!isCollapsed && role && (
-          <Badge variant={role === "admin" ? "default" : "secondary"} className="w-full justify-center">
-            {role.toUpperCase()}
+          <Badge variant={role === "superadmin" ? "default" : role === "admin" ? "default" : "secondary"} className="w-full justify-center">
+            {role === "superadmin" ? "SUPER ADMIN" : role.toUpperCase()}
           </Badge>
         )}
         <Button variant="outline" size={isCollapsed ? "icon" : "sm"} className="w-full" onClick={handleLogout}>

@@ -94,7 +94,7 @@ export interface Ticket {
 }
 
 export function Tickets() {
-  const [role, setRole] = useState<"admin" | "guest" | null>(null)
+  const [role, setRole] = useState<"admin" | "guest" | "superadmin" | null>(null)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -1168,7 +1168,7 @@ export function Tickets() {
                 <p className="text-center text-sm text-muted-foreground">No tickets found</p>
               ) : (
                 <>
-                  {role === "admin" && (
+                  {(role === "admin" || role === "superadmin") && (
                     <div className="flex items-center justify-between gap-2 pb-2 border-b sticky top-0 bg-background z-10">
                       <div className="flex items-center gap-2">
                         <input
@@ -1223,7 +1223,7 @@ export function Tickets() {
                       )}
                     >
                       <div className="flex items-start justify-between gap-3">
-                        {role === "admin" && (
+                        {(role === "admin" || role === "superadmin") && (
                           <input
                             type="checkbox"
                             checked={selectedTicketIds.has(ticket.id)}
@@ -1372,7 +1372,7 @@ export function Tickets() {
                         </div>
 
                         {/* Action buttons */}
-                        {role === "admin" && (
+                        {(role === "admin" || role === "superadmin") && (
                           <div className="flex flex-col gap-1 shrink-0">
                           <Button
                             variant="ghost"
