@@ -551,7 +551,10 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
                   className="cursor-pointer"
                 />
                 <label htmlFor={`merge-${section}`} className="text-sm cursor-pointer">
-                  <strong>Merge:</strong> Update existing, add new ones
+                  <strong>Merge:</strong>{" "}
+                  {section === "ticket"
+                    ? "Add all rows as new tickets (keeps existing tickets)"
+                    : "Update existing, add new ones"}
                 </label>
               </div>
               <div className="flex items-center gap-2">
@@ -564,7 +567,10 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
                   className="cursor-pointer"
                 />
                 <label htmlFor={`overwrite-${section}`} className="text-sm cursor-pointer">
-                  <strong>Overwrite:</strong> Replace all existing data
+                  <strong>Overwrite:</strong>{" "}
+                  {section === "ticket"
+                    ? "Delete ALL existing tickets for these locations, then add rows as new tickets"
+                    : "Replace all existing data"}
                 </label>
               </div>
             </div>

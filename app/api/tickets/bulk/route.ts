@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { data } = body
+    const { data, mode = "merge" } = body
 
     if (!Array.isArray(data) || data.length === 0) {
       return NextResponse.json(
@@ -20,10 +20,22 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Overwrite mode: delete all existing tickets for every location present in the upload
+    if (mode === "overwrite") {
+      const locationsInUpload = [...new Set(data.map((item: any) => item.location).filter(Boolean))]
+      if (locationsInUpload.length > 0) {
+        await prisma.ticket.deleteMany({
+          where: { location: { in: locationsInUpload } },
+        })
+      }
+    }
+
     let successCount = 0
     let errorCount = 0
     const errors: string[] = []
 
+    // Each row always creates a brand-new ticket regardless of how many
+    // times the same facility appears in the file.
     for (const item of data) {
       try {
         const {
@@ -106,6 +118,48 @@ export async function POST(request: NextRequest) {
     console.error("Error in POST /api/tickets/bulk:", error)
     return NextResponse.json(
       { error: "Failed to process tickets" },
+      { status: 500 }
+    )
+  }
+}
+
+/**
+ * DELETE /api/tickets/bulk
+ * Delete multiple tickets by IDs - admin only
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const role = getRoleFromRequest(request)
+    if (role !== "admin") {
+      return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 })
+    }
+
+    const body = await request.json()
+    const { ticketIds } = body
+
+    if (!Array.isArray(ticketIds) || ticketIds.length === 0) {
+      return NextResponse.json(
+        { error: "Invalid data format. Expected an array of ticket IDs." },
+        { status: 400 }
+      )
+    }
+
+    // Delete all tickets with the provided IDs
+    const result = await prisma.ticket.deleteMany({
+      where: {
+        id: { in: ticketIds },
+      },
+    })
+
+    return NextResponse.json({
+      success: true,
+      count: result.count,
+      message: `Successfully deleted ${result.count} ticket${result.count !== 1 ? "s" : ""}`,
+    })
+  } catch (error) {
+    console.error("Error in DELETE /api/tickets/bulk:", error)
+    return NextResponse.json(
+      { error: "Failed to delete tickets" },
       { status: 500 }
     )
   }
