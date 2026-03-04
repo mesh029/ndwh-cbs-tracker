@@ -17,8 +17,8 @@ export async function PATCH(
     if (!role) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    if (role !== "admin") {
-      return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 })
+    if (role !== "admin" && role !== "superadmin") {
+      return NextResponse.json({ error: "Forbidden: admin or superadmin only" }, { status: 403 })
     }
 
     const body = await request.json()
@@ -135,8 +135,8 @@ export async function DELETE(
     if (!role) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    if (role !== "admin") {
-      return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 })
+    if (role !== "admin" && role !== "superadmin") {
+      return NextResponse.json({ error: "Forbidden: admin or superadmin only" }, { status: 403 })
     }
 
     await prisma.ticket.delete({

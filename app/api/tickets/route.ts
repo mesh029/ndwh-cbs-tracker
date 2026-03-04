@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-    if ((status === "resolved" || status === "in-progress") && role === "admin" && !resolvedBy?.trim()) {
+    if ((status === "resolved" || status === "in-progress") && (role === "admin" || role === "superadmin") && !resolvedBy?.trim()) {
       return NextResponse.json(
         { error: "Resolved by is required when updating progress/resolution" },
         { status: 400 }

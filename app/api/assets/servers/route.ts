@@ -185,14 +185,14 @@ export async function POST(request: NextRequest) {
 
     // Auto-update facility serverType based on server assets
     // Use the most common server type for each facility
-    for (const [facilityId, serverTypeMap] of facilityServerTypes.entries()) {
+    for (const [facilityId, serverTypeMap] of Array.from(facilityServerTypes.entries())) {
       if (serverTypeMap.size === 0) continue
 
       // Find the most common server type (excluding "Unknown")
       let mostCommonType: string | null = null
       let maxCount = 0
       
-      for (const [type, count] of serverTypeMap.entries()) {
+      for (const [type, count] of Array.from(serverTypeMap.entries())) {
         if (type !== "Unknown" && count > maxCount) {
           mostCommonType = type
           maxCount = count

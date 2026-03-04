@@ -30,6 +30,7 @@ model Facility {
   servers       ServerAsset[]
   routers       RouterAsset[]
   simcards      SimcardAsset[]
+  lanAssets     LanAsset[]
 
   @@index([system, location, isMaster])
   @@index([system, location])
@@ -103,6 +104,23 @@ model SimcardAsset {
   @@index([serialNumber])
   @@index([phoneNumber])
   @@map("simcard_assets")
+}
+
+model LanAsset {
+  id          String   @id @default(cuid())
+  facilityId  String
+  facility    Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  location    String   @db.VarChar(50) // Location for filtering
+  subcounty   String?  @db.VarChar(100)
+  hasLAN      Boolean  @default(false) // Whether facility has LAN
+  lanType     String?  @db.VarChar(50) // Type of LAN (e.g., "Fiber", "Wireless")
+  notes       String?  @db.Text // Additional notes
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([facilityId])
+  @@index([location])
+  @@map("lan_assets")
 }
 
 model Ticket {

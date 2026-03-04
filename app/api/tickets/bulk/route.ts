@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
 
     // Overwrite mode: delete all existing tickets for every location present in the upload
     if (mode === "overwrite") {
-      const locationsInUpload = [...new Set(data.map((item: any) => item.location).filter(Boolean))]
+      const locationsInUpload = Array.from(new Set(data.map((item: any) => item.location).filter(Boolean)))
       if (locationsInUpload.length > 0) {
         await prisma.ticket.deleteMany({
           where: { location: { in: locationsInUpload } },

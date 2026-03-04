@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { getRoleFromRequest } from "@/lib/auth"
 import type { SystemType, Location } from "@/lib/storage"
 import { parseFacilityList, facilitiesMatch, deduplicateFacilities } from "@/lib/utils"
 
@@ -9,6 +10,11 @@ import { parseFacilityList, facilitiesMatch, deduplicateFacilities } from "@/lib
  */
 export async function POST(request: NextRequest) {
   try {
+    const role = getRoleFromRequest(request)
+    if (role !== "admin" && role !== "superadmin") {
+      return NextResponse.json({ error: "Forbidden: admin or superadmin only" }, { status: 403 })
+    }
+
     const body = await request.json()
     const {
       system,

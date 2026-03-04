@@ -129,6 +129,7 @@ export function useFacilityData(system: SystemType, location: Location) {
       options?: {
         sublocation?: string;
         serverType?: string;
+        routerType?: string;
         simcardCount?: number;
         hasLAN?: boolean;
         facilityGroup?: string;
@@ -191,6 +192,7 @@ export function useFacilityData(system: SystemType, location: Location) {
       options?: {
         sublocation?: string;
         serverType?: string;
+        routerType?: string;
         simcardCount?: number;
         hasLAN?: boolean;
         facilityGroup?: string;
