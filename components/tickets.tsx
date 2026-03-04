@@ -125,6 +125,8 @@ export function Tickets() {
   const [showForm, setShowForm] = useState(false)
   const [facilities, setFacilities] = useState<Array<{ name: string }>>([])
   const [isLoadingFacilities, setIsLoadingFacilities] = useState(false)
+  const [selectedTicketIds, setSelectedTicketIds] = useState<Set<string>>(new Set())
+  const [isDeleting, setIsDeleting] = useState(false)
 
 
   // Load tickets when filters change
@@ -346,6 +348,72 @@ export function Tickets() {
         description: "Failed to delete ticket",
         variant: "destructive",
       })
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedTicketIds.size === 0) {
+      toast({
+        title: "No selection",
+        description: "Please select tickets to delete",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!confirm(`Are you sure you want to delete ${selectedTicketIds.size} ticket${selectedTicketIds.size !== 1 ? "s" : ""}? This action cannot be undone.`)) {
+      return
+    }
+
+    setIsDeleting(true)
+    try {
+      const response = await fetch("/api/tickets/bulk", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ticketIds: Array.from(selectedTicketIds),
+        }),
+      })
+
+      const result = await response.json()
+
+      if (response.ok) {
+        toast({
+          title: "Success",
+          description: result.message || `Successfully deleted ${result.count} ticket${result.count !== 1 ? "s" : ""}`,
+        })
+        setSelectedTicketIds(new Set())
+        loadTickets()
+      } else {
+        throw new Error(result.error || "Failed to delete tickets")
+      }
+    } catch (error) {
+      console.error("Error deleting tickets:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete tickets",
+        variant: "destructive",
+      })
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  const toggleTicketSelection = (ticketId: string) => {
+    const newSelected = new Set(selectedTicketIds)
+    if (newSelected.has(ticketId)) {
+      newSelected.delete(ticketId)
+    } else {
+      newSelected.add(ticketId)
+    }
+    setSelectedTicketIds(newSelected)
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedTicketIds.size === filteredTickets.length) {
+      setSelectedTicketIds(new Set())
+    } else {
+      setSelectedTicketIds(new Set(filteredTickets.map(t => t.id)))
     }
   }
 
@@ -1099,7 +1167,49 @@ export function Tickets() {
               ) : filteredTickets.length === 0 ? (
                 <p className="text-center text-sm text-muted-foreground">No tickets found</p>
               ) : (
-                filteredTickets.map((ticket) => {
+                <>
+                  {role === "admin" && (
+                    <div className="flex items-center justify-between gap-2 pb-2 border-b sticky top-0 bg-background z-10">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="select-all-tickets"
+                          checked={selectedTicketIds.size === filteredTickets.length && filteredTickets.length > 0}
+                          onChange={toggleSelectAll}
+                          className="h-4 w-4 cursor-pointer"
+                        />
+                        <label htmlFor="select-all-tickets" className="text-sm font-medium cursor-pointer">
+                          Select All ({filteredTickets.length} tickets)
+                        </label>
+                        {selectedTicketIds.size > 0 && (
+                          <span className="text-sm text-muted-foreground ml-2">
+                            {selectedTicketIds.size} selected
+                          </span>
+                        )}
+                      </div>
+                      {selectedTicketIds.size > 0 && (
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSelectedTicketIds(new Set())}
+                          >
+                            Clear
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={handleBulkDelete}
+                            disabled={isDeleting}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            {isDeleting ? "Deleting..." : `Delete ${selectedTicketIds.size}`}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {filteredTickets.map((ticket) => {
                   const createdDate = new Date(ticket.createdAt)
                   const isRecent = (Date.now() - createdDate.getTime()) < 7 * 24 * 60 * 60 * 1000 // 7 days
                   
@@ -1108,10 +1218,19 @@ export function Tickets() {
                       key={ticket.id} 
                       className={cn(
                         "p-4 transition-all hover:shadow-md",
-                        isRecent && "border-l-4 border-l-primary"
+                        isRecent && "border-l-4 border-l-primary",
+                        selectedTicketIds.has(ticket.id) && "ring-2 ring-primary"
                       )}
                     >
                       <div className="flex items-start justify-between gap-3">
+                        {role === "admin" && (
+                          <input
+                            type="checkbox"
+                            checked={selectedTicketIds.has(ticket.id)}
+                            onChange={() => toggleTicketSelection(ticket.id)}
+                            className="h-4 w-4 mt-1 cursor-pointer shrink-0"
+                          />
+                        )}
                         <div className="flex-1 min-w-0 space-y-3">
                           {/* Header with facility name and chips */}
                           <div className="flex items-start justify-between gap-2">
@@ -1278,7 +1397,8 @@ export function Tickets() {
                       </div>
                     </Card>
                   )
-                })
+                })}
+                </>
               )}
             </div>
           </CardContent>
