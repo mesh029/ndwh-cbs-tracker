@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { getRoleFromRequest } from "@/lib/auth"
 import type { SystemType, Location } from "@/lib/storage"
 
 function sanitizeInventoryType(value?: string | null): string | null {
@@ -82,9 +83,13 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/facilities
- * Create facilities (bulk)
+ * Create facilities (bulk) - admin only
  */
 export async function POST(request: NextRequest) {
+  const role = getRoleFromRequest(request)
+  if (role !== "admin") {
+    return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 })
+  }
   try {
     const body = await request.json()
     const { system, location, facilities, isMaster } = body
@@ -203,6 +208,10 @@ export async function POST(request: NextRequest) {
  * Update a single facility name and subcounty
  */
 export async function PATCH(request: NextRequest) {
+  const role = getRoleFromRequest(request)
+  if (role !== "admin") {
+    return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 })
+  }
   try {
     const body = await request.json()
     const { 
@@ -274,6 +283,10 @@ export async function PATCH(request: NextRequest) {
  * Delete facilities
  */
 export async function DELETE(request: NextRequest) {
+  const role = getRoleFromRequest(request)
+  if (role !== "admin") {
+    return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 })
+  }
   try {
     const searchParams = request.nextUrl.searchParams
     const system = searchParams.get("system") as SystemType | null
@@ -326,6 +339,10 @@ export async function DELETE(request: NextRequest) {
  * Replace facilities (used for reported facilities)
  */
 export async function PUT(request: NextRequest) {
+  const role = getRoleFromRequest(request)
+  if (role !== "admin") {
+    return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 })
+  }
   try {
     const body = await request.json()
     const { system, location, facilities, isMaster } = body

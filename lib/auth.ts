@@ -36,5 +36,8 @@ export function canAccessPath(role: UserRole, pathname: string): boolean {
   if (pathname.startsWith("/api/tickets")) return true
   if (pathname.startsWith("/api/auth")) return true
   if (pathname === "/login") return true
+  // Guests need read-only access to facilities to populate the facility dropdown
+  // when creating a ticket. Only GET requests are allowed (enforced in the route).
+  if (pathname.startsWith("/api/facilities")) return true
   return false
 }
