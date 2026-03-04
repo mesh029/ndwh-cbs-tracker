@@ -66,7 +66,7 @@ export async function getSubcountiesForLocation(
       .filter((sc): sc is string => sc !== null && sc.trim().length > 0)
       .sort()
 
-    return [...new Set(subcounties)] // Remove duplicates
+    return Array.from(new Set(subcounties)) // Remove duplicates
   } catch (error) {
     console.error("Error fetching subcounties:", error)
     return []

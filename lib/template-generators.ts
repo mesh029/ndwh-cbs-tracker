@@ -17,6 +17,7 @@ interface ExistingAsset {
   facilityName?: string
   serverType?: string
   routerType?: string
+  routerModel?: string
   assetTag?: string
   serialNumber?: string
   phoneNumber?: string

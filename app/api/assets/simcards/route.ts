@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getRoleFromRequest, isSuperAdmin } from "@/lib/auth"
+import { facilitiesMatch } from "@/lib/utils"
 import type { Location } from "@/lib/storage"
 
 const VALID_LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
@@ -32,6 +33,7 @@ export async function POST(request: NextRequest) {
     let successCount = 0
     let errorCount = 0
     const errors: string[] = []
+    const facilitiesToUpdate = new Set<string>()
 
     for (const item of data) {
       try {
@@ -50,46 +52,84 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        // Find or create facility
-        let facility = await prisma.facility.findFirst({
+        // Find or create facility using fuzzy matching
+        const trimmedFacilityName = String(facilityName).trim()
+        let facility = null
+        
+        // First, try to find existing facility with fuzzy matching
+        const allFacilities = await prisma.facility.findMany({
           where: {
-            name: String(facilityName).trim(),
             location: trimmedLocation as Location,
             isMaster: true,
           },
         })
-
-        if (!facility) {
-          facility = await prisma.facility.create({
-            data: {
-              name: facilityName,
-              location: trimmedLocation as Location,
-              subcounty: subcounty || null,
-              system: "NDWH",
-              isMaster: true,
-            },
-          })
+        
+        // Find matching facility using fuzzy match
+        for (const f of allFacilities) {
+          if (facilitiesMatch(f.name, trimmedFacilityName)) {
+            facility = f
+            break
+          }
         }
+
+        // If not found, create new facility
+        if (!facility) {
+          try {
+            facility = await prisma.facility.create({
+              data: {
+                name: trimmedFacilityName,
+                location: trimmedLocation as Location,
+                subcounty: subcounty ? String(subcounty).trim() : null,
+                system: "NDWH",
+                isMaster: true,
+              },
+            })
+          } catch (createError: any) {
+            // If creation fails (e.g., duplicate), try to find again
+            if (createError.code === "P2002") {
+              // Duplicate - try to find it again
+              for (const f of allFacilities) {
+                if (facilitiesMatch(f.name, trimmedFacilityName)) {
+                  facility = f
+                  break
+                }
+              }
+            }
+            if (!facility) {
+              throw createError
+            }
+          }
+        }
+
+        // Ensure facility was found/created
+        if (!facility || !facility.id) {
+          throw new Error(`Failed to find or create facility: ${trimmedFacilityName}`)
+        }
+
+        // Convert numeric values to strings for serialNumber and phoneNumber
+        const serialNumberStr = serialNumber ? String(serialNumber).trim() : null
+        const phoneNumberStr = phoneNumber ? String(phoneNumber).trim() : null
+        const assetTagStr = assetTag ? String(assetTag).trim() : null
 
         const assetPayload = {
           facilityId: facility.id,
-          phoneNumber: phoneNumber || null,
-          assetTag: assetTag || null,
-          serialNumber: serialNumber || null,
-          provider: provider || null,
+          phoneNumber: phoneNumberStr,
+          assetTag: assetTagStr,
+          serialNumber: serialNumberStr,
+          provider: provider ? String(provider).trim() : null,
           location: trimmedLocation as Location,
-          subcounty: subcounty || null,
-          notes: notes || null,
+          subcounty: subcounty ? String(subcounty).trim() : null,
+          notes: notes ? String(notes).trim() : null,
         }
 
-        if (mode === "merge" && (assetTag || serialNumber || phoneNumber)) {
+        if (mode === "merge" && (assetTagStr || serialNumberStr || phoneNumberStr)) {
           const existing = await prisma.simcardAsset.findFirst({
             where: {
               facilityId: facility.id,
               OR: [
-                ...(assetTag ? [{ assetTag }] : []),
-                ...(serialNumber ? [{ serialNumber }] : []),
-                ...(phoneNumber ? [{ phoneNumber }] : []),
+                ...(assetTagStr ? [{ assetTag: assetTagStr }] : []),
+                ...(serialNumberStr ? [{ serialNumber: serialNumberStr }] : []),
+                ...(phoneNumberStr ? [{ phoneNumber: phoneNumberStr }] : []),
               ],
             },
           })
@@ -97,9 +137,11 @@ export async function POST(request: NextRequest) {
             await prisma.simcardAsset.update({ where: { id: existing.id }, data: assetPayload })
           } else {
             await prisma.simcardAsset.create({ data: assetPayload })
+            facilitiesToUpdate.add(facility.id)
           }
         } else {
           await prisma.simcardAsset.create({ data: assetPayload })
+          facilitiesToUpdate.add(facility.id)
         }
 
         successCount++
@@ -107,6 +149,56 @@ export async function POST(request: NextRequest) {
         errorCount++
         errors.push(`Error processing ${item.facilityName || "unknown"}: ${error instanceof Error ? error.message : "Unknown error"}`)
         console.error("Error creating simcard asset:", error)
+      }
+    }
+
+    // Update simcardCount for all affected facilities
+    // Collect all unique facility IDs that need updating
+    const allFacilitiesToUpdate = new Set<string>(facilitiesToUpdate)
+    
+    // In merge mode, also include facilities that had simcards updated
+    if (mode === "merge" && data.length > 0) {
+      const location = String(data[0]?.location || "").trim() as Location
+      if (VALID_LOCATIONS.includes(location)) {
+        // Get all facilities in this location that have simcard assets
+        const facilitiesWithSimcards = await prisma.facility.findMany({
+          where: { 
+            location,
+            isMaster: true,
+            simcards: {
+              some: {},
+            },
+          },
+          select: { id: true },
+        })
+        facilitiesWithSimcards.forEach(f => allFacilitiesToUpdate.add(f.id))
+      }
+    }
+
+    // In overwrite mode, update all facilities in the location
+    if (mode === "overwrite" && data.length > 0) {
+      const location = String(data[0]?.location || "").trim() as Location
+      if (VALID_LOCATIONS.includes(location)) {
+        const allFacilities = await prisma.facility.findMany({
+          where: { location, isMaster: true },
+          select: { id: true },
+        })
+        allFacilities.forEach(f => allFacilitiesToUpdate.add(f.id))
+      }
+    }
+
+    // Update simcardCount for all affected facilities
+    for (const facilityId of allFacilitiesToUpdate) {
+      try {
+        const simcardCount = await prisma.simcardAsset.count({
+          where: { facilityId },
+        })
+        await prisma.facility.update({
+          where: { id: facilityId },
+          data: { simcardCount },
+        })
+      } catch (error) {
+        console.error(`Error updating simcardCount for facility ${facilityId}:`, error)
       }
     }
 

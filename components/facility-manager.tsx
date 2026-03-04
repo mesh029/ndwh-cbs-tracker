@@ -66,6 +66,8 @@ export function FacilityManager() {
     status: "new" | "existing" | "update"
   }> | null>(null)
   const [showImportDialog, setShowImportDialog] = useState(false)
+  const [showErrorDialog, setShowErrorDialog] = useState(false)
+  const [importErrors, setImportErrors] = useState<Array<{ facility: string; reason: string }>>([])
   const [role, setRole] = useState<"admin" | "guest" | "superadmin" | null>(null)
   const { toast } = useToast()
 
@@ -106,9 +108,9 @@ export function FacilityManager() {
         fetch(`/api/assets/simcards?location=${selectedLocation}&facilityId=${facilityId}`).catch(() => ({ ok: false })),
       ])
 
-      const servers = serversRes.ok ? (await serversRes.json()).assets || [] : []
-      const routers = routersRes.ok ? (await routersRes.json()).assets || [] : []
-      const simcards = simcardsRes.ok ? (await simcardsRes.json()).assets || [] : []
+      const servers = serversRes.ok && 'json' in serversRes ? (await serversRes.json()).assets || [] : []
+      const routers = routersRes.ok && 'json' in routersRes ? (await routersRes.json()).assets || [] : []
+      const simcards = simcardsRes.ok && 'json' in simcardsRes ? (await simcardsRes.json()).assets || [] : []
 
       setFacilityAssets(prev => ({
         ...prev,
@@ -689,9 +691,12 @@ export function FacilityManager() {
       // Import facilities
       let successCount = 0
       let errorCount = 0
+      const errors: Array<{ facility: string; reason: string }> = []
 
       for (const facility of importPreview) {
         try {
+          let errorMessage = ""
+          
           // Check if facility already exists (for merge mode)
           if (importMode === "merge") {
             const existing = masterFacilitiesWithIds.find(f => 
@@ -700,72 +705,146 @@ export function FacilityManager() {
             
             if (existing) {
               // Update existing facility
-              const success = await updateMasterFacility(
-                existing.id,
-                facility.name,
-                facility.subcounty,
-                {
-                  serverType: facility.serverType,
-                  simcardCount: facility.simcardCount,
-                  hasLAN: facility.hasLAN,
-                  facilityGroup: facility.facilityGroup,
+              try {
+                const response = await fetch("/api/facilities", {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    id: existing.id,
+                    name: facility.name,
+                    subcounty: facility.subcounty || null,
+                    serverType: facility.serverType || null,
+                    simcardCount: facility.simcardCount !== undefined ? facility.simcardCount : null,
+                    hasLAN: facility.hasLAN !== undefined ? facility.hasLAN : false,
+                    facilityGroup: facility.facilityGroup || null,
+                    system: selectedSystem,
+                    location: selectedLocation,
+                  }),
+                })
+                
+                if (response.ok) {
+                  successCount++
+                } else {
+                  const errorData = await response.json().catch(() => ({}))
+                  errorMessage = errorData.error || `Failed to update facility (HTTP ${response.status})`
+                  errorCount++
+                  errors.push({ facility: facility.name, reason: errorMessage })
                 }
-              )
-              if (success) {
-                successCount++
-              } else {
+              } catch (error) {
+                errorMessage = error instanceof Error ? error.message : "Network error or unknown error"
                 errorCount++
+                errors.push({ facility: facility.name, reason: errorMessage })
               }
             } else {
               // Add new facility
-              const success = await addMasterFacility(
-                facility.name,
-                selectedSystem,
-                selectedLocation,
-                facility.subcounty,
-                {
-                  serverType: facility.serverType,
-                  simcardCount: facility.simcardCount,
-                  hasLAN: facility.hasLAN,
-                  facilityGroup: facility.facilityGroup,
+              try {
+                const response = await fetch("/api/facilities", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    system: selectedSystem,
+                    location: selectedLocation,
+                    facilities: [{
+                      name: facility.name,
+                      subcounty: facility.subcounty || null,
+                      serverType: facility.serverType || null,
+                      simcardCount: facility.simcardCount !== undefined ? facility.simcardCount : null,
+                      hasLAN: facility.hasLAN !== undefined ? facility.hasLAN : false,
+                      facilityGroup: facility.facilityGroup || null,
+                    }],
+                    isMaster: true,
+                  }),
+                })
+                
+                const data = await response.json()
+                if (response.ok && (data.count > 0 || data.message === "All facilities already exist")) {
+                  successCount++
+                } else {
+                  // Check if API returned specific errors array
+                  if (data.errors && Array.isArray(data.errors) && data.errors.length > 0) {
+                    data.errors.forEach((err: string) => {
+                      errorCount++
+                      errors.push({ facility: facility.name, reason: err })
+                    })
+                  } else {
+                    errorMessage = data.error || `Facility already exists or failed to add`
+                    errorCount++
+                    errors.push({ facility: facility.name, reason: errorMessage })
+                  }
                 }
-              )
-              if (success) {
-                successCount++
-              } else {
+              } catch (error) {
+                errorMessage = error instanceof Error ? error.message : "Network error or unknown error"
                 errorCount++
+                errors.push({ facility: facility.name, reason: errorMessage })
               }
             }
           } else {
             // Overwrite mode - just add (we already removed all)
-            const success = await addMasterFacility(
-              facility.name,
-              selectedSystem,
-              selectedLocation,
-              facility.subcounty,
-              {
-                serverType: facility.serverType,
-                simcardCount: facility.simcardCount,
-                hasLAN: facility.hasLAN,
-                facilityGroup: facility.facilityGroup,
+            try {
+              const response = await fetch("/api/facilities", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  system: selectedSystem,
+                  location: selectedLocation,
+                  facilities: [{
+                    name: facility.name,
+                    subcounty: facility.subcounty || null,
+                    serverType: facility.serverType || null,
+                    simcardCount: facility.simcardCount !== undefined ? facility.simcardCount : null,
+                    hasLAN: facility.hasLAN !== undefined ? facility.hasLAN : false,
+                    facilityGroup: facility.facilityGroup || null,
+                  }],
+                  isMaster: true,
+                }),
+              })
+              
+              const data = await response.json()
+              if (response.ok && (data.count > 0 || data.message === "All facilities already exist")) {
+                successCount++
+              } else {
+                // Check if API returned specific errors array
+                if (data.errors && Array.isArray(data.errors) && data.errors.length > 0) {
+                  data.errors.forEach((err: string) => {
+                    errorCount++
+                    errors.push({ facility: facility.name, reason: err })
+                  })
+                } else {
+                  errorMessage = data.error || `Facility already exists or failed to add`
+                  errorCount++
+                  errors.push({ facility: facility.name, reason: errorMessage })
+                }
               }
-            )
-            if (success) {
-              successCount++
-            } else {
+            } catch (error) {
+              errorMessage = error instanceof Error ? error.message : "Network error or unknown error"
               errorCount++
+              errors.push({ facility: facility.name, reason: errorMessage })
             }
           }
         } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : "Unknown error occurred"
           console.error(`Error importing facility ${facility.name}:`, error)
           errorCount++
+          errors.push({ facility: facility.name, reason: errorMessage })
         }
       }
 
-      toast({
-        title: "Import Complete",
-        description: `Successfully imported ${successCount} facility${successCount !== 1 ? "ies" : ""}${errorCount > 0 ? `. ${errorCount} failed.` : ""}`,
-      })
+      // Show detailed results
+      if (errorCount > 0) {
+        setImportErrors(errors)
+        setShowErrorDialog(true)
+        toast({
+          title: "Import Complete with Errors",
+          description: `Successfully imported ${successCount} facility${successCount !== 1 ? "ies" : ""}. ${errorCount} failed. Click to view details.`,
+          variant: "destructive",
+          duration: 8000,
+        })
+      } else {
+        toast({
+          title: "Import Complete",
+          description: `Successfully imported ${successCount} facility${successCount !== 1 ? "ies" : ""}`,
+        })
+      }
 
       // Reset state
       setShowImportDialog(false)
@@ -1476,6 +1555,55 @@ export function FacilityManager() {
               disabled={isImporting || !importPreview || importPreview.length === 0}
             >
               {isImporting ? "Importing..." : `Import ${importPreview?.length || 0} Facilities`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Error Details Dialog */}
+      <Dialog open={showErrorDialog} onOpenChange={setShowErrorDialog}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Import Errors</DialogTitle>
+            <DialogDescription>
+              {importErrors.length} facility{importErrors.length !== 1 ? "ies" : ""} failed to import. Details below:
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="border rounded-lg overflow-hidden">
+              <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted sticky top-0">
+                    <tr>
+                      <th className="p-2 text-left">#</th>
+                      <th className="p-2 text-left">Facility Name</th>
+                      <th className="p-2 text-left">Error Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importErrors.map((error, index) => (
+                      <tr key={index} className="border-t hover:bg-muted/50">
+                        <td className="p-2">{index + 1}</td>
+                        <td className="p-2 font-medium">{error.facility}</td>
+                        <td className="p-2 text-red-600 dark:text-red-400">{error.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowErrorDialog(false)
+                setImportErrors([])
+              }}
+            >
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

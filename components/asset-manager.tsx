@@ -517,13 +517,13 @@ export function AssetManager() {
           const withTags = locAssets.filter((a: any) => a.assetTag).length
           const withSerial = locAssets.filter((a: any) => a.serialNumber).length
           const fromInventory = locAssets.filter((a: any) => a.isFromInventory).length
-          summaryData.push([loc, locAssets.length, withTags, withSerial, fromInventory])
+          summaryData.push([loc, String(locAssets.length), String(withTags), String(withSerial), String(fromInventory)])
         })
       } else {
         const withTags = assets.filter((a: any) => a.assetTag).length
         const withSerial = assets.filter((a: any) => a.serialNumber).length
         const fromInventory = assets.filter((a: any) => a.isFromInventory).length
-        summaryData.push([selectedLocation, assets.length, withTags, withSerial, fromInventory])
+        summaryData.push([selectedLocation, String(assets.length), String(withTags), String(withSerial), String(fromInventory)])
       }
 
       const summaryWs = XLSX.utils.aoa_to_sheet(summaryData)

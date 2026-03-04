@@ -28,8 +28,24 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const asset = await prisma.simcardAsset.update({
       where: { id: params.id },
       data: updateData,
-      include: { facility: { select: { name: true } } },
+      include: { facility: { select: { name: true, id: true } } },
     })
+
+    // Update facility simcardCount
+    const facilityId = asset.facilityId || asset.facility.id
+    if (facilityId) {
+      try {
+        const simcardCount = await prisma.simcardAsset.count({
+          where: { facilityId },
+        })
+        await prisma.facility.update({
+          where: { id: facilityId },
+          data: { simcardCount },
+        })
+      } catch (error) {
+        console.error(`Error updating simcardCount for facility ${facilityId}:`, error)
+      }
+    }
 
     return NextResponse.json({
       success: true,
@@ -43,7 +59,29 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
 export async function DELETE(_request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    // Get the asset first to know which facility to update
+    const asset = await prisma.simcardAsset.findUnique({
+      where: { id: params.id },
+      select: { facilityId: true },
+    })
+
     await prisma.simcardAsset.delete({ where: { id: params.id } })
+
+    // Update facility simcardCount
+    if (asset?.facilityId) {
+      try {
+        const simcardCount = await prisma.simcardAsset.count({
+          where: { facilityId: asset.facilityId },
+        })
+        await prisma.facility.update({
+          where: { id: asset.facilityId },
+          data: { simcardCount },
+        })
+      } catch (error) {
+        console.error(`Error updating simcardCount for facility ${asset.facilityId}:`, error)
+      }
+    }
+
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error("Error deleting simcard asset:", error)

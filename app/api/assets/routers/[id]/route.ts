@@ -19,11 +19,11 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     }
 
     const updateData: any = {
-      ...(subcounty !== undefined && { subcounty }),
-      ...(routerType !== undefined && { routerType }),
-      ...(assetTag !== undefined && { assetTag }),
-      ...(serialNumber !== undefined && { serialNumber }),
-      ...(notes !== undefined && { notes }),
+      ...(subcounty !== undefined && { subcounty: subcounty ? String(subcounty).trim() : null }),
+      ...(routerType !== undefined && { routerType: routerType ? String(routerType).trim() : null }),
+      ...(assetTag !== undefined && { assetTag: assetTag ? String(assetTag).trim() : null }),
+      ...(serialNumber !== undefined && { serialNumber: serialNumber ? String(serialNumber).trim() : null }),
+      ...(notes !== undefined && { notes: notes ? String(notes).trim() : null }),
       ...(location && { location }),
       ...(facilityId && { facilityId }),
     }

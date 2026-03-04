@@ -51,6 +51,8 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
   const [facilitySearch, setFacilitySearch] = useState("")
   const [selectAll, setSelectAll] = useState(true)
   const [role, setRole] = useState<"admin" | "guest" | "superadmin" | null>(null)
+  const [showErrorDialog, setShowErrorDialog] = useState(false)
+  const [uploadErrors, setUploadErrors] = useState<string[]>([])
   const { toast } = useToast()
 
   // Load user role
@@ -354,16 +356,16 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
           endpoint = "/api/assets/lan"
           processedData = jsonData
             .map((row) => {
-              const facilityName = row["Facility Name"] || row["Facility"] || row["Name"] || ""
+              const facilityName = row["Facility Name"] || row["Facility"] || row["Name"] || row["facilityName"] || ""
               if (!facilityName) return null
               const matchedName = matchFacility(facilityName)
               return {
                 facilityName: matchedName,
-                subcounty: row["Subcounty"] ? String(row["Subcounty"]).trim() : undefined,
-                hasLAN: row["Has LAN"] === "Yes" || row["hasLAN"] === true || row["Has LAN"] === "yes",
-                lanType: row["LAN Type"] || row["lanType"] || undefined,
+                subcounty: row["Subcounty"] || row["subcounty"] ? String(row["Subcounty"] || row["subcounty"]).trim() : undefined,
+                hasLAN: row["Has LAN"] === "Yes" || row["hasLAN"] === true || row["Has LAN"] === "yes" || row["Has LAN"] === true || row["Has LAN"] === "TRUE" || row["Has LAN"] === 1,
+                lanType: row["LAN Type"] || row["lanType"] || row["LANType"] || undefined,
                 notes: row["Notes"] || row["notes"] || undefined,
-                location,
+                location: row["Location"] || row["location"] || location,
               }
             })
             .filter((item): item is NonNullable<typeof item> => item !== null)
@@ -401,7 +403,7 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
       if (processedData.length === 0) {
         toast({
           title: "Error",
-          description: "No valid data found in Excel file",
+          description: `No valid data found in Excel file for ${section}. Please check that the file contains the required columns.`,
           variant: "destructive",
         })
         setIsUploading(false)
@@ -409,6 +411,7 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
       }
 
       // Show import dialog with preview
+      console.log(`[${section}] Processed ${processedData.length} items, showing import dialog`)
       setProcessedData(processedData)
       setShowImportDialog(true)
       setIsUploading(false)
@@ -469,10 +472,22 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
       const result = await response.json()
 
       if (response.ok) {
-        toast({
-          title: "Success",
-          description: `${result.message || `Successfully imported ${result.count || processedData.length} ${section}${processedData.length !== 1 ? "s" : ""}`} (${importMode} mode)`,
-        })
+        // Check if there are partial errors
+        if (result.errors && result.errors.length > 0) {
+          setUploadErrors(result.errors)
+          setShowErrorDialog(true)
+          toast({
+            title: "Upload Complete with Errors",
+            description: `Successfully imported ${result.count || 0} ${section}${result.count !== 1 ? "s" : ""}. ${result.errors.length} error${result.errors.length !== 1 ? "s" : ""} occurred. Click to view details.`,
+            variant: "destructive",
+            duration: 8000,
+          })
+        } else {
+          toast({
+            title: "Success",
+            description: `${result.message || `Successfully imported ${result.count || processedData.length} ${section}${processedData.length !== 1 ? "s" : ""}`} (${importMode} mode)`,
+          })
+        }
         setShowImportDialog(false)
         setProcessedData([])
         setImportMode("merge")
@@ -481,9 +496,22 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
         }
       } else {
         const errorMsg = result.details || result.error || "Failed to upload"
-        const errorList = result.errors ? `\n\nErrors:\n${result.errors.slice(0, 5).join("\n")}${result.errors.length > 5 ? `\n... and ${result.errors.length - 5} more` : ""}` : ""
-        console.error("API Error:", result)
-        throw new Error(`${errorMsg}${errorList}`)
+        const errorList = result.errors || []
+        console.error(`[${section}] Upload failed:`, { errorMsg, errorList, fullResult: result })
+        if (errorList.length > 0) {
+          setUploadErrors(errorList)
+          setShowErrorDialog(true)
+          toast({
+            title: "Upload Failed",
+            description: `${errorMsg}. ${errorList.length} error${errorList.length !== 1 ? "s" : ""} occurred. Click to view details.`,
+            variant: "destructive",
+            duration: 8000,
+          })
+        } else {
+          // Include details in error message if available
+          const detailedError = result.details ? `${errorMsg}: ${result.details}` : errorMsg
+          throw new Error(detailedError)
+        }
       }
     } catch (error) {
       console.error(`Error uploading ${section}:`, error)
@@ -735,6 +763,45 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
               disabled={selectedFacilities.size === 0}
             >
               Download Template ({selectedFacilities.size} facilities)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Error Details Dialog */}
+      <Dialog open={showErrorDialog} onOpenChange={setShowErrorDialog}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Upload Errors</DialogTitle>
+            <DialogDescription>
+              {uploadErrors.length} error{uploadErrors.length !== 1 ? "s" : ""} occurred during upload. Details below:
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="border rounded-lg overflow-hidden">
+              <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+                <div className="p-4 space-y-2">
+                  {uploadErrors.map((error, index) => (
+                    <div key={index} className="p-2 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded text-sm">
+                      <span className="font-medium text-red-900 dark:text-red-100">#{index + 1}:</span>{" "}
+                      <span className="text-red-800 dark:text-red-200">{error}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowErrorDialog(false)
+                setUploadErrors([])
+              }}
+            >
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

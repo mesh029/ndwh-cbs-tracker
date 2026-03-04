@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getRoleFromRequest, isSuperAdmin } from "@/lib/auth"
+import { facilitiesMatch } from "@/lib/utils"
 import type { Location } from "@/lib/storage"
 
 const VALID_LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
@@ -51,44 +52,81 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        // Find or create facility
-        let facility = await prisma.facility.findFirst({
+        // Find or create facility using fuzzy matching
+        const trimmedFacilityName = String(facilityName).trim()
+        let facility = null
+        
+        // First, try to find existing facility with fuzzy matching
+        const allFacilities = await prisma.facility.findMany({
           where: {
-            name: String(facilityName).trim(),
             location: trimmedLocation as Location,
             isMaster: true,
           },
         })
-
-        if (!facility) {
-          facility = await prisma.facility.create({
-            data: {
-              name: facilityName,
-              location: trimmedLocation as Location,
-              subcounty: subcounty || null,
-              system: "NDWH",
-              isMaster: true,
-            },
-          })
+        
+        // Find matching facility using fuzzy match
+        for (const f of allFacilities) {
+          if (facilitiesMatch(f.name, trimmedFacilityName)) {
+            facility = f
+            break
+          }
         }
+
+        // If not found, create new facility
+        if (!facility) {
+          try {
+            facility = await prisma.facility.create({
+              data: {
+                name: trimmedFacilityName,
+                location: trimmedLocation as Location,
+                subcounty: subcounty ? String(subcounty).trim() : null,
+                system: "NDWH",
+                isMaster: true,
+              },
+            })
+          } catch (createError: any) {
+            // If creation fails (e.g., duplicate), try to find again
+            if (createError.code === "P2002") {
+              // Duplicate - try to find it again
+              for (const f of allFacilities) {
+                if (facilitiesMatch(f.name, trimmedFacilityName)) {
+                  facility = f
+                  break
+                }
+              }
+            }
+            if (!facility) {
+              throw createError
+            }
+          }
+        }
+
+        // Ensure facility was found/created
+        if (!facility || !facility.id) {
+          throw new Error(`Failed to find or create facility: ${trimmedFacilityName}`)
+        }
+
+        // Convert numeric values to strings for assetTag and serialNumber
+        const assetTagStr = assetTag ? String(assetTag).trim() : null
+        const serialNumberStr = serialNumber ? String(serialNumber).trim() : null
 
         const assetPayload = {
           facilityId: facility.id,
-          routerType: routerType || null,
-          assetTag: assetTag || null,
-          serialNumber: serialNumber || null,
+          routerType: routerType ? String(routerType).trim() : null,
+          assetTag: assetTagStr,
+          serialNumber: serialNumberStr,
           location: trimmedLocation as Location,
-          subcounty: subcounty || null,
-          notes: notes || null,
+          subcounty: subcounty ? String(subcounty).trim() : null,
+          notes: notes ? String(notes).trim() : null,
         }
 
-        if (mode === "merge" && (assetTag || serialNumber)) {
+        if (mode === "merge" && (assetTagStr || serialNumberStr)) {
           const existing = await prisma.routerAsset.findFirst({
             where: {
               facilityId: facility.id,
               OR: [
-                ...(assetTag ? [{ assetTag }] : []),
-                ...(serialNumber ? [{ serialNumber }] : []),
+                ...(assetTagStr ? [{ assetTag: assetTagStr }] : []),
+                ...(serialNumberStr ? [{ serialNumber: serialNumberStr }] : []),
               ],
             },
           })
@@ -120,14 +158,14 @@ export async function POST(request: NextRequest) {
 
     // Auto-update facility routerType based on router assets
     // Use the most common router type for each facility
-    for (const [facilityId, routerTypeMap] of facilityRouterTypes.entries()) {
+    for (const [facilityId, routerTypeMap] of Array.from(facilityRouterTypes.entries())) {
       if (routerTypeMap.size === 0) continue
 
       // Find the most common router type
       let mostCommonType: string | null = null
       let maxCount = 0
       
-      for (const [type, count] of routerTypeMap.entries()) {
+      for (const [type, count] of Array.from(routerTypeMap.entries())) {
         if (count > maxCount) {
           mostCommonType = type
           maxCount = count

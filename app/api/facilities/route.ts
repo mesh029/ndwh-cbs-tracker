@@ -83,12 +83,12 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/facilities
- * Create facilities (bulk) - admin only
+ * Create facilities (bulk) - admin and superadmin only
  */
 export async function POST(request: NextRequest) {
   const role = getRoleFromRequest(request)
-  if (role !== "admin") {
-    return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 })
+  if (role !== "admin" && role !== "superadmin") {
+    return NextResponse.json({ error: "Forbidden: admin or superadmin only" }, { status: 403 })
   }
   try {
     const body = await request.json()
@@ -108,6 +108,7 @@ export async function POST(request: NextRequest) {
         subcounty?: string; 
         sublocation?: string;
         serverType?: string;
+        routerType?: string;
         simcardCount?: number;
         hasLAN?: boolean;
         facilityGroup?: string;
@@ -118,6 +119,7 @@ export async function POST(request: NextRequest) {
             subcounty: null,
             sublocation: null,
             serverType: null,
+            routerType: null,
             simcardCount: null,
             hasLAN: false,
             facilityGroup: null,
@@ -163,41 +165,60 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Create facilities
-    const created = await prisma.facility.createMany({
-      data: newFacilities.map((f: { 
-        name: string; 
-        subcounty: string | null;
-        sublocation?: string | null;
-        serverType?: string | null;
-        routerType?: string | null;
-        simcardCount?: number | null;
-        hasLAN?: boolean;
-        facilityGroup?: string | null;
-      }) => ({
-        name: f.name.trim(),
-        subcounty: f.subcounty,
-        sublocation: f.sublocation || null,
-        serverType: f.serverType || null,
-        routerType: f.routerType || null,
-        simcardCount: f.simcardCount !== undefined && f.simcardCount !== null ? Number(f.simcardCount) : null,
-        hasLAN: f.hasLAN !== undefined ? Boolean(f.hasLAN) : false,
-        facilityGroup: f.facilityGroup || null,
-        system,
-        location,
-        isMaster: isMaster ?? true,
-      })),
-      skipDuplicates: true,
-    })
+    // Create facilities one by one to capture individual errors
+    const results = {
+      created: 0,
+      skipped: 0,
+      errors: [] as string[],
+    }
+
+    for (const f of newFacilities) {
+      try {
+        await prisma.facility.create({
+          data: {
+            name: f.name.trim(),
+            subcounty: f.subcounty,
+            sublocation: f.sublocation || null,
+            serverType: f.serverType || null,
+            routerType: f.routerType || null,
+            simcardCount: f.simcardCount !== undefined && f.simcardCount !== null ? Number(f.simcardCount) : null,
+            hasLAN: f.hasLAN !== undefined ? Boolean(f.hasLAN) : false,
+            facilityGroup: f.facilityGroup || null,
+            system,
+            location,
+            isMaster: isMaster ?? true,
+          },
+        })
+        results.created++
+      } catch (prismaError: any) {
+        if (prismaError.code === "P2002") {
+          // Duplicate entry - skip it
+          results.skipped++
+        } else {
+          // Other error - record it
+          results.errors.push(`"${f.name.trim()}": ${prismaError.message || "Unknown error"}`)
+        }
+      }
+    }
+
+    if (results.created === 0 && results.errors.length === 0) {
+      return NextResponse.json({
+        success: true,
+        count: 0,
+        message: "All facilities already exist",
+      })
+    }
 
     return NextResponse.json({
       success: true,
-      count: created.count,
+      count: results.created,
+      skipped: results.skipped,
+      errors: results.errors.length > 0 ? results.errors : undefined,
     })
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error creating facilities:", error)
     return NextResponse.json(
-      { error: "Failed to create facilities" },
+      { error: error.message || "Failed to create facilities" },
       { status: 500 }
     )
   }
@@ -209,8 +230,8 @@ export async function POST(request: NextRequest) {
  */
 export async function PATCH(request: NextRequest) {
   const role = getRoleFromRequest(request)
-  if (role !== "admin") {
-    return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 })
+  if (role !== "admin" && role !== "superadmin") {
+    return NextResponse.json({ error: "Forbidden: admin or superadmin only" }, { status: 403 })
   }
   try {
     const body = await request.json()
@@ -260,19 +281,40 @@ export async function PATCH(request: NextRequest) {
       updateData.facilityGroup = facilityGroup?.trim() || null
     }
 
-    const updated = await prisma.facility.update({
-      where: { id },
-      data: updateData,
-    })
+    try {
+      const updated = await prisma.facility.update({
+        where: { id },
+        data: updateData,
+      })
 
-    return NextResponse.json({
-      success: true,
-      facility: updated,
-    })
-  } catch (error) {
-    console.error("Error updating facility:", error)
+      return NextResponse.json({
+        success: true,
+        facility: updated,
+      })
+    } catch (prismaError: any) {
+      console.error("Error updating facility:", prismaError)
+      // Handle specific Prisma errors
+      if (prismaError.code === "P2002") {
+        return NextResponse.json(
+          { error: `Facility name "${name.trim()}" already exists in this system/location` },
+          { status: 400 }
+        )
+      }
+      if (prismaError.code === "P2025") {
+        return NextResponse.json(
+          { error: "Facility not found" },
+          { status: 404 }
+        )
+      }
+      return NextResponse.json(
+        { error: prismaError.message || "Failed to update facility" },
+        { status: 500 }
+      )
+    }
+  } catch (error: any) {
+    console.error("Error in PATCH /api/facilities:", error)
     return NextResponse.json(
-      { error: "Failed to update facility" },
+      { error: error.message || "Failed to update facility" },
       { status: 500 }
     )
   }
@@ -284,8 +326,8 @@ export async function PATCH(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   const role = getRoleFromRequest(request)
-  if (role !== "admin") {
-    return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 })
+  if (role !== "admin" && role !== "superadmin") {
+    return NextResponse.json({ error: "Forbidden: admin or superadmin only" }, { status: 403 })
   }
   try {
     const searchParams = request.nextUrl.searchParams
@@ -340,8 +382,8 @@ export async function DELETE(request: NextRequest) {
  */
 export async function PUT(request: NextRequest) {
   const role = getRoleFromRequest(request)
-  if (role !== "admin") {
-    return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 })
+  if (role !== "admin" && role !== "superadmin") {
+    return NextResponse.json({ error: "Forbidden: admin or superadmin only" }, { status: 403 })
   }
   try {
     const body = await request.json()
