@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { determineIssueType } from "@/lib/date-utils"
 import { getRoleFromRequest, isSuperAdmin } from "@/lib/auth"
+import { facilitiesMatch } from "@/lib/utils"
 
 export async function POST(request: NextRequest) {
   try {
@@ -68,17 +69,33 @@ export async function POST(request: NextRequest) {
         // Determine issue type if not provided
         const finalIssueType = issueType || determineIssueType(serverCondition || "")
 
-        // Get server type from facility if available
-        const facility = await prisma.facility.findFirst({
+        // Get server type and subcounty from facility if available
+        const facilities = await prisma.facility.findMany({
           where: {
-            name: facilityName,
             location: location,
             isMaster: true,
           },
           select: {
+            name: true,
             serverType: true,
+            subcounty: true,
           },
         })
+
+        // Try to match facility using fuzzy matching
+        let matchedFacility = null
+        for (const facility of facilities) {
+          if (facilitiesMatch(facility.name, facilityName.trim())) {
+            matchedFacility = facility
+            break
+          }
+        }
+
+        // Auto-pick subcounty from facility if it has one (prioritize facility's subcounty)
+        let finalSubcounty = subcounty
+        if (matchedFacility?.subcounty) {
+          finalSubcounty = matchedFacility.subcounty
+        }
 
         const normalizedStatus = role === "guest" ? "open" : (status || "open")
 
@@ -86,7 +103,7 @@ export async function POST(request: NextRequest) {
         await prisma.ticket.create({
           data: {
             facilityName,
-            subcounty,
+            subcounty: finalSubcounty,
             serverCondition: serverCondition || "",
             problem: problem || "",
             solution: role === "guest" ? null : (solution || null),
@@ -98,7 +115,7 @@ export async function POST(request: NextRequest) {
             resolutionSteps: role === "guest" ? null : (resolutionSteps || null),
             status: normalizedStatus,
             issueType: finalIssueType,
-            serverType: facility?.serverType || null,
+            serverType: matchedFacility?.serverType || null,
             week: week || null,
             location,
           },

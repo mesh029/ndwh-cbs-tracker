@@ -54,7 +54,9 @@ function Calendar({
         ...classNames,
       }}
       components={{
+        // @ts-ignore - IconLeft and IconRight are valid but not in types
         IconLeft: ({ ...props }) => <ChevronLeft className="h-4 w-4" />,
+        // @ts-ignore - IconLeft and IconRight are valid but not in types
         IconRight: ({ ...props }) => <ChevronRight className="h-4 w-4" />,
       }}
       {...props}

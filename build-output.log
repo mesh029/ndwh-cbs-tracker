@@ -1,0 +1,40 @@
+
+> facility-reporting-dashboard@0.1.0 build
+> next build
+
+  ▲ Next.js 14.2.35
+  - Environments: .env
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+
+Failed to compile.
+
+./app/not-found.tsx
+13:25  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+13:46  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+
+./components/asset-manager.tsx
+106:6  Warning: React Hook useEffect has a missing dependency: 'loadAssets'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+112:6  Warning: React Hook useEffect has a missing dependency: 'loadFacilities'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/nyamira-dashboard.backup.tsx
+115:6  Warning: React Hook useEffect has missing dependencies: 'loadComparisonStats' and 'loadTicketsAndAnalytics'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+650:6  Warning: React Hook useEffect has missing dependencies: 'loadTicketsAndAnalytics', 'serverDistribution', and 'ticketAnalytics'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/nyamira-dashboard.tsx
+128:6  Warning: React Hook useEffect has missing dependencies: 'loadComparisonStats', 'loadServerDistribution', 'loadSimcardDistribution', 'loadSubcountyDistribution', and 'loadTicketsAndAnalytics'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+663:6  Warning: React Hook useEffect has missing dependencies: 'loadTicketsAndAnalytics', 'serverDistribution', and 'ticketAnalytics'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/section-upload.tsx
+79:6  Warning: React Hook useEffect has a missing dependency: 'loadFacilities'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/tickets.tsx
+135:6  Warning: React Hook useEffect has a missing dependency: 'loadTickets'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+160:6  Warning: React Hook useEffect has a missing dependency: 'loadSubcounties'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/uploads-page.tsx
+48:6  Warning: React Hook useEffect has missing dependencies: 'loadMasterFacilityCounts' and 'loadUploadHistory'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/basic-features/eslint#disabling-rules

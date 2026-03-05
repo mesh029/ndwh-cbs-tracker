@@ -86,7 +86,7 @@ async function fixNyamiraData() {
       let matched = false
       
       // Try to match with each server type sheet
-      for (const [serverType, facilityNames] of serverTypeMap.entries()) {
+      for (const [serverType, facilityNames] of Array.from(serverTypeMap.entries())) {
         for (const facilityName of facilityNames) {
           if (facilitiesMatch(facility.name, facilityName)) {
             await prisma.facility.update({

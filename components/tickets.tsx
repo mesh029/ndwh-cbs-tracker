@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Plus, Edit2, Trash2, CheckCircle2, Clock, AlertCircle, Search, X, TrendingUp, Server } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
-import { cn } from "@/lib/utils"
+import { cn, facilitiesMatch } from "@/lib/utils"
 import { useMemo } from "react"
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, AreaChart, Area, LineChart, Line } from "recharts"
 import {
@@ -123,7 +123,7 @@ export function Tickets() {
   const [issueType, setIssueType] = useState<"server" | "network">("server")
   const [week, setWeek] = useState("")
   const [showForm, setShowForm] = useState(false)
-  const [facilities, setFacilities] = useState<Array<{ name: string }>>([])
+  const [facilities, setFacilities] = useState<Array<{ name: string; subcounty: string | null }>>([])
   const [isLoadingFacilities, setIsLoadingFacilities] = useState(false)
   const [selectedTicketIds, setSelectedTicketIds] = useState<Set<string>>(new Set())
   const [isDeleting, setIsDeleting] = useState(false)
@@ -229,7 +229,12 @@ export function Tickets() {
     try {
       const response = await fetch(`/api/facilities?system=NDWH&location=${loc}&isMaster=true`)
       const data = await response.json()
-      setFacilities(data.facilities || [])
+      // Map facilities to include subcounty
+      const facilitiesWithSubcounty = (data.facilities || []).map((f: any) => ({
+        name: f.name,
+        subcounty: f.subcounty || null,
+      }))
+      setFacilities(facilitiesWithSubcounty)
     } catch (error) {
       console.error("Error loading facilities:", error)
       setFacilities([])
@@ -237,6 +242,23 @@ export function Tickets() {
       setIsLoadingFacilities(false)
     }
   }
+
+  // Auto-populate subcounty when facility name changes
+  useEffect(() => {
+    if (facilityName.trim() && facilities.length > 0 && location) {
+      // Find matching facility
+      const matchedFacility = facilities.find((facility) =>
+        facilitiesMatch(facility.name, facilityName.trim())
+      )
+      
+      if (matchedFacility && matchedFacility.subcounty) {
+        // Auto-populate subcounty if facility has one and it's not already set
+        if (!subcounty || subcounty !== matchedFacility.subcounty) {
+          setSubcounty(matchedFacility.subcounty)
+        }
+      }
+    }
+  }, [facilityName, facilities, location, subcounty])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -246,6 +268,16 @@ export function Tickets() {
       toast({
         title: "Error",
         description: "Please fill all required fields (Location, Subcounty, Facility, Categories, Problem, Your Name, Assigned To)",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Validate resolvedBy is required when status is resolved or in-progress
+    if ((status === "resolved" || status === "in-progress") && (role === "admin" || role === "superadmin") && !resolvedBy.trim()) {
+      toast({
+        title: "Error",
+        description: "Resolved By is required when status is 'resolved' or 'in-progress'",
         variant: "destructive",
       })
       return
@@ -1029,17 +1061,18 @@ export function Tickets() {
                 />
               </div>
 
-              {role === "admin" && (
+              {(role === "admin" || role === "superadmin") && (
                 <>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-sm font-medium mb-2 block">
-                        Resolved By
+                        Resolved By {(status === "resolved" || status === "in-progress") && <span className="text-red-500">*</span>}
                       </label>
                       <Input
                         value={resolvedBy}
                         onChange={(e) => setResolvedBy(e.target.value)}
                         placeholder="Who resolved this ticket?"
+                        required={status === "resolved" || status === "in-progress"}
                       />
                     </div>
                     <div>

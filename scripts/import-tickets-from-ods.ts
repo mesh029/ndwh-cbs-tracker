@@ -121,6 +121,7 @@ async function importTicketsFromODS() {
             facilityName: facilityName,
             serverCondition: serverCondition,
             problem: problem,
+            subcounty: "", // Required field, set to empty string if not available
             solution: null,
             location: "Nyamira",
             serverType: matchedFacility?.serverType || null,

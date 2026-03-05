@@ -188,7 +188,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Update simcardCount for all affected facilities
-    for (const facilityId of allFacilitiesToUpdate) {
+    for (const facilityId of Array.from(allFacilitiesToUpdate)) {
       try {
         const simcardCount = await prisma.simcardAsset.count({
           where: { facilityId },

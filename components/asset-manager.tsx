@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -101,17 +101,7 @@ export function AssetManager() {
     notes: "",
   })
 
-  useEffect(() => {
-    loadAssets()
-  }, [selectedLocation, selectedAssetType])
-
-  useEffect(() => {
-    if (selectedLocation !== "all") {
-      loadFacilities()
-    }
-  }, [selectedLocation])
-
-  const loadFacilities = async () => {
+  const loadFacilities = useCallback(async () => {
     if (selectedLocation === "all") {
       setFacilities([])
       return
@@ -128,7 +118,7 @@ export function AssetManager() {
     } finally {
       setIsLoadingFacilities(false)
     }
-  }
+  }, [selectedLocation])
 
   const fetchMasterFacilities = async (location: string): Promise<MasterFacility[]> => {
     const systems = ["NDWH", "CBS"]
@@ -158,7 +148,7 @@ export function AssetManager() {
     return Array.from(merged.values())
   }
 
-  const loadAssets = async () => {
+  const loadAssets = useCallback(async () => {
     setIsLoading(true)
     try {
       const locationsToLoad = selectedLocation === "all" ? LOCATIONS : [selectedLocation]
@@ -291,7 +281,24 @@ export function AssetManager() {
     } finally {
       setIsLoading(false)
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedLocation, selectedAssetType])
+
+  useEffect(() => {
+    loadAssets()
+  }, [loadAssets])
+
+  useEffect(() => {
+    if (selectedLocation !== "all") {
+      loadFacilities()
+    }
+  }, [selectedLocation, loadFacilities])
+
+  useEffect(() => {
+    if (selectedLocation !== "all") {
+      loadFacilities()
+    }
+  }, [selectedLocation, loadFacilities])
 
   const handleAdd = () => {
     setEditingAsset(null)

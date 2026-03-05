@@ -89,7 +89,7 @@ async function migrateReportedToComparisonHistory() {
         console.log(`  Grouped into ${facilitiesByWeek.size} week(s)`)
 
         // Create comparison history records for each week
-        for (const [weekKey, facilities] of facilitiesByWeek.entries()) {
+        for (const [weekKey, facilities] of Array.from(facilitiesByWeek.entries())) {
           const weekDate = new Date(weekKey)
           const week = getWeekString(weekDate)
           const facilityNames = facilities.map(f => f.name)
