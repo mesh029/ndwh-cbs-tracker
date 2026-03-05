@@ -164,6 +164,7 @@ async function updateTicketsFromODS() {
               facilityName: facilityName,
               serverCondition: category,
               problem: issue,
+              subcounty: "", // Required field, set to empty string if not available
               solution: status === "resolved" ? "Processed as per ODS" : null,
               location: location,
               serverType: finalServerType,

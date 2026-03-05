@@ -32,18 +32,18 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     })
 
     // Update facility simcardCount
-    const facilityId = asset.facilityId || asset.facility.id
-    if (facilityId) {
+    const targetFacilityId = asset.facilityId || asset.facility.id
+    if (targetFacilityId) {
       try {
         const simcardCount = await prisma.simcardAsset.count({
-          where: { facilityId },
+          where: { facilityId: targetFacilityId },
         })
         await prisma.facility.update({
-          where: { id: facilityId },
+          where: { id: targetFacilityId },
           data: { simcardCount },
         })
       } catch (error) {
-        console.error(`Error updating simcardCount for facility ${facilityId}:`, error)
+        console.error(`Error updating simcardCount for facility ${targetFacilityId}:`, error)
       }
     }
 

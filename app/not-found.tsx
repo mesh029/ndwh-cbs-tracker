@@ -10,7 +10,7 @@ export default function NotFound() {
         <CardHeader>
           <CardTitle>404 - Page Not Found</CardTitle>
           <CardDescription>
-            The page you're looking for doesn't exist
+            The page you&apos;re looking for doesn&apos;t exist
           </CardDescription>
         </CardHeader>
         <CardContent>

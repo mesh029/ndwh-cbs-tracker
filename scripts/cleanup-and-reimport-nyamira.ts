@@ -250,7 +250,7 @@ async function cleanupAndReimportNyamira() {
           let matchedMasterId: string | null = null
           let matchedMasterName: string | null = null
           
-          for (const [masterName, masterId] of masterFacilityMap.entries()) {
+          for (const [masterName, masterId] of Array.from(masterFacilityMap.entries())) {
             if (facilitiesMatch(masterName, facilityName)) {
               matchedMasterId = masterId
               matchedMasterName = masterName

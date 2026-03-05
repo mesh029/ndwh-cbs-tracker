@@ -52,7 +52,7 @@ async function importSimcardLanData() {
 
     // First pass: collect all simcard data by facility (handle duplicates by summing)
     const facilityData: Record<string, { 
-      sublocation: string
+      sublocation: string | null
       simcardCount: number
       hasLAN: boolean
       matchedFacility: any
@@ -115,7 +115,7 @@ async function importSimcardLanData() {
 
         if (!facilityData[facilityKey]) {
           facilityData[facilityKey] = {
-            sublocation: sublocation || matchedFacility.sublocation,
+            sublocation: sublocation || matchedFacility.sublocation || null,
             simcardCount: 0,
             hasLAN: false,
             matchedFacility: matchedFacility,

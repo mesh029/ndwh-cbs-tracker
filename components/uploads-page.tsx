@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -42,12 +42,7 @@ export function UploadsPage() {
   }>({ cbs: 0, ndwh: 0 })
   const { toast } = useToast()
 
-  useEffect(() => {
-    loadUploadHistory()
-    loadMasterFacilityCounts()
-  }, [selectedLocationForHistory])
-
-  const loadMasterFacilityCounts = async () => {
+  const loadMasterFacilityCounts = useCallback(async () => {
     try {
       // For comparison purposes, both CBS and NDWH should use the same master facility list
       // Use NDWH master facilities as the standard (since it typically has the complete list)
@@ -63,9 +58,9 @@ export function UploadsPage() {
     } catch (error) {
       console.error("Error loading master facility counts:", error)
     }
-  }
+  }, [selectedLocationForHistory])
 
-  const loadUploadHistory = async () => {
+  const loadUploadHistory = useCallback(async () => {
     try {
       // Get ALL uploads for selected location (not just past 4 weeks) to show all trends
       const response = await fetch(`/api/comparisons?location=${selectedLocationForHistory}`)
@@ -75,7 +70,12 @@ export function UploadsPage() {
     } catch (error) {
       console.error("Error loading upload history:", error)
     }
-  }
+  }, [selectedLocationForHistory])
+
+  useEffect(() => {
+    loadUploadHistory()
+    loadMasterFacilityCounts()
+  }, [loadUploadHistory, loadMasterFacilityCounts])
 
   const getWeekString = (date: Date): string => {
     const weekStart = startOfWeek(date, { weekStartsOn: 1 }) // Monday

@@ -160,8 +160,8 @@ export async function POST(request: NextRequest) {
         for (const facility of facilities) {
           if (facilitiesMatch(facility.name, facilityName.trim())) {
             serverType = facility.serverType
-            // If subcounty wasn't provided or doesn't match, use facility's subcounty
-            if (!subcounty && facility.subcounty) {
+            // Auto-pick subcounty from facility if it has one (prioritize facility's subcounty)
+            if (facility.subcounty) {
               validatedSubcounty = facility.subcounty
             }
             break
