@@ -329,6 +329,395 @@ export function Reports() {
     })
   }
 
+  // EMR Facilities Report
+  const exportEMRReport = async () => {
+    try {
+      const wb = XLSX.utils.book_new()
+      const timestamp = new Date().toISOString().split("T")[0]
+      const locations = selectedLocation === "all" ? LOCATIONS : [selectedLocation as Location]
+
+      // 1. EMR Facilities Summary
+      const summaryRows: any[] = []
+      for (const loc of locations) {
+        try {
+          const res = await fetch(`/api/facilities?system=NDWH&location=${loc}&isMaster=true`)
+          if (res.ok) {
+            const data = await res.json()
+            const facilities = data.facilities || []
+            
+            summaryRows.push({
+              Location: loc,
+              "Total Facilities": facilities.length,
+              "With Servers": facilities.filter((f: any) => f.serverType).length,
+              "With Simcards": facilities.filter((f: any) => (f.simcardCount || 0) > 0).length,
+              "With LAN": facilities.filter((f: any) => f.hasLAN === true).length,
+            })
+          }
+        } catch (error) {
+          console.error(`Error fetching facilities for ${loc}:`, error)
+        }
+      }
+      
+      if (summaryRows.length > 0) {
+        const summaryWs = XLSX.utils.json_to_sheet(summaryRows)
+        summaryWs["!cols"] = [{ wch: 15 }, { wch: 18 }, { wch: 15 }, { wch: 15 }, { wch: 12 }]
+        XLSX.utils.book_append_sheet(wb, summaryWs, "Summary")
+      }
+
+      // 2. EMR Facilities Detail
+      const facilityRows: any[] = []
+      for (const loc of locations) {
+        try {
+          const res = await fetch(`/api/facilities?system=NDWH&location=${loc}&isMaster=true`)
+          if (res.ok) {
+            const data = await res.json()
+            for (const facility of data.facilities || []) {
+              facilityRows.push({
+                Location: loc,
+                "Facility Name": facility.name || "",
+                Subcounty: facility.subcounty || "",
+                Sublocation: facility.sublocation || "",
+                "Server Type": facility.serverType || "",
+                "Router Type": facility.routerType || "",
+                "Simcard Count": facility.simcardCount || 0,
+                "Has LAN": facility.hasLAN === true ? "Yes" : "No",
+                "Facility Group": facility.facilityGroup || "",
+              })
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching facilities for ${loc}:`, error)
+        }
+      }
+
+      if (facilityRows.length > 0) {
+        const facilityWs = XLSX.utils.json_to_sheet(facilityRows)
+        facilityWs["!cols"] = [
+          { wch: 15 }, { wch: 40 }, { wch: 20 }, { wch: 20 }, { wch: 15 }, { wch: 15 }, 
+          { wch: 15 }, { wch: 12 }, { wch: 20 }
+        ]
+        XLSX.utils.book_append_sheet(wb, facilityWs, "Facilities")
+      }
+
+      XLSX.writeFile(wb, `EMR_Facilities_Report_${timestamp}.xlsx`)
+      toast({
+        title: "Success",
+        description: "EMR Facilities report exported successfully",
+      })
+    } catch (error) {
+      console.error("Error exporting EMR report:", error)
+      toast({
+        title: "Error",
+        description: "Failed to export EMR report",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // EMR Inventory Report
+  const exportEMRInventoryReport = async () => {
+    try {
+      const wb = XLSX.utils.book_new()
+      const timestamp = new Date().toISOString().split("T")[0]
+      const locations = selectedLocation === "all" ? LOCATIONS : [selectedLocation as Location]
+
+      // Servers
+      const serverRows: any[] = []
+      for (const loc of locations) {
+        try {
+          const res = await fetch(`/api/assets/servers?location=${loc}`)
+          if (res.ok) {
+            const data = await res.json()
+            for (const server of data.servers || []) {
+              serverRows.push({
+                Location: loc,
+                "Facility Name": server.facilityName || "",
+                "Server Type": server.serverType || "",
+                "Asset Tag": server.assetTag || "",
+                "Serial Number": server.serialNumber || "",
+                Condition: server.condition || "",
+                Notes: server.notes || "",
+              })
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching servers for ${loc}:`, error)
+        }
+      }
+
+      if (serverRows.length > 0) {
+        const serverWs = XLSX.utils.json_to_sheet(serverRows)
+        serverWs["!cols"] = [{ wch: 15 }, { wch: 40 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 50 }]
+        XLSX.utils.book_append_sheet(wb, serverWs, "Servers")
+      }
+
+      // Routers
+      const routerRows: any[] = []
+      for (const loc of locations) {
+        try {
+          const res = await fetch(`/api/assets/routers?location=${loc}`)
+          if (res.ok) {
+            const data = await res.json()
+            for (const router of data.routers || []) {
+              routerRows.push({
+                Location: loc,
+                "Facility Name": router.facilityName || "",
+                "Router Type": router.routerType || "",
+                "Asset Tag": router.assetTag || "",
+                "Serial Number": router.serialNumber || "",
+                Notes: router.notes || "",
+              })
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching routers for ${loc}:`, error)
+        }
+      }
+
+      if (routerRows.length > 0) {
+        const routerWs = XLSX.utils.json_to_sheet(routerRows)
+        routerWs["!cols"] = [{ wch: 15 }, { wch: 40 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 50 }]
+        XLSX.utils.book_append_sheet(wb, routerWs, "Routers")
+      }
+
+      // Simcards
+      const simcardRows: any[] = []
+      for (const loc of locations) {
+        try {
+          const res = await fetch(`/api/assets/simcards?location=${loc}`)
+          if (res.ok) {
+            const data = await res.json()
+            for (const simcard of data.simcards || []) {
+              simcardRows.push({
+                Location: loc,
+                "Facility Name": simcard.facilityName || "",
+                "Phone Number": simcard.phoneNumber || "",
+                "Serial Number": simcard.serialNumber || "",
+                Provider: simcard.provider || "",
+                "Asset Tag": simcard.assetTag || "",
+                Notes: simcard.notes || "",
+              })
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching simcards for ${loc}:`, error)
+        }
+      }
+
+      if (simcardRows.length > 0) {
+        const simcardWs = XLSX.utils.json_to_sheet(simcardRows)
+        simcardWs["!cols"] = [{ wch: 15 }, { wch: 40 }, { wch: 20 }, { wch: 20 }, { wch: 15 }, { wch: 20 }, { wch: 50 }]
+        XLSX.utils.book_append_sheet(wb, simcardWs, "Simcards")
+      }
+
+      // LAN Assets
+      const lanRows: any[] = []
+      for (const loc of locations) {
+        try {
+          const res = await fetch(`/api/assets/lan?location=${loc}`)
+          if (res.ok) {
+            const data = await res.json()
+            for (const lan of data.lanAssets || []) {
+              lanRows.push({
+                Location: loc,
+                "Facility Name": lan.facilityName || "",
+                "LAN Type": lan.lanType || "",
+                "Has LAN": lan.hasLAN === true ? "Yes" : "No",
+                Notes: lan.notes || "",
+              })
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching LAN assets for ${loc}:`, error)
+        }
+      }
+
+      if (lanRows.length > 0) {
+        const lanWs = XLSX.utils.json_to_sheet(lanRows)
+        lanWs["!cols"] = [{ wch: 15 }, { wch: 40 }, { wch: 15 }, { wch: 12 }, { wch: 50 }]
+        XLSX.utils.book_append_sheet(wb, lanWs, "LAN")
+      }
+
+      XLSX.writeFile(wb, `EMR_Inventory_Report_${timestamp}.xlsx`)
+      toast({
+        title: "Success",
+        description: "EMR Inventory report exported successfully",
+      })
+    } catch (error) {
+      console.error("Error exporting EMR inventory report:", error)
+      toast({
+        title: "Error",
+        description: "Failed to export EMR inventory report",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Ticket Report
+  const exportTicketReport = async () => {
+    try {
+      const wb = XLSX.utils.book_new()
+      const timestamp = new Date().toISOString().split("T")[0]
+      const locations = selectedLocation === "all" ? LOCATIONS : [selectedLocation as Location]
+
+      // Ticket Summary
+      const summaryRows: any[] = []
+      for (const loc of locations) {
+        try {
+          const res = await fetch(`/api/tickets?location=${loc}`)
+          if (res.ok) {
+            const data = await res.json()
+            const tickets = data.tickets || []
+            
+            summaryRows.push({
+              Location: loc,
+              "Total Tickets": tickets.length,
+              Open: tickets.filter((t: any) => t.status === "open").length,
+              "In Progress": tickets.filter((t: any) => t.status === "in-progress").length,
+              Resolved: tickets.filter((t: any) => t.status === "resolved").length,
+              "Server Issues": tickets.filter((t: any) => t.issueType === "server").length,
+              "Network Issues": tickets.filter((t: any) => t.issueType === "network").length,
+            })
+          }
+        } catch (error) {
+          console.error(`Error fetching tickets for ${loc}:`, error)
+        }
+      }
+
+      if (summaryRows.length > 0) {
+        const summaryWs = XLSX.utils.json_to_sheet(summaryRows)
+        summaryWs["!cols"] = [{ wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 15 }]
+        XLSX.utils.book_append_sheet(wb, summaryWs, "Summary")
+      }
+
+      // Ticket Details
+      const ticketRows: any[] = []
+      for (const loc of locations) {
+        try {
+          const res = await fetch(`/api/tickets?location=${loc}`)
+          if (res.ok) {
+            const data = await res.json()
+            for (const ticket of data.tickets || []) {
+              ticketRows.push({
+                Location: loc,
+                Subcounty: ticket.subcounty || "",
+                "Facility Name": ticket.facilityName || "",
+                Status: ticket.status || "",
+                "Issue Type": ticket.issueType || "",
+                "Server Type": ticket.serverType || "",
+                Categories: ticket.serverCondition || "",
+                Problem: ticket.problem || "",
+                Solution: ticket.solution || "",
+                "Reported By": ticket.reportedBy || "",
+                "Assigned To": ticket.assignedTo || "",
+                "Resolved By": ticket.resolvedBy || "",
+                "Created At": ticket.createdAt ? new Date(ticket.createdAt).toLocaleString() : "",
+                "Resolved At": ticket.resolvedAt ? new Date(ticket.resolvedAt).toLocaleString() : "",
+              })
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching tickets for ${loc}:`, error)
+        }
+      }
+
+      if (ticketRows.length > 0) {
+        const ticketWs = XLSX.utils.json_to_sheet(ticketRows)
+        ticketWs["!cols"] = [
+          { wch: 15 }, { wch: 20 }, { wch: 40 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 30 },
+          { wch: 50 }, { wch: 50 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }
+        ]
+        XLSX.utils.book_append_sheet(wb, ticketWs, "Tickets")
+      }
+
+      XLSX.writeFile(wb, `Ticket_Report_${timestamp}.xlsx`)
+      toast({
+        title: "Success",
+        description: "Ticket report exported successfully",
+      })
+    } catch (error) {
+      console.error("Error exporting ticket report:", error)
+      toast({
+        title: "Error",
+        description: "Failed to export ticket report",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Ticket Analytics Report
+  const exportTicketAnalyticsReport = async () => {
+    try {
+      const wb = XLSX.utils.book_new()
+      const timestamp = new Date().toISOString().split("T")[0]
+      const locations = selectedLocation === "all" ? LOCATIONS : [selectedLocation as Location]
+
+      // Analytics by County
+      const analyticsRows: any[] = []
+      for (const loc of locations) {
+        try {
+          const ticketRes = await fetch(`/api/tickets?location=${loc}`)
+          const facilityRes = await fetch(`/api/facilities?system=NDWH&location=${loc}&isMaster=true`)
+          
+          if (ticketRes.ok && facilityRes.ok) {
+            const ticketData = await ticketRes.json()
+            const facilityData = await facilityRes.json()
+            const tickets = ticketData.tickets || []
+            const facilities = facilityData.facilities || []
+
+            // Group by server type
+            const serverTypeMap = new Map<string, { tickets: number; facilities: number }>()
+            facilities.forEach((f: any) => {
+              const st = f.serverType || "Unknown"
+              if (!serverTypeMap.has(st)) {
+                serverTypeMap.set(st, { tickets: 0, facilities: 0 })
+              }
+              serverTypeMap.get(st)!.facilities++
+            })
+
+            tickets.forEach((t: any) => {
+              const st = t.serverType || "Unknown"
+              if (serverTypeMap.has(st)) {
+                serverTypeMap.get(st)!.tickets++
+              }
+            })
+
+            Array.from(serverTypeMap.entries()).forEach(([serverType, data]) => {
+              analyticsRows.push({
+                Location: loc,
+                "Server Type": serverType,
+                "Facility Count": data.facilities,
+                "Ticket Count": data.tickets,
+                "Issue Rate": data.facilities > 0 ? ((data.tickets / data.facilities) * 100).toFixed(2) + "%" : "0%",
+              })
+            })
+          }
+        } catch (error) {
+          console.error(`Error fetching analytics for ${loc}:`, error)
+        }
+      }
+
+      if (analyticsRows.length > 0) {
+        const analyticsWs = XLSX.utils.json_to_sheet(analyticsRows)
+        analyticsWs["!cols"] = [{ wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 15 }]
+        XLSX.utils.book_append_sheet(wb, analyticsWs, "Analytics")
+      }
+
+      XLSX.writeFile(wb, `Ticket_Analytics_Report_${timestamp}.xlsx`)
+      toast({
+        title: "Success",
+        description: "Ticket analytics report exported successfully",
+      })
+    } catch (error) {
+      console.error("Error exporting ticket analytics report:", error)
+      toast({
+        title: "Error",
+        description: "Failed to export ticket analytics report",
+        variant: "destructive",
+      })
+    }
+  }
+
   const exportToExcel = async () => {
     try {
       const wb = XLSX.utils.book_new()
@@ -659,27 +1048,60 @@ export function Reports() {
         </Select>
       </div>
 
-      <div className="flex flex-wrap gap-4">
-        <Button onClick={exportToExcel}>
-          <Download className="mr-2 h-4 w-4" />
-          Export Comprehensive Excel {selectedLocation !== "all" ? `(${selectedLocation})` : "(All Locations)"}
-        </Button>
-        <Button onClick={exportToCSV}>
-          <Download className="mr-2 h-4 w-4" />
-          Export CSV {selectedLocation !== "all" ? `(${selectedLocation})` : "(All Locations)"}
-        </Button>
-        <Button onClick={exportToText} variant="outline">
-          <FileText className="mr-2 h-4 w-4" />
-          Export Text {selectedLocation !== "all" ? `(${selectedLocation})` : "(All Locations)"}
-        </Button>
-        <Button onClick={copyReportedToClipboard} variant="outline">
-          <Copy className="mr-2 h-4 w-4" />
-          Copy Reported to Clipboard
-        </Button>
-        <Button onClick={copyMissingToClipboard} variant="outline">
-          <Copy className="mr-2 h-4 w-4" />
-          Copy Missing to Clipboard
-        </Button>
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-lg font-semibold mb-3">NDWH/CBS Reports</h3>
+          <div className="flex flex-wrap gap-4">
+            <Button onClick={exportToExcel}>
+              <Download className="mr-2 h-4 w-4" />
+              Export Comprehensive Excel {selectedLocation !== "all" ? `(${selectedLocation})` : "(All Locations)"}
+            </Button>
+            <Button onClick={exportToCSV}>
+              <Download className="mr-2 h-4 w-4" />
+              Export CSV {selectedLocation !== "all" ? `(${selectedLocation})` : "(All Locations)"}
+            </Button>
+            <Button onClick={exportToText} variant="outline">
+              <FileText className="mr-2 h-4 w-4" />
+              Export Text {selectedLocation !== "all" ? `(${selectedLocation})` : "(All Locations)"}
+            </Button>
+            <Button onClick={copyReportedToClipboard} variant="outline">
+              <Copy className="mr-2 h-4 w-4" />
+              Copy Reported to Clipboard
+            </Button>
+            <Button onClick={copyMissingToClipboard} variant="outline">
+              <Copy className="mr-2 h-4 w-4" />
+              Copy Missing to Clipboard
+            </Button>
+          </div>
+        </div>
+
+        <div>
+          <h3 className="text-lg font-semibold mb-3">EMR Reports</h3>
+          <div className="flex flex-wrap gap-4">
+            <Button onClick={exportEMRReport} variant="default">
+              <Download className="mr-2 h-4 w-4" />
+              Export EMR Facilities Report {selectedLocation !== "all" ? `(${selectedLocation})` : "(All Counties)"}
+            </Button>
+            <Button onClick={exportEMRInventoryReport} variant="default">
+              <Download className="mr-2 h-4 w-4" />
+              Export EMR Inventory Report {selectedLocation !== "all" ? `(${selectedLocation})` : "(All Counties)"}
+            </Button>
+          </div>
+        </div>
+
+        <div>
+          <h3 className="text-lg font-semibold mb-3">Ticket Reports</h3>
+          <div className="flex flex-wrap gap-4">
+            <Button onClick={exportTicketReport} variant="default">
+              <Download className="mr-2 h-4 w-4" />
+              Export Ticket Report {selectedLocation !== "all" ? `(${selectedLocation})` : "(All Counties)"}
+            </Button>
+            <Button onClick={exportTicketAnalyticsReport} variant="default">
+              <Download className="mr-2 h-4 w-4" />
+              Export Ticket Analytics {selectedLocation !== "all" ? `(${selectedLocation})` : "(All Counties)"}
+            </Button>
+          </div>
+        </div>
       </div>
 
       {selectedLocation === "all" && (

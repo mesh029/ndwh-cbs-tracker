@@ -876,6 +876,16 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex-1">
+          <div className="flex items-center gap-3 mb-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => window.location.href = '/nyamira'}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              ← Back to Overview
+            </Button>
+          </div>
           <h1 className="text-3xl font-bold">County Dashboard</h1>
           <p className="text-muted-foreground">
             Comprehensive facility and upload management dashboard
