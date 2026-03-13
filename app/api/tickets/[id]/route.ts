@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma"
 import { validateLocation, validateSubcounty } from "@/lib/location-utils"
 import { getRoleFromRequest } from "@/lib/auth"
 
+// Force dynamic rendering to prevent build-time static generation
+export const dynamic = 'force-dynamic'
+
 /**
  * PATCH /api/tickets/[id]
  * Update a ticket
