@@ -3,10 +3,17 @@ import { prisma } from "@/lib/prisma"
 
 // Force dynamic rendering to prevent build-time static generation
 export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
+
+// Prevent Next.js from trying to generate static params
+export async function generateStaticParams() {
+  return []
+}
 export const runtime = 'nodejs'
 export const revalidate = 0
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> | { id: string } }) {
+  const resolvedParams = await Promise.resolve(params)
   try {
     const body = await request.json()
     const { facilityName, subcounty, phoneNumber, provider, assetTag, serialNumber, notes, location } = body
@@ -31,7 +38,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     }
 
     const asset = await prisma.simcardAsset.update({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
       data: updateData,
       include: { facility: { select: { name: true, id: true } } },
     })
@@ -62,15 +69,16 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> | { id: string } }) {
+  const resolvedParams = await Promise.resolve(params)
   try {
     // Get the asset first to know which facility to update
     const asset = await prisma.simcardAsset.findUnique({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
       select: { facilityId: true },
     })
 
-    await prisma.simcardAsset.delete({ where: { id: params.id } })
+    await prisma.simcardAsset.delete({ where: { id: resolvedParams.id } })
 
     // Update facility simcardCount
     if (asset?.facilityId) {

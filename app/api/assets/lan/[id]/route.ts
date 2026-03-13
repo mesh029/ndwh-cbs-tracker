@@ -5,8 +5,15 @@ import { prisma } from "@/lib/prisma"
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 export const revalidate = 0
+export const fetchCache = 'force-no-store'
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+// Prevent Next.js from trying to generate static params
+export async function generateStaticParams() {
+  return []
+}
+
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> | { id: string } }) {
+  const resolvedParams = await Promise.resolve(params)
   try {
     const body = await request.json()
     const { facilityName, subcounty, hasLAN, lanType, notes, location } = body
@@ -29,7 +36,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     }
 
     const asset = await prisma.lanAsset.update({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
       data: updateData,
       include: { facility: { select: { name: true, id: true } } },
     })
@@ -50,14 +57,15 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> | { id: string } }) {
   try {
-    const existing = await prisma.lanAsset.findUnique({ where: { id: params.id } })
+    const resolvedParams = await Promise.resolve(params)
+    const existing = await prisma.lanAsset.findUnique({ where: { id: resolvedParams.id } })
     if (!existing) {
       return NextResponse.json({ error: "LAN asset not found" }, { status: 404 })
     }
 
-    await prisma.lanAsset.delete({ where: { id: params.id } })
+    await prisma.lanAsset.delete({ where: { id: resolvedParams.id } })
 
     const remaining = await prisma.lanAsset.count({
       where: { facilityId: existing.facilityId, hasLAN: true },

@@ -3,10 +3,17 @@ import { prisma } from "@/lib/prisma"
 
 // Force dynamic rendering to prevent build-time static generation
 export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
+
+// Prevent Next.js from trying to generate static params
+export async function generateStaticParams() {
+  return []
+}
 export const runtime = 'nodejs'
 export const revalidate = 0
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> | { id: string } }) {
+  const resolvedParams = await Promise.resolve(params)
   try {
     const body = await request.json()
     const { facilityName, subcounty, routerType, assetTag, serialNumber, notes, location } = body
@@ -34,7 +41,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     }
 
     const asset = await prisma.routerAsset.update({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
       data: updateData,
       include: { facility: { select: { name: true } } },
     })
@@ -49,9 +56,10 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> | { id: string } }) {
+  const resolvedParams = await Promise.resolve(params)
   try {
-    await prisma.routerAsset.delete({ where: { id: params.id } })
+    await prisma.routerAsset.delete({ where: { id: resolvedParams.id } })
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error("Error deleting router asset:", error)

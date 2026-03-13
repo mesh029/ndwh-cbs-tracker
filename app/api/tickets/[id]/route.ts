@@ -5,6 +5,12 @@ import { getRoleFromRequest } from "@/lib/auth"
 
 // Force dynamic rendering to prevent build-time static generation
 export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
+
+// Prevent Next.js from trying to generate static params
+export async function generateStaticParams() {
+  return []
+}
 export const runtime = 'nodejs'
 export const revalidate = 0
 
@@ -15,8 +21,9 @@ export const revalidate = 0
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
+  const resolvedParams = await Promise.resolve(params)
   try {
     const role = getRoleFromRequest(request)
     if (!role) {
@@ -101,7 +108,7 @@ export async function PATCH(
     }
 
     const ticket = await prisma.ticket.update({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
       data: updateData,
     })
 
@@ -133,8 +140,9 @@ export async function PATCH(
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
+  const resolvedParams = await Promise.resolve(params)
   try {
     const role = getRoleFromRequest(request)
     if (!role) {
@@ -145,7 +153,7 @@ export async function DELETE(
     }
 
     await prisma.ticket.delete({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
     })
 
     return NextResponse.json({
