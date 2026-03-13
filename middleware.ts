@@ -34,13 +34,13 @@ export function middleware(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 })
     }
     const target = request.nextUrl.clone()
-    target.pathname = role === "guest" ? "/tickets" : "/"
+    target.pathname = role === "guest" ? "/tickets" : "/nyamira"
     return NextResponse.redirect(target)
   }
 
   if (pathname === "/login") {
     const target = request.nextUrl.clone()
-    target.pathname = role === "guest" ? "/tickets" : "/"
+    target.pathname = role === "guest" ? "/tickets" : "/nyamira"
     return NextResponse.redirect(target)
   }
 

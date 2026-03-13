@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     const response = NextResponse.json({
       success: true,
       role,
-      redirectTo: role === "guest" ? "/tickets" : "/",
+      redirectTo: role === "guest" ? "/tickets" : "/nyamira",
     })
 
     response.cookies.set({

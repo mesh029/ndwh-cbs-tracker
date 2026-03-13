@@ -27,7 +27,7 @@ export default function LoginPage() {
       if (!response.ok) {
         throw new Error(data.error || "Invalid credentials")
       }
-      router.push(data.redirectTo || "/")
+      router.push(data.redirectTo || "/nyamira")
       router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed")

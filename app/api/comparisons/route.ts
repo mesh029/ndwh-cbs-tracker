@@ -124,13 +124,25 @@ export async function GET(request: NextRequest) {
       take: 100, // Limit to last 100 comparisons
     })
 
-    // Parse JSON fields
-    const parsedComparisons = comparisons.map(comp => ({
-      ...comp,
-      uploadedFacilities: JSON.parse(comp.uploadedFacilities),
-      matchedFacilities: JSON.parse(comp.matchedFacilities),
-      unmatchedFacilities: JSON.parse(comp.unmatchedFacilities),
-    }))
+    // Parse JSON fields with error handling
+    const parsedComparisons = comparisons.map(comp => {
+      try {
+        return {
+          ...comp,
+          uploadedFacilities: comp.uploadedFacilities ? JSON.parse(comp.uploadedFacilities) : [],
+          matchedFacilities: comp.matchedFacilities ? JSON.parse(comp.matchedFacilities) : [],
+          unmatchedFacilities: comp.unmatchedFacilities ? JSON.parse(comp.unmatchedFacilities) : [],
+        }
+      } catch (parseError) {
+        console.error("Error parsing comparison JSON:", parseError, comp.id)
+        return {
+          ...comp,
+          uploadedFacilities: [],
+          matchedFacilities: [],
+          unmatchedFacilities: [],
+        }
+      }
+    })
 
     return NextResponse.json({ comparisons: parsedComparisons })
   } catch (error) {

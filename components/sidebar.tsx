@@ -3,11 +3,12 @@
 import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { LayoutDashboard, Building2, FileText, Ticket, MapPin, Upload, ChevronDown, ChevronRight } from "lucide-react"
+import { LayoutDashboard, Building2, FileText, Ticket, MapPin, Upload, ChevronDown, ChevronRight, Menu } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ThemeToggle } from "./theme-toggle"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
 interface NavItem {
   name: string
@@ -162,7 +163,7 @@ export function Sidebar() {
   return (
     <div
       className={cn(
-        "flex h-full flex-col border-r bg-card transition-all duration-300 ease-in-out",
+        "hidden md:flex h-full flex-col border-r bg-card transition-all duration-300 ease-in-out",
         isCollapsed ? "w-16" : "w-64"
       )}
       onMouseEnter={handleMouseEnter}
@@ -290,5 +291,180 @@ export function Sidebar() {
         </Button>
       </div>
     </div>
+  )
+}
+
+// Mobile Sidebar Content Component (reusable)
+function SidebarContent({ 
+  onLinkClick, 
+  role, 
+  pathname, 
+  visibleSections,
+  expandedSections,
+  setExpandedSections,
+  handleLogout 
+}: {
+  onLinkClick?: () => void
+  role: "admin" | "guest" | "superadmin" | null
+  pathname: string
+  visibleSections: typeof navigationSections
+  expandedSections: Set<string>
+  setExpandedSections: React.Dispatch<React.SetStateAction<Set<string>>>
+  handleLogout: () => void
+}) {
+  const toggleSection = (sectionId: string) => {
+    setExpandedSections(prev => {
+      const next = new Set(prev)
+      if (next.has(sectionId)) {
+        next.delete(sectionId)
+      } else {
+        next.add(sectionId)
+      }
+      return next
+    })
+  }
+
+  return (
+    <>
+      <div className="flex h-16 items-center justify-between border-b px-4">
+        <h1 className="text-lg font-bold text-primary">PATH HIS Dashboards</h1>
+        <ThemeToggle />
+      </div>
+      <nav className="flex-1 space-y-2 p-4 overflow-y-auto">
+        {visibleSections.map((section, sectionIndex) => {
+          const sectionId = `section-${sectionIndex}`
+          const isExpanded = expandedSections.has(sectionId)
+
+          return (
+            <div key={sectionId} className="space-y-1">
+              <button
+                onClick={() => toggleSection(sectionId)}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold uppercase tracking-wider transition-colors",
+                  "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                )}
+              >
+                <section.icon className="h-4 w-4 shrink-0" />
+                <span className="flex-1 text-left">{section.title}</span>
+                {isExpanded ? (
+                  <ChevronDown className="h-4 w-4 shrink-0" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 shrink-0" />
+                )}
+              </button>
+
+              {isExpanded && (
+                <div className="ml-4 space-y-1 border-l-2 border-muted pl-3">
+                  {section.items.map((item) => {
+                    const isActive = pathname === item.href
+                    return (
+                      <Link
+                        key={item.name}
+                        href={item.href}
+                        onClick={onLinkClick}
+                        className={cn(
+                          "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                          isActive
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        )}
+                      >
+                        <item.icon className="h-4 w-4 shrink-0" />
+                        <span className="whitespace-nowrap">{item.name}</span>
+                      </Link>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </nav>
+      <div className="border-t p-3 space-y-2">
+        {role && (
+          <Badge variant={role === "superadmin" ? "default" : role === "admin" ? "default" : "secondary"} className="w-full justify-center">
+            {role === "superadmin" ? "SUPER ADMIN" : role.toUpperCase()}
+          </Badge>
+        )}
+        <Button variant="outline" size="sm" className="w-full" onClick={handleLogout}>
+          Logout
+        </Button>
+      </div>
+    </>
+  )
+}
+
+// Mobile Menu Button Component
+export function MobileMenuButton() {
+  const pathname = usePathname()
+  const router = useRouter()
+  const [role, setRole] = useState<"admin" | "guest" | "superadmin" | null>(null)
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(
+    new Set(navigationSections.map((section, index) => `section-${index}`))
+  )
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    const loadRole = async () => {
+      try {
+        const res = await fetch("/api/auth/me")
+        const data = await res.json()
+        if (res.ok && data.role) {
+          setRole(data.role)
+        }
+      } catch (error) {
+        setRole(null)
+      }
+    }
+    loadRole()
+  }, [])
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" })
+      router.push("/login")
+      router.refresh()
+      setOpen(false)
+    } catch {
+      router.push("/login")
+      setOpen(false)
+    }
+  }
+
+  const visibleSections =
+    role === "guest"
+      ? navigationSections
+          .map((section) => ({
+            ...section,
+            items: section.items.filter((item) => item.href === "/tickets"),
+          }))
+          .filter((section) => section.items.length > 0)
+      : navigationSections
+
+  // Close sheet when pathname changes
+  useEffect(() => {
+    setOpen(false)
+  }, [pathname])
+
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
+        <Button variant="ghost" size="icon" className="md:hidden">
+          <Menu className="h-6 w-6" />
+          <span className="sr-only">Toggle menu</span>
+        </Button>
+      </SheetTrigger>
+      <SheetContent side="left" className="w-64 p-0 flex flex-col">
+        <SidebarContent
+          onLinkClick={() => setOpen(false)}
+          role={role}
+          pathname={pathname}
+          visibleSections={visibleSections}
+          expandedSections={expandedSections}
+          setExpandedSections={setExpandedSections}
+          handleLogout={handleLogout}
+        />
+      </SheetContent>
+    </Sheet>
   )
 }
