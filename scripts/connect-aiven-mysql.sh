@@ -3,11 +3,35 @@
 # Quick connection script for Aiven MySQL
 # Usage: ./scripts/connect-aiven-mysql.sh
 
+# Load password from environment variable or .env file
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | xargs)
+fi
+
 AIVEN_HOST="mysql-20c9b725-theeoneeyeddragon-a8dc.f.aivencloud.com"
 AIVEN_PORT="10456"
 AIVEN_USER="avnadmin"
 AIVEN_DB="defaultdb"
-AIVEN_PASSWORD="${AIVEN_PASSWORD}"
+AIVEN_PASSWORD="${DATABASE_URL_PASSWORD:-${AIVEN_PASSWORD:-}}"
+
+# Extract password from DATABASE_URL if set
+if [ -n "$DATABASE_URL" ]; then
+    # Extract password from connection string: mysql://user:password@host:port/db
+    AIVEN_PASSWORD=$(echo "$DATABASE_URL" | sed -n 's/.*:\/\/[^:]*:\([^@]*\)@.*/\1/p')
+fi
+
+if [ -z "$AIVEN_PASSWORD" ]; then
+    echo "❌ Error: Aiven password not found!"
+    echo ""
+    echo "Please set one of the following:"
+    echo "  1. Set AIVEN_PASSWORD environment variable"
+    echo "  2. Set DATABASE_URL environment variable"
+    echo "  3. Add AIVEN_PASSWORD to .env file"
+    echo ""
+    echo "Example .env entry:"
+    echo "  AIVEN_PASSWORD=your_password_here"
+    exit 1
+fi
 
 echo "=========================================="
 echo "Connecting to Aiven MySQL..."

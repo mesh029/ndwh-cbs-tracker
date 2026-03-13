@@ -112,6 +112,8 @@ You can run it again if needed (it will clear existing Aiven data first).
 mysql://avnadmin:YOUR_PASSWORD@mysql-20c9b725-theeoneeyeddragon-a8dc.f.aivencloud.com:10456/defaultdb?ssl-mode=REQUIRED
 ```
 
+**Note:** Replace `YOUR_PASSWORD` with your actual Aiven password from `.env` file or Aiven console.
+
 ## Troubleshooting
 
 If you encounter any issues:

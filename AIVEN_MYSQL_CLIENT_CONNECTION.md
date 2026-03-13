@@ -40,7 +40,7 @@ mysql -h mysql-20c9b725-theeoneeyeddragon-a8dc.f.aivencloud.com \
       defaultdb
 ```
 
-When prompted, enter your password: `YOUR_AIVEN_PASSWORD`
+When prompted, enter your password from `.env` file or Aiven console
 
 **With SSL (recommended):**
 ```bash
@@ -110,7 +110,7 @@ EXIT;
    
    **Username:** `avnadmin`
    
-   **Password:** `YOUR_AIVEN_PASSWORD`
+   **Password:** (Get from `.env` file or Aiven console)
    
    **Default Schema:** `defaultdb`
 
@@ -198,7 +198,7 @@ EXIT;
      - Host: `mysql-20c9b725-theeoneeyeddragon-a8dc.f.aivencloud.com`
      - Port: `10456`
      - User: `avnadmin`
-     - Password: `YOUR_AIVEN_PASSWORD`
+     - Password: (Get from `.env` file or Aiven console)
      - Database: `defaultdb`
      - SSL: Enable
 
