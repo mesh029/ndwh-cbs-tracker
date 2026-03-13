@@ -5,6 +5,9 @@ import { facilitiesMatch } from "@/lib/utils"
 import { validateLocation, validateSubcounty } from "@/lib/location-utils"
 import { getRoleFromRequest } from "@/lib/auth"
 
+// Force dynamic rendering to prevent build-time static generation
+export const dynamic = 'force-dynamic'
+
 /**
  * GET /api/tickets
  * Get tickets with filtering

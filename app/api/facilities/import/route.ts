@@ -4,6 +4,9 @@ import { getRoleFromRequest } from "@/lib/auth"
 import type { SystemType, Location } from "@/lib/storage"
 import { parseFacilityList, facilitiesMatch, deduplicateFacilities } from "@/lib/utils"
 
+// Force dynamic rendering to prevent build-time static generation
+export const dynamic = 'force-dynamic'
+
 /**
  * POST /api/facilities/import
  * Import facilities from multiple sheets with server type grouping

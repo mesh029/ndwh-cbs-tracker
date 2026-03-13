@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma"
 import { getRoleFromRequest } from "@/lib/auth"
 import type { SystemType, Location } from "@/lib/storage"
 
+// Force dynamic rendering to prevent build-time static generation
+export const dynamic = 'force-dynamic'
+
 function sanitizeInventoryType(value?: string | null): string | null {
   if (!value) return null
   const trimmed = value.trim()

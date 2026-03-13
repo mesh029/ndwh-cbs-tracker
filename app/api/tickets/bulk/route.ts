@@ -4,6 +4,9 @@ import { determineIssueType } from "@/lib/date-utils"
 import { getRoleFromRequest, isSuperAdmin } from "@/lib/auth"
 import { facilitiesMatch } from "@/lib/utils"
 
+// Force dynamic rendering to prevent build-time static generation
+export const dynamic = 'force-dynamic'
+
 export async function POST(request: NextRequest) {
   try {
     const role = getRoleFromRequest(request)
