@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma"
 
 // Force dynamic rendering to prevent build-time static generation
 export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+export const revalidate = 0
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   try {

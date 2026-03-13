@@ -5,7 +5,11 @@ import type { Location } from "@/lib/storage"
 
 // Force dynamic rendering to prevent build-time static generation
 export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+export const revalidate = 0
 
+
+// Force dynamic rendering to prevent build-time static generation
 const VALID_LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
 export async function POST(request: NextRequest) {

@@ -11,6 +11,12 @@ const nextConfig = {
     // your project has type errors.
     // ignoreBuildErrors: true,
   },
+  // Skip static optimization for API routes to prevent build-time analysis
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '2mb',
+    },
+  },
 }
 
 module.exports = nextConfig

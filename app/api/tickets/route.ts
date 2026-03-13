@@ -7,7 +7,11 @@ import { getRoleFromRequest } from "@/lib/auth"
 
 // Force dynamic rendering to prevent build-time static generation
 export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+export const revalidate = 0
 
+
+// Force dynamic rendering to prevent build-time static generation
 /**
  * GET /api/tickets
  * Get tickets with filtering

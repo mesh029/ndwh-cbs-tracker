@@ -5,7 +5,11 @@ import { facilitiesMatch } from "@/lib/utils"
 
 // Force dynamic rendering to prevent build-time static generation
 export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+export const revalidate = 0
 
+
+// Force dynamic rendering to prevent build-time static generation
 /**
  * POST /api/comparisons
  * Create a new comparison record
