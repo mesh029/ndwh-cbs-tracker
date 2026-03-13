@@ -51,7 +51,7 @@ All tables have been created successfully:
 
 Your `.env` file has been updated with:
 ```env
-DATABASE_URL="mysql://avnadmin:YOUR_AIVEN_PASSWORD@mysql-20c9b725-theeoneeyeddragon-a8dc.f.aivencloud.com:10456/defaultdb?ssl-mode=REQUIRED"
+DATABASE_URL="mysql://avnadmin:YOUR_PASSWORD@mysql-20c9b725-theeoneeyeddragon-a8dc.f.aivencloud.com:10456/defaultdb?ssl-mode=REQUIRED"
 ```
 
 **⚠️ Security Note:**

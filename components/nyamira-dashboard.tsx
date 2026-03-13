@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -103,41 +103,8 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
   const ndwhData = useFacilityData("NDWH", location)
   const cbsData = useFacilityData("CBS", location)
 
-  // Load comparison stats, server distribution, tickets, and simcard data
-  useEffect(() => {
-    // Load all data on mount - ensure data loads even if hook is slow
-    const loadAllData = async () => {
-      setIsLoadingData(true)
-      setIsLoadingTickets(true)
-      try {
-        console.log("🔄 Starting dashboard data load...")
-        // Load these in parallel
-        await Promise.all([
-          loadComparisonStats(),
-          loadServerDistribution(),
-          loadSimcardDistribution(),
-          loadSubcountyDistribution(),
-        ])
-        setIsLoadingData(false)
-        console.log("✅ Initial data loaded, loading tickets...")
-        // Load tickets immediately (don't wait for serverDistribution)
-        await loadTicketsAndAnalytics()
-        setIsLoadingTickets(false)
-      } catch (error) {
-        console.error("❌ Error loading dashboard data:", error)
-        setIsLoadingData(false)
-        setIsLoadingTickets(false)
-      }
-    }
-    // Small delay to ensure component is mounted
-    const timer = setTimeout(() => {
-      loadAllData()
-    }, 100)
-    return () => clearTimeout(timer)
-  }, [location]) // Reload when location changes
-
   // Helper function to calculate "uploaded when" text
-  const getUploadedWhen = (timestamp: Date | string | undefined, weekDate: Date | string | undefined): string => {
+  const getUploadedWhen = useCallback((timestamp: Date | string | undefined, weekDate: Date | string | undefined): string => {
     if (!timestamp && !weekDate) return ""
     
     const now = new Date()
@@ -161,9 +128,9 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
       if (diffInMonths === 1) return "1 month ago"
       return `${diffInMonths} months ago`
     }
-  }
+  }, [])
 
-  const loadComparisonStats = async () => {
+  const loadComparisonStats = useCallback(async () => {
     try {
       console.log("🔄 Loading comparison stats...")
       
@@ -232,9 +199,9 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
     } catch (error) {
       console.error("❌ Error loading comparison stats:", error)
     }
-  }
+  }, [location])
 
-  const loadTicketsAndAnalytics = async () => {
+  const loadTicketsAndAnalytics = useCallback(async () => {
     try {
       setIsLoadingTickets(true)
       console.log(`🔄 Loading tickets for ${location}...`)
@@ -653,7 +620,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
     } finally {
       setIsLoadingTickets(false)
     }
-  }
+  }, [location, serverDistribution])
 
   // Recalculate ticket analytics when server distribution changes (only if correlation needs updating)
   useEffect(() => {
@@ -676,7 +643,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
     }
   }, [serverDistribution.length, tickets.length, location]) // Recalculate when server distribution, tickets, or location changes
 
-  const loadServerDistribution = async () => {
+  const loadServerDistribution = useCallback(async () => {
     try {
       const response = await fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
       if (!response.ok) {
@@ -725,9 +692,9 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
     } catch (error) {
       console.error("Error loading server distribution:", error)
     }
-  }
+  }, [location])
 
-  const loadSimcardDistribution = async () => {
+  const loadSimcardDistribution = useCallback(async () => {
     try {
       const response = await fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
       if (!response.ok) {
@@ -791,9 +758,9 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
         facilitiesWithLAN: 0,
       })
     }
-  }
+  }, [location])
 
-  const loadSubcountyDistribution = async () => {
+  const loadSubcountyDistribution = useCallback(async () => {
     try {
       console.log("🔄 Loading subcounty distribution...")
       const response = await fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
@@ -848,7 +815,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
     } catch (error) {
       console.error("Error loading subcounty distribution:", error)
     }
-  }
+  }, [location])
 
 
 

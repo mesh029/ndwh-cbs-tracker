@@ -43,7 +43,7 @@ interface CountyData {
   totalSimcards: number
   facilitiesWithSimcards: number
   facilitiesWithLAN: number
-  serverDistribution: Array<{ serverType: string; count: number }>
+  serverDistribution: Array<{ serverType: string; count: number; facilities: string[] }>
 }
 
 export function OverviewDashboard() {

@@ -7,7 +7,7 @@ AIVEN_HOST="mysql-20c9b725-theeoneeyeddragon-a8dc.f.aivencloud.com"
 AIVEN_PORT="10456"
 AIVEN_USER="avnadmin"
 AIVEN_DB="defaultdb"
-AIVEN_PASSWORD="YOUR_AIVEN_PASSWORD"
+AIVEN_PASSWORD="${AIVEN_PASSWORD}"
 
 echo "=========================================="
 echo "Connecting to Aiven MySQL..."

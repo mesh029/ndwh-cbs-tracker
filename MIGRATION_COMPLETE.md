@@ -109,7 +109,7 @@ You can run it again if needed (it will clear existing Aiven data first).
 
 **Connection String:**
 ```
-mysql://avnadmin:YOUR_AIVEN_PASSWORD@mysql-20c9b725-theeoneeyeddragon-a8dc.f.aivencloud.com:10456/defaultdb?ssl-mode=REQUIRED
+mysql://avnadmin:YOUR_PASSWORD@mysql-20c9b725-theeoneeyeddragon-a8dc.f.aivencloud.com:10456/defaultdb?ssl-mode=REQUIRED
 ```
 
 ## Troubleshooting
