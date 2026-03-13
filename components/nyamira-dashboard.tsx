@@ -16,7 +16,8 @@ import {
   Building2,
   MapPin,
   ChevronDown,
-  Wifi
+  Wifi,
+  Loader2
 } from "lucide-react"
 import { SectionUpload } from "./section-upload"
 import { useToast } from "@/components/ui/use-toast"
@@ -94,6 +95,8 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
     bySSDIssues?: Array<{ serverType: string; ssdIssues: number; serverIssues: number; totalIssues: number }>
     networkCorrelation?: Array<{ hasSimcard: boolean; hasLAN: boolean; networkIssues: number; facilities: number }>
   } | null>(null)
+  const [isLoadingData, setIsLoadingData] = useState(true)
+  const [isLoadingTickets, setIsLoadingTickets] = useState(true)
   const { toast } = useToast()
 
   // Get facility data for both systems
@@ -104,6 +107,8 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
   useEffect(() => {
     // Load all data on mount - ensure data loads even if hook is slow
     const loadAllData = async () => {
+      setIsLoadingData(true)
+      setIsLoadingTickets(true)
       try {
         console.log("🔄 Starting dashboard data load...")
         // Load these in parallel
@@ -113,11 +118,15 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
           loadSimcardDistribution(),
           loadSubcountyDistribution(),
         ])
+        setIsLoadingData(false)
         console.log("✅ Initial data loaded, loading tickets...")
         // Load tickets immediately (don't wait for serverDistribution)
         await loadTicketsAndAnalytics()
+        setIsLoadingTickets(false)
       } catch (error) {
         console.error("❌ Error loading dashboard data:", error)
+        setIsLoadingData(false)
+        setIsLoadingTickets(false)
       }
     }
     // Small delay to ensure component is mounted
@@ -227,6 +236,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
 
   const loadTicketsAndAnalytics = async () => {
     try {
+      setIsLoadingTickets(true)
       console.log(`🔄 Loading tickets for ${location}...`)
       
       // Load tickets and facilities in parallel
@@ -246,6 +256,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
           bySSDIssues: [],
           networkCorrelation: [],
         } as any)
+        setIsLoadingTickets(false)
         return
       }
       
@@ -275,6 +286,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
           bySSDIssues: [],
           networkCorrelation: [],
         } as any)
+        setIsLoadingTickets(false)
         return
       }
 
@@ -638,6 +650,8 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
         bySSDIssues: [],
         networkCorrelation: [],
       } as any)
+    } finally {
+      setIsLoadingTickets(false)
     }
   }
 
@@ -928,13 +942,22 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
             <CardDescription>Master list</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {ndwhData.masterFacilities.length}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              <Building2 className="inline h-3 w-3 mr-1" />
-              {location} facilities ({serverDistribution.reduce((sum, item) => sum + item.count, 0)} with servers)
-            </p>
+            {isLoadingData ? (
+              <div className="flex items-center gap-2 py-2">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Loading...</span>
+              </div>
+            ) : (
+              <>
+                <div className="text-2xl font-bold">
+                  {ndwhData.masterFacilities.length}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  <Building2 className="inline h-3 w-3 mr-1" />
+                  {location} facilities ({serverDistribution.reduce((sum, item) => sum + item.count, 0)} with servers)
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -948,15 +971,24 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{tickets.length || 0}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {tickets.filter((t: any) => t.status === "resolved").length} resolved
-                </p>
-                <div className="mt-4 pt-4 border-t">
-                  <SectionUpload section="ticket" location={location} onUploadComplete={() => {
-                    loadTicketsAndAnalytics()
-                  }} />
-                </div>
+                {isLoadingTickets ? (
+                  <div className="flex items-center gap-2 py-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">Loading tickets...</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-2xl font-bold">{tickets.length || 0}</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {tickets.filter((t: any) => t.status === "resolved").length} resolved
+                    </p>
+                    <div className="mt-4 pt-4 border-t">
+                      <SectionUpload section="ticket" location={location} onUploadComplete={() => {
+                        loadTicketsAndAnalytics()
+                      }} />
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
           </HoverCardTrigger>
@@ -1036,7 +1068,24 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
 
 
       {/* Server Distribution Section */}
-      {serverDistribution.length > 0 && (
+      {isLoadingData ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Server className="h-5 w-5" />
+              Server Distribution by Facility
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-center py-8">
+              <div className="flex flex-col items-center gap-2">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Loading server distribution...</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : serverDistribution.length > 0 ? (
         <Card>
           <CardHeader>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -1208,7 +1257,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
             </div>
           </CardContent>
         </Card>
-      )}
+      ) : null}
 
       {/* Server Type Distribution by Subcounty */}
       {subcountyDistribution.length > 0 && (
@@ -1771,6 +1820,11 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
                             </p>
                           )}
                         </div>
+                      ) : isLoadingTickets ? (
+                        <div className="flex items-center justify-center gap-2 py-4">
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                          <span className="text-sm text-muted-foreground">Loading server issues...</span>
+                        </div>
                       ) : (
                         <p className="text-sm text-muted-foreground text-center py-4">
                           Processing server issues...
@@ -1844,6 +1898,11 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
                               No network issues found
                             </p>
                           )}
+                        </div>
+                      ) : isLoadingTickets ? (
+                        <div className="flex items-center justify-center gap-2 py-4">
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                          <span className="text-sm text-muted-foreground">Loading network issues...</span>
                         </div>
                       ) : (
                         <p className="text-sm text-muted-foreground text-center py-4">
@@ -1994,7 +2053,21 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
               </div>
 
               {/* Show graphs only if we have ticket data */}
-              {ticketAnalytics && tickets.length > 0 ? (
+              {isLoadingTickets ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Ticket Analytics</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center justify-center py-12">
+                      <div className="flex flex-col items-center gap-2">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">Loading ticket analytics...</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : ticketAnalytics && tickets.length > 0 ? (
                 <>
                   {/* Correlation Charts - Beautiful Line & Area Charts */}
                   <div className="grid gap-6 md:grid-cols-2">

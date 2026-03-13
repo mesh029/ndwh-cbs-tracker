@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { X, Upload, Plus, Edit2, Save, XCircle, Trash2, Download, Copy, ChevronDown, ChevronRight, Server, Router, Smartphone } from "lucide-react"
+import { X, Upload, Plus, Edit2, Save, XCircle, Trash2, Download, Copy, ChevronDown, ChevronRight, Server, Router, Smartphone, Loader2 } from "lucide-react"
 import { useFacilityData } from "@/hooks/use-facility-data"
 import { useToast } from "@/components/ui/use-toast"
 import { parseFacilityList } from "@/lib/utils"
@@ -90,6 +90,7 @@ export function FacilityManager() {
   const {
     masterFacilities,
     masterFacilitiesWithIds,
+    isLoading: isLoadingFacilities,
     addMasterFacility,
     removeMasterFacility,
     removeAllMasterFacilities,
@@ -1092,7 +1093,12 @@ export function FacilityManager() {
           </CardHeader>
           <CardContent>
             <div className="max-h-[400px] space-y-2 overflow-y-auto">
-              {masterFacilities.length === 0 ? (
+              {isLoadingFacilities ? (
+                <div className="flex items-center justify-center gap-2 py-8">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Loading facilities...</span>
+                </div>
+              ) : masterFacilities.length === 0 ? (
                 <p className="text-center text-sm text-muted-foreground">
                   No facilities added yet
                 </p>

@@ -8,7 +8,7 @@ import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, CheckCircle2, XCircle, Plus } from "lucide-react"
+import { Search, CheckCircle2, XCircle, Plus, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useFacilityData } from "@/hooks/use-facility-data"
 import { useToast } from "@/components/ui/use-toast"
@@ -30,6 +30,7 @@ export function Dashboard() {
   const [selectedLocation, setSelectedLocation] = useState<Location | "all">("all")
   const [searchQuery, setSearchQuery] = useState("")
   const { toast } = useToast()
+  const [isLoadingStats, setIsLoadingStats] = useState(true)
   const [comparisonStats, setComparisonStats] = useState<{
     cbs: { total: number; matched: number; unmatched: number; week?: string; timestamp?: Date; uploadedWhen?: string }
     ndwh: { total: number; matched: number; unmatched: number; week?: string; timestamp?: Date; uploadedWhen?: string }
@@ -65,6 +66,7 @@ export function Dashboard() {
   // Load comparison stats for selected location
   useEffect(() => {
     const loadComparisonStats = async () => {
+      setIsLoadingStats(true)
       const location = selectedLocation === "all" ? "Nyamira" : selectedLocation // Default to Nyamira for "all"
       try {
         const masterFacilitiesRes = await fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
@@ -103,6 +105,8 @@ export function Dashboard() {
         }
       } catch (error) {
         console.error("Error loading comparison stats:", error)
+      } finally {
+        setIsLoadingStats(false)
       }
     }
     loadComparisonStats()
@@ -281,7 +285,12 @@ export function Dashboard() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {comparisonStats.ndwh.total > 0 ? (
+            {isLoadingStats ? (
+              <div className="flex items-center gap-2 py-4">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Loading stats...</span>
+              </div>
+            ) : comparisonStats.ndwh.total > 0 ? (
               <>
                 <div className="text-2xl font-bold">{comparisonStats.ndwh.matched}/{comparisonStats.ndwh.total}</div>
                 <Progress value={(comparisonStats.ndwh.matched / comparisonStats.ndwh.total) * 100} className="mt-2" />
@@ -335,7 +344,12 @@ export function Dashboard() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {comparisonStats.cbs.total > 0 ? (
+            {isLoadingStats ? (
+              <div className="flex items-center gap-2 py-4">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Loading stats...</span>
+              </div>
+            ) : comparisonStats.cbs.total > 0 ? (
               <>
                 <div className="text-2xl font-bold">{comparisonStats.cbs.matched}/{comparisonStats.cbs.total}</div>
                 <Progress value={(comparisonStats.cbs.matched / comparisonStats.cbs.total) * 100} className="mt-2" />

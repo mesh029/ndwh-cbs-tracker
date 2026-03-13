@@ -447,8 +447,12 @@ export function OverviewDashboard() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="text-muted-foreground">Loading overview data...</div>
+      <div className="flex flex-col items-center justify-center h-96 gap-4">
+        <div className="flex items-center gap-2">
+          <div className="h-6 w-6 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <span className="text-lg font-medium">Loading overview data...</span>
+        </div>
+        <p className="text-sm text-muted-foreground">Fetching data from all counties</p>
       </div>
     )
   }
