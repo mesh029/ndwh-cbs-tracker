@@ -48,26 +48,39 @@ export async function GET(request: NextRequest) {
       where.isMaster = isMaster === "true"
     }
 
-    const facilities = await prisma.facility.findMany({
-      where,
-      orderBy: { name: "asc" },
-      select: {
-        id: true,
-        name: true,
-        subcounty: true,
-        sublocation: true,
-        system: true,
-        location: true,
-        isMaster: true,
-        serverType: true,
-        routerType: true,
-        facilityGroup: true,
-        simcardCount: true,
-        hasLAN: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    })
+    let facilities
+    try {
+      facilities = await prisma.facility.findMany({
+        where,
+        orderBy: { name: "asc" },
+        select: {
+          id: true,
+          name: true,
+          subcounty: true,
+          sublocation: true,
+          system: true,
+          location: true,
+          isMaster: true,
+          serverType: true,
+          routerType: true,
+          facilityGroup: true,
+          simcardCount: true,
+          hasLAN: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      })
+    } catch (dbError: any) {
+      console.error("Database error fetching facilities:", dbError)
+      // Check if it's a connection error
+      if (dbError.code === 'P1001' || dbError.message?.includes('connect')) {
+        return NextResponse.json(
+          { error: "Database connection failed", details: "Unable to connect to database. Please check your database connection." },
+          { status: 503 }
+        )
+      }
+      throw dbError // Re-throw to be caught by outer try-catch
+    }
 
     const normalizedFacilities = facilities.map((facility) => ({
       ...facility,

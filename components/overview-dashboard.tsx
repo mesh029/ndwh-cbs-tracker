@@ -27,6 +27,7 @@ import type { ChartConfig } from "@/components/ui/chart"
 import type { Location } from "@/lib/storage"
 import { facilitiesMatch, normalizeServerType } from "@/lib/utils"
 import { determineIssueType } from "@/lib/date-utils"
+import { cachedFetch, cache } from "@/lib/cache"
 
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
@@ -93,27 +94,21 @@ export function OverviewDashboard() {
       setIsLoading(true)
       try {
         const dataPromises = LOCATIONS.map(async (location): Promise<CountyData> => {
-          // Load facilities
+          // Load facilities (cached for 5 minutes)
           let facilities: any[] = []
           try {
-            const facilitiesRes = await fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
-            if (facilitiesRes.ok) {
-              const facilitiesData = await facilitiesRes.json()
-              facilities = facilitiesData.facilities || []
-            }
+            const facilitiesData = await cachedFetch<{ facilities: any[] }>(`/api/facilities?system=NDWH&location=${location}&isMaster=true`, undefined, 5 * 60 * 1000)
+            facilities = facilitiesData.facilities || []
           } catch (error) {
             console.error(`Error loading facilities for ${location}:`, error)
           }
 
 
-          // Load tickets
+          // Load tickets (cached for 2 minutes)
           let tickets: any[] = []
           try {
-            const ticketsRes = await fetch(`/api/tickets?location=${location}`)
-            if (ticketsRes.ok) {
-              const ticketsData = await ticketsRes.json()
-              tickets = ticketsData.tickets || []
-            }
+            const ticketsData = await cachedFetch<{ tickets: any[] }>(`/api/tickets?location=${location}`, undefined, 2 * 60 * 1000)
+            tickets = ticketsData.tickets || []
           } catch (error) {
             console.error(`Error loading tickets for ${location}:`, error)
           }
@@ -226,31 +221,43 @@ export function OverviewDashboard() {
 
   const calculateTicketAnalytics = async (countyDataArray: CountyData[]) => {
     try {
-      // Load all tickets across all counties
+      // Load all tickets across all counties (cached for 2 minutes)
       const allTicketsPromises = LOCATIONS.map(async (location) => {
-        const res = await fetch(`/api/tickets?location=${location}`)
-        const data = await res.json()
-        return data.tickets || []
+        try {
+          const data = await cachedFetch<{ tickets: any[] }>(`/api/tickets?location=${location}`, undefined, 2 * 60 * 1000)
+          return data.tickets || []
+        } catch (error) {
+          console.error(`Failed to fetch tickets for ${location}:`, error)
+          return []
+        }
       })
 
       const allTicketsArrays = await Promise.all(allTicketsPromises)
       const allTickets = allTicketsArrays.flat()
 
-      // Load all facilities to match server types
+      // Load all facilities to match server types (cached for 5 minutes)
       const allFacilitiesPromises = LOCATIONS.map(async (location) => {
-        const res = await fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
-        const data = await res.json()
-        return data.facilities || []
+        try {
+          const data = await cachedFetch<{ facilities: any[] }>(`/api/facilities?system=NDWH&location=${location}&isMaster=true`, undefined, 5 * 60 * 1000)
+          return data.facilities || []
+        } catch (error) {
+          console.error(`Failed to fetch facilities for ${location}:`, error)
+          return []
+        }
       })
 
       const allFacilitiesArrays = await Promise.all(allFacilitiesPromises)
       const allFacilities = allFacilitiesArrays.flat()
 
-      // Load all server assets
+      // Load all server assets (cached for 5 minutes)
       const allServersPromises = LOCATIONS.map(async (location) => {
-        const res = await fetch(`/api/assets/servers?location=${location}`)
-        const data = await res.json()
-        return data.servers || []
+        try {
+          const data = await cachedFetch<{ assets: any[] }>(`/api/assets/servers?location=${location}`, undefined, 5 * 60 * 1000)
+          return data.assets || []
+        } catch (error) {
+          console.error(`Failed to fetch servers for ${location}:`, error)
+          return []
+        }
       })
 
       const allServersArrays = await Promise.all(allServersPromises)

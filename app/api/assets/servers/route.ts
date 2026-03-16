@@ -275,11 +275,24 @@ export async function GET(request: NextRequest) {
       where.facilityId = facilityId
     }
 
-    const serverAssets = await prisma.serverAsset.findMany({
-      where,
-      include: { facility: true },
-      orderBy: { facility: { name: "asc" } },
-    })
+    let serverAssets
+    try {
+      serverAssets = await prisma.serverAsset.findMany({
+        where,
+        include: { facility: true },
+        orderBy: { facility: { name: "asc" } },
+      })
+    } catch (dbError: any) {
+      console.error("Database error fetching server assets:", dbError)
+      // Check if it's a connection error
+      if (dbError.code === 'P1001' || dbError.message?.includes('connect')) {
+        return NextResponse.json(
+          { error: "Database connection failed", details: "Unable to connect to database. Please check your database connection." },
+          { status: 503 }
+        )
+      }
+      throw dbError // Re-throw to be caught by outer try-catch
+    }
 
     // Transform to include facilityName
     const assets = serverAssets.map(asset => ({

@@ -149,6 +149,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
           cbs: cbsRes.status,
           ndwh: ndwhRes.status,
         })
+        setIsLoadingData(false)
         return
       }
 
@@ -199,7 +200,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
     } catch (error) {
       console.error("❌ Error loading comparison stats:", error)
     }
-  }, [location])
+  }, [location, getUploadedWhen])
 
   const loadTicketsAndAnalytics = useCallback(async () => {
     try {
@@ -641,7 +642,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
         return () => clearTimeout(timer)
       }
     }
-  }, [serverDistribution.length, tickets.length, location]) // Recalculate when server distribution, tickets, or location changes
+  }, [serverDistribution.length, tickets.length, location, loadTicketsAndAnalytics, ticketAnalytics]) // Recalculate when server distribution, tickets, or location changes
 
   const loadServerDistribution = useCallback(async () => {
     try {
@@ -817,7 +818,29 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
     }
   }, [location])
 
-
+  // Load all data on mount and when location changes
+  useEffect(() => {
+    setIsLoadingData(true)
+    setIsLoadingTickets(true)
+    
+    // Load all data in parallel
+    Promise.all([
+      loadComparisonStats(),
+      loadServerDistribution(),
+      loadSimcardDistribution(),
+      loadSubcountyDistribution(),
+      loadTicketsAndAnalytics(),
+    ]).then(() => {
+      // All data loaded successfully
+      // Note: loadComparisonStats and loadTicketsAndAnalytics already set their loading states to false
+      // But we ensure it's set here as a fallback
+      setIsLoadingData(false)
+    }).catch((error) => {
+      console.error("Error loading initial data:", error)
+      setIsLoadingData(false)
+      setIsLoadingTickets(false)
+    })
+  }, [location, loadComparisonStats, loadServerDistribution, loadSimcardDistribution, loadSubcountyDistribution, loadTicketsAndAnalytics])
 
   // Server type distribution data for charts
   const serverTypeChartData = useMemo(() => {
