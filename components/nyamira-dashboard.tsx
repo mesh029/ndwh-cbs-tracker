@@ -202,9 +202,11 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
     }
   }, [location, getUploadedWhen])
 
-  const loadTicketsAndAnalytics = useCallback(async () => {
+  const loadTicketsAndAnalytics = useCallback(async (showLoading: boolean = true) => {
     try {
-      setIsLoadingTickets(true)
+      if (showLoading) {
+        setIsLoadingTickets(true)
+      }
       console.log(`🔄 Loading tickets for ${location}...`)
       
       // Load tickets and facilities in parallel
@@ -619,7 +621,9 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
         networkCorrelation: [],
       } as any)
     } finally {
-      setIsLoadingTickets(false)
+      if (showLoading) {
+        setIsLoadingTickets(false)
+      }
     }
   }, [location, serverDistribution])
 
@@ -637,7 +641,8 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
         console.log("📊 Current server distribution:", serverDistribution.map(s => ({ type: s.serverType, count: s.count })))
         // Use a small delay to avoid race conditions
         const timer = setTimeout(() => {
-          loadTicketsAndAnalytics()
+          // Recalculate analytics without showing a loading spinner again
+          loadTicketsAndAnalytics(false)
         }, 100)
         return () => clearTimeout(timer)
       }
@@ -829,7 +834,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
       loadServerDistribution(),
       loadSimcardDistribution(),
       loadSubcountyDistribution(),
-      loadTicketsAndAnalytics(),
+      loadTicketsAndAnalytics(true),
     ]).then(() => {
       // All data loaded successfully
       // Note: loadComparisonStats and loadTicketsAndAnalytics already set their loading states to false

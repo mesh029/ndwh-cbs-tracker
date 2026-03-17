@@ -60,11 +60,13 @@ class SimpleCache {
    */
   cleanup(): void {
     const now = Date.now()
-    for (const [key, entry] of this.cache.entries()) {
+    // Use forEach to avoid relying on iterator helpers that require
+    // downlevelIteration / ES2015 target in some build environments
+    this.cache.forEach((entry, key) => {
       if (now - entry.timestamp > entry.ttl) {
         this.cache.delete(key)
       }
-    }
+    })
   }
 
   /**
