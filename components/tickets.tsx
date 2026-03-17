@@ -461,13 +461,40 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
     try {
       const res = await fetch(`/api/tickets/${id}`, { method: "DELETE" })
       if (res.ok) {
-        toast({ title: "Deleted", description: "Ticket deleted" })
+        toast({ title: "Deleted", description: "Ticket deleted successfully." })
         loadTickets()
-      } else {
-        throw new Error("Failed to delete")
+        return
       }
-    } catch {
-      toast({ title: "Error", description: "Failed to delete ticket", variant: "destructive" })
+
+      // Parse the error body from the API
+      let apiError = "Failed to delete ticket"
+      try {
+        const body = await res.json()
+        if (body?.error) apiError = body.error
+      } catch {
+        // ignore parse errors
+      }
+
+      if (res.status === 404) {
+        // Ticket no longer exists (e.g. stale list after a DB switch or already deleted)
+        toast({
+          title: "Ticket not found",
+          description: "This ticket no longer exists. Refreshing list…",
+          variant: "destructive",
+        })
+        loadTickets() // refresh to clear stale data
+      } else if (res.status === 403) {
+        toast({
+          title: "Permission denied",
+          description: "You do not have permission to delete this ticket.",
+          variant: "destructive",
+        })
+      } else {
+        toast({ title: "Error", description: apiError, variant: "destructive" })
+      }
+    } catch (err) {
+      console.error("Delete ticket error:", err)
+      toast({ title: "Network error", description: "Could not reach the server. Please try again.", variant: "destructive" })
     }
   }
 
