@@ -596,29 +596,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
         setIsLoadingTickets(false)
       }
     }
-  }, [location, serverDistribution])
-
-  // Recalculate ticket analytics when server distribution changes (only if correlation needs updating)
-  useEffect(() => {
-    if (serverDistribution.length > 0 && tickets.length > 0) {
-      // Always recalculate if correlation has zero facilities (indicating it was calculated before serverDistribution loaded)
-      const needsRecalculation = !ticketAnalytics || 
-        !ticketAnalytics.correlation || 
-        ticketAnalytics.correlation.length === 0 ||
-        ticketAnalytics.correlation.some(c => c.totalFacilities === 0 && c.totalIssues > 0)
-      
-      if (needsRecalculation) {
-        console.log("🔄 Recalculating ticket analytics due to server distribution availability...")
-        console.log("📊 Current server distribution:", serverDistribution.map(s => ({ type: s.serverType, count: s.count })))
-        // Use a small delay to avoid race conditions
-        const timer = setTimeout(() => {
-          // Recalculate analytics without showing a loading spinner again
-          loadTicketsAndAnalytics(false)
-        }, 100)
-        return () => clearTimeout(timer)
-      }
-    }
-  }, [serverDistribution.length, tickets.length, location, loadTicketsAndAnalytics, ticketAnalytics]) // Recalculate when server distribution, tickets, or location changes
+  }, [location])
 
   const loadServerDistribution = useCallback(async () => {
     try {
