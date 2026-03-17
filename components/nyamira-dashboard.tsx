@@ -24,6 +24,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { useFacilityData } from "@/hooks/use-facility-data"
 import { facilitiesMatch, normalizeServerType } from "@/lib/utils"
 import { determineIssueType } from "@/lib/date-utils"
+import { cachedFetch } from "@/lib/cache"
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, AreaChart, Area, LineChart, Line, ResponsiveContainer, Legend, RadialBarChart, RadialBar, ComposedChart } from "recharts"
 import {
   ChartContainer,
@@ -97,6 +98,8 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
   } | null>(null)
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [isLoadingTickets, setIsLoadingTickets] = useState(true)
+  const [hasLoadedTickets, setHasLoadedTickets] = useState(false)
+  const [hasLoadedServerDistribution, setHasLoadedServerDistribution] = useState(false)
   const { toast } = useToast()
 
   // Get facility data for both systems
@@ -135,26 +138,13 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
       console.log("🔄 Loading comparison stats...")
       
       // Get the total master facilities count (use NDWH master list for both CBS and NDWH)
-      const masterFacilitiesRes = await fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
-      const masterFacilitiesData = await masterFacilitiesRes.json()
+      const masterFacilitiesData = await cachedFetch<any>(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
       const totalMasterFacilities = masterFacilitiesData.facilities?.length || 0
       
-      const [cbsRes, ndwhRes] = await Promise.all([
-        fetch(`/api/comparisons?system=CBS&location=${location}`),
-        fetch(`/api/comparisons?system=NDWH&location=${location}`),
+      const [cbsData, ndwhData] = await Promise.all([
+        cachedFetch<any>(`/api/comparisons?system=CBS&location=${location}`),
+        cachedFetch<any>(`/api/comparisons?system=NDWH&location=${location}`),
       ])
-
-      if (!cbsRes.ok || !ndwhRes.ok) {
-        console.error("Failed to fetch comparison stats:", {
-          cbs: cbsRes.status,
-          ndwh: ndwhRes.status,
-        })
-        setIsLoadingData(false)
-        return
-      }
-
-      const cbsData = await cbsRes.json()
-      const ndwhData = await ndwhRes.json()
 
       const cbsLatest = cbsData.comparisons?.[0]
       const ndwhLatest = ndwhData.comparisons?.[0]
@@ -210,27 +200,10 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
       console.log(`🔄 Loading tickets for ${location}...`)
       
       // Load tickets and facilities in parallel
-      const [ticketsRes, facilitiesRes] = await Promise.all([
-        fetch(`/api/tickets?location=${location}`),
-        fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`),
+      const [ticketsData, facilitiesData] = await Promise.all([
+        cachedFetch<any>(`/api/tickets?location=${location}`),
+        cachedFetch<any>(`/api/facilities?system=NDWH&location=${location}&isMaster=true`),
       ])
-      
-      if (!ticketsRes.ok) {
-        console.error("Failed to fetch tickets:", ticketsRes.status, ticketsRes.statusText)
-        setTickets([])
-        setTicketAnalytics({
-          byServerType: [],
-          byProblem: [],
-          correlation: [],
-          byIssueType: { server: 0, network: 0 },
-          bySSDIssues: [],
-          networkCorrelation: [],
-        } as any)
-        setIsLoadingTickets(false)
-        return
-      }
-      
-      const ticketsData = await ticketsRes.json()
       const locationTickets = ticketsData.tickets || []
       console.log(`✅ Loaded ${locationTickets.length} tickets for ${location}`)
       
@@ -239,11 +212,8 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
       
       // Load facilities
       let facilities: any[] = []
-      if (facilitiesRes.ok) {
-        const facilitiesData = await facilitiesRes.json()
-        facilities = facilitiesData.facilities || []
-        console.log(`✅ Loaded ${facilities.length} facilities for ticket matching`)
-      }
+      facilities = facilitiesData.facilities || []
+      console.log(`✅ Loaded ${facilities.length} facilities for ticket matching`)
       
       // Always set analytics, even if no tickets (to prevent loading state)
       if (locationTickets.length === 0) {
@@ -603,6 +573,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
       
       // Always set analytics - this is critical
       setTicketAnalytics(analyticsData)
+      setHasLoadedTickets(true)
       
       console.log("✅ Ticket analytics SET:", {
         byServerTypeLength: analyticsData.byServerType.length,
@@ -651,14 +622,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
 
   const loadServerDistribution = useCallback(async () => {
     try {
-      const response = await fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
-      if (!response.ok) {
-        console.error("Failed to fetch facilities for server distribution:", response.status, response.statusText)
-        const errorText = await response.text()
-        console.error("Error response:", errorText)
-        return
-      }
-      const data = await response.json()
+      const data = await cachedFetch<any>(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
       const facilities = data.facilities || []
       
       console.log("Facilities loaded for server distribution:", facilities.length)
@@ -695,6 +659,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
       
       console.log("Server distribution calculated:", distributionArray.length, "server types")
       setServerDistribution(distributionArray)
+      setHasLoadedServerDistribution(true)
     } catch (error) {
       console.error("Error loading server distribution:", error)
     }
@@ -702,14 +667,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
 
   const loadSimcardDistribution = useCallback(async () => {
     try {
-      const response = await fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
-      if (!response.ok) {
-        console.error("Failed to fetch facilities for simcard distribution:", response.status, response.statusText)
-        const errorText = await response.text()
-        console.error("Error response:", errorText)
-        return
-      }
-      const data = await response.json()
+      const data = await cachedFetch<any>(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
       const facilities = data.facilities || []
       
       console.log("Facilities loaded for simcard distribution:", facilities.length)
@@ -769,12 +727,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
   const loadSubcountyDistribution = useCallback(async () => {
     try {
       console.log("🔄 Loading subcounty distribution...")
-      const response = await fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
-      if (!response.ok) {
-        console.error("Failed to fetch facilities for subcounty distribution:", response.status)
-        return
-      }
-      const data = await response.json()
+      const data = await cachedFetch<any>(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
       const facilities = data.facilities || []
       
       // Group by subcounty, then by server type
@@ -827,6 +780,8 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
   useEffect(() => {
     setIsLoadingData(true)
     setIsLoadingTickets(true)
+    setHasLoadedTickets(false)
+    setHasLoadedServerDistribution(false)
     
     // Load all data in parallel
     Promise.all([
@@ -966,7 +921,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
                 </div>
               </CardHeader>
               <CardContent>
-                {isLoadingTickets ? (
+                {isLoadingTickets && !hasLoadedTickets ? (
                   <div className="flex items-center gap-2 py-2">
                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                     <span className="text-sm text-muted-foreground">Loading tickets...</span>
@@ -1063,7 +1018,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
 
 
       {/* Server Distribution Section */}
-      {isLoadingData ? (
+      {isLoadingData && !hasLoadedServerDistribution ? (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -1815,7 +1770,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
                             </p>
                           )}
                         </div>
-                      ) : isLoadingTickets ? (
+                      ) : (isLoadingTickets && !hasLoadedTickets) ? (
                         <div className="flex items-center justify-center gap-2 py-4">
                           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                           <span className="text-sm text-muted-foreground">Loading server issues...</span>
@@ -2048,7 +2003,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
               </div>
 
               {/* Show graphs only if we have ticket data */}
-              {isLoadingTickets ? (
+              {isLoadingTickets && !hasLoadedTickets ? (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Ticket Analytics</CardTitle>
