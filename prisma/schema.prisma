@@ -130,6 +130,7 @@ model Ticket {
   problem         String    @db.Text // Problem description
   solution        String?   @db.Text // How the problem was fixed
   reportedBy      String?   @db.VarChar(120) // Person reporting the ticket
+  reporterRole    String?   @db.VarChar(100) // Role of reporter (HRIO, HMIS, M&E Associate, etc.)
   assignedTo      String?   @db.VarChar(120) // Person assigned to handle ticket
   reporterDetails String?   @db.Text // Optional reporter contact/extra details
   resolvedBy      String?   @db.VarChar(120) // Person who resolved the ticket
@@ -153,6 +154,14 @@ model Ticket {
   @@index([serverType])
   @@index([issueType])
   @@map("tickets")
+}
+
+model AppSetting {
+  key       String   @id @db.VarChar(100)
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+
+  @@map("app_settings")
 }
 
 model ComparisonHistory {

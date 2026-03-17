@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { AUTH_COOKIE_NAME } from "@/lib/auth"
+import { AUTH_COOKIE_NAME, AUTH_USERNAME_COOKIE } from "@/lib/auth"
 
 // Force dynamic rendering to prevent build-time static generation
 export const dynamic = 'force-dynamic'
@@ -9,14 +9,14 @@ export const revalidate = 0
 
 export async function POST(_request: NextRequest) {
   const response = NextResponse.json({ success: true })
-  response.cookies.set({
-    name: AUTH_COOKIE_NAME,
-    value: "",
+  const clearCookie = {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: "lax" as const,
     secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 0,
-  })
+  }
+  response.cookies.set({ name: AUTH_COOKIE_NAME, value: "", ...clearCookie })
+  response.cookies.set({ name: AUTH_USERNAME_COOKIE, value: "", ...clearCookie })
   return response
 }

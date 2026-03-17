@@ -3,6 +3,7 @@ import { NextRequest } from "next/server"
 export type UserRole = "admin" | "guest" | "superadmin"
 
 export const AUTH_COOKIE_NAME = "ndwh_role"
+export const AUTH_USERNAME_COOKIE = "ndwh_user"
 
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin"
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123"
@@ -15,16 +16,19 @@ export function isValidRole(value: string | undefined | null): value is UserRole
   return value === "admin" || value === "guest" || value === "superadmin"
 }
 
-export function resolveRoleFromCredentials(username: string, password: string): UserRole | null {
+export function resolveRoleFromCredentials(
+  username: string,
+  password: string
+): { role: UserRole; displayName: string } | null {
   const cleanUsername = username.trim()
   if (cleanUsername === SUPERADMIN_USERNAME && password === SUPERADMIN_PASSWORD) {
-    return "superadmin"
+    return { role: "superadmin", displayName: SUPERADMIN_USERNAME }
   }
   if (cleanUsername === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
-    return "admin"
+    return { role: "admin", displayName: ADMIN_USERNAME }
   }
   if (cleanUsername === GUEST_USERNAME && password === GUEST_PASSWORD) {
-    return "guest"
+    return { role: "guest", displayName: GUEST_USERNAME }
   }
   return null
 }
@@ -50,15 +54,21 @@ export function getRoleFromRequest(request: NextRequest): UserRole | null {
 export function canAccessPath(role: UserRole, pathname: string): boolean {
   // Superadmin has full access
   if (role === "superadmin") return true
-  // Admin has full access (except template/upload operations which are superadmin only)
-  if (role === "admin") return true
-  // Guest access
+
+  // Admin: everything except Uploads page and backup API
+  if (role === "admin") {
+    if (pathname === "/uploads") return false
+    if (pathname.startsWith("/api/backup")) return false
+    return true
+  }
+
+  // Guest: very restricted
   if (pathname === "/tickets") return true
   if (pathname.startsWith("/api/tickets")) return true
   if (pathname.startsWith("/api/auth")) return true
   if (pathname === "/login") return true
-  // Guests need read-only access to facilities to populate the facility dropdown
-  // when creating a ticket. Only GET requests are allowed (enforced in the route).
+  // Guests need read-only access to facilities for the ticket creation dropdown
   if (pathname.startsWith("/api/facilities")) return true
+  if (pathname.startsWith("/api/settings")) return true
   return false
 }

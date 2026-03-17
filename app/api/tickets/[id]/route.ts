@@ -3,27 +3,18 @@ import { prisma } from "@/lib/prisma"
 import { validateLocation, validateSubcounty } from "@/lib/location-utils"
 import { getRoleFromRequest } from "@/lib/auth"
 
-// Force dynamic rendering to prevent build-time static generation
 export const dynamic = 'force-dynamic'
-export const fetchCache = 'force-no-store'
-
-// Prevent Next.js from trying to generate static params
-export async function generateStaticParams() {
-  return []
-}
 export const runtime = 'nodejs'
 export const revalidate = 0
 
 /**
  * PATCH /api/tickets/[id]
- * Update a ticket
- * Location and subcounty validation applied if provided
+ * Update a ticket – admin / superadmin only
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  { params }: { params: { id: string } }
 ) {
-  const resolvedParams = await Promise.resolve(params)
   try {
     const role = getRoleFromRequest(request)
     if (!role) {
@@ -33,6 +24,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Forbidden: admin or superadmin only" }, { status: 403 })
     }
 
+    const id = params.id
     const body = await request.json()
     const {
       facilityName,
@@ -40,6 +32,7 @@ export async function PATCH(
       problem,
       solution,
       reportedBy,
+      reporterRole,
       assignedTo,
       reporterDetails,
       resolvedBy,
@@ -59,6 +52,7 @@ export async function PATCH(
     if (problem !== undefined) updateData.problem = problem.trim()
     if (solution !== undefined) updateData.solution = solution?.trim() || null
     if (reportedBy !== undefined) updateData.reportedBy = reportedBy?.trim() || null
+    if (reporterRole !== undefined) updateData.reporterRole = reporterRole?.trim() || null
     if (assignedTo !== undefined) updateData.assignedTo = assignedTo?.trim() || null
     if (reporterDetails !== undefined) updateData.reporterDetails = reporterDetails?.trim() || null
     if (resolvedBy !== undefined) updateData.resolvedBy = resolvedBy?.trim() || null
@@ -66,67 +60,52 @@ export async function PATCH(
     if (resolutionSteps !== undefined) updateData.resolutionSteps = resolutionSteps?.trim() || null
     if (issueType !== undefined) updateData.issueType = issueType
     if (week !== undefined) updateData.week = week?.trim() || null
-    
-    // Validate location if provided
+
     if (location !== undefined) {
       try {
         updateData.location = validateLocation(location)
       } catch (error: any) {
-        return NextResponse.json(
-          { error: error.message || "Invalid location" },
-          { status: 400 }
-        )
+        return NextResponse.json({ error: error.message || "Invalid location" }, { status: 400 })
       }
     }
-    
-    // Validate subcounty if provided
+
     if (subcounty !== undefined) {
       try {
         updateData.subcounty = validateSubcounty(subcounty)
       } catch (error: any) {
-        return NextResponse.json(
-          { error: error.message || "Invalid subcounty" },
-          { status: 400 }
-        )
+        return NextResponse.json({ error: error.message || "Invalid subcounty" }, { status: 400 })
       }
     }
-    
+
     if (status !== undefined) {
-      if ((status === "resolved" || status === "in-progress") && !((resolvedBy ?? "").trim() || (updateData.resolvedBy ?? "").trim())) {
+      const effectiveResolvedBy = (resolvedBy ?? "").trim() || (updateData.resolvedBy ?? "").trim()
+      // Only enforce resolvedBy for the "resolved" status (set via the Resolve dialog)
+      // "in-progress" can be set freely (its own dialog optionally records who is handling it)
+      if (status === "resolved" && !effectiveResolvedBy) {
         return NextResponse.json(
-          { error: "Resolved by is required when status is in-progress or resolved" },
+          { error: "Resolved by is required when marking a ticket as resolved" },
           { status: 400 }
         )
       }
       updateData.status = status
-      // Set resolvedAt if status is resolved
-      if (status === "resolved" && !body.resolvedAt) {
-        updateData.resolvedAt = new Date()
-      } else if (status !== "resolved") {
+      if (status === "resolved") {
+        updateData.resolvedAt = body.resolvedAt ? new Date(body.resolvedAt) : new Date()
+      } else {
         updateData.resolvedAt = null
       }
     }
 
     const ticket = await prisma.ticket.update({
-      where: { id: resolvedParams.id },
+      where: { id },
       data: updateData,
     })
 
-    return NextResponse.json({
-      success: true,
-      ticket,
-    })
+    return NextResponse.json({ success: true, ticket })
   } catch (error: any) {
     console.error("Error updating ticket:", error)
-    
-    // Handle Prisma validation errors
-    if (error.code === "P2002" || error.message?.includes("required")) {
-      return NextResponse.json(
-        { error: "Validation error: Location and subcounty are required" },
-        { status: 400 }
-      )
+    if (error.code === "P2025") {
+      return NextResponse.json({ error: "Ticket not found" }, { status: 404 })
     }
-    
     return NextResponse.json(
       { error: "Failed to update ticket", details: error.message },
       { status: 500 }
@@ -136,13 +115,12 @@ export async function PATCH(
 
 /**
  * DELETE /api/tickets/[id]
- * Delete a ticket
+ * Delete a ticket – admin / superadmin only
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  { params }: { params: { id: string } }
 ) {
-  const resolvedParams = await Promise.resolve(params)
   try {
     const role = getRoleFromRequest(request)
     if (!role) {
@@ -152,18 +130,14 @@ export async function DELETE(
       return NextResponse.json({ error: "Forbidden: admin or superadmin only" }, { status: 403 })
     }
 
-    await prisma.ticket.delete({
-      where: { id: resolvedParams.id },
-    })
+    await prisma.ticket.delete({ where: { id: params.id } })
 
-    return NextResponse.json({
-      success: true,
-    })
-  } catch (error) {
+    return NextResponse.json({ success: true })
+  } catch (error: any) {
     console.error("Error deleting ticket:", error)
-    return NextResponse.json(
-      { error: "Failed to delete ticket" },
-      { status: 500 }
-    )
+    if (error.code === "P2025") {
+      return NextResponse.json({ error: "Ticket not found" }, { status: 404 })
+    }
+    return NextResponse.json({ error: "Failed to delete ticket" }, { status: 500 })
   }
 }
