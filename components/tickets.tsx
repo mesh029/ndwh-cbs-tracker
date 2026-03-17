@@ -22,6 +22,7 @@ import type { Location } from "@/lib/storage"
 import type { ChartConfig } from "@/components/ui/chart"
 import { SectionUpload } from "@/components/section-upload"
 import { useAuth } from "@/components/auth-provider"
+import { useRouter } from "next/navigation"
 
 const pieChartConfig = {
   open: {
@@ -94,13 +95,19 @@ export interface Ticket {
   resolvedAt: string | null
 }
 
-export function Tickets() {
+interface TicketsProps {
+  initialLocation?: Location
+  showBackToOverview?: boolean
+}
+
+export function Tickets({ initialLocation = "Nyamira", showBackToOverview = false }: TicketsProps) {
   const { role } = useAuth()
+  const router = useRouter()
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
-  const [selectedLocation, setSelectedLocation] = useState<Location>("Nyamira")
+  const [selectedLocation, setSelectedLocation] = useState<Location>(initialLocation)
   const [issueTypeFilter, setIssueTypeFilter] = useState<string>("all")
   const [editingTicket, setEditingTicket] = useState<Ticket | null>(null)
   const { toast } = useToast()
@@ -563,6 +570,18 @@ export function Tickets() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex-1">
+          {showBackToOverview && (
+            <div className="mb-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => router.push("/tickets")}
+              >
+                ← Back to Tickets Overview
+              </Button>
+            </div>
+          )}
           <h1 className="text-3xl font-bold">EMR Tickets Dashboard</h1>
           <p className="text-muted-foreground">
             Comprehensive ticketing solution for EMR server and networking issues across all locations
