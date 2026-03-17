@@ -662,6 +662,11 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
       setHasLoadedServerDistribution(true)
     } catch (error) {
       console.error("Error loading server distribution:", error)
+    } finally {
+      // Ensure overall data loading state is cleared once server distribution has been processed,
+      // so we don't get stuck in a perpetual "Loading..." state for this section even if one of
+      // the other loaders (e.g. ticket analytics) is still finishing.
+      setIsLoadingData(false)
     }
   }, [location])
 
