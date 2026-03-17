@@ -21,6 +21,7 @@ import {
 import type { Location } from "@/lib/storage"
 import type { ChartConfig } from "@/components/ui/chart"
 import { SectionUpload } from "@/components/section-upload"
+import { useAuth } from "@/components/auth-provider"
 
 const pieChartConfig = {
   open: {
@@ -94,7 +95,7 @@ export interface Ticket {
 }
 
 export function Tickets() {
-  const [role, setRole] = useState<"admin" | "guest" | "superadmin" | null>(null)
+  const { role } = useAuth()
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -133,21 +134,6 @@ export function Tickets() {
   useEffect(() => {
     loadTickets()
   }, [statusFilter, selectedLocation])
-
-  useEffect(() => {
-    const loadRole = async () => {
-      try {
-        const response = await fetch("/api/auth/me")
-        const data = await response.json()
-        if (response.ok && data.role) {
-          setRole(data.role)
-        }
-      } catch {
-        setRole(null)
-      }
-    }
-    loadRole()
-  }, [])
 
   // Load facilities and subcounties when selectedLocation changes
   useEffect(() => {

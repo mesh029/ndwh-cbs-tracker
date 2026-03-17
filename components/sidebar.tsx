@@ -9,6 +9,7 @@ import { ThemeToggle } from "./theme-toggle"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { useAuth } from "@/components/auth-provider"
 
 interface NavItem {
   name: string
@@ -62,7 +63,7 @@ export function Sidebar() {
   const router = useRouter()
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
-  const [role, setRole] = useState<"admin" | "guest" | "superadmin" | null>(null)
+  const { role } = useAuth()
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(navigationSections.map((section, index) => `section-${index}`))
   )
@@ -101,21 +102,6 @@ export function Sidebar() {
       clearTimeout(timeoutRef.current)
     }
   }, [pathname])
-
-  useEffect(() => {
-    const loadRole = async () => {
-      try {
-        const res = await fetch("/api/auth/me")
-        const data = await res.json()
-        if (res.ok && data.role) {
-          setRole(data.role)
-        }
-      } catch (error) {
-        setRole(null)
-      }
-    }
-    loadRole()
-  }, [])
 
   const handleLogout = async () => {
     try {
@@ -398,26 +384,11 @@ function SidebarContent({
 export function MobileMenuButton() {
   const pathname = usePathname()
   const router = useRouter()
-  const [role, setRole] = useState<"admin" | "guest" | "superadmin" | null>(null)
+  const { role } = useAuth()
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(navigationSections.map((section, index) => `section-${index}`))
   )
   const [open, setOpen] = useState(false)
-
-  useEffect(() => {
-    const loadRole = async () => {
-      try {
-        const res = await fetch("/api/auth/me")
-        const data = await res.json()
-        if (res.ok && data.role) {
-          setRole(data.role)
-        }
-      } catch (error) {
-        setRole(null)
-      }
-    }
-    loadRole()
-  }, [])
 
   const handleLogout = async () => {
     try {

@@ -27,6 +27,7 @@ import { facilitiesMatch } from "@/lib/utils"
 import type { Location } from "@/lib/storage"
 import * as XLSX from "xlsx"
 import { canDownloadTemplates, canUploadData } from "@/lib/auth"
+import { useAuth } from "@/components/auth-provider"
 
 interface SectionUploadProps {
   section: "server" | "router" | "simcard" | "lan" | "ticket"
@@ -50,26 +51,10 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
   const [selectedFacilities, setSelectedFacilities] = useState<Set<string>>(new Set())
   const [facilitySearch, setFacilitySearch] = useState("")
   const [selectAll, setSelectAll] = useState(true)
-  const [role, setRole] = useState<"admin" | "guest" | "superadmin" | null>(null)
+  const { role } = useAuth()
   const [showErrorDialog, setShowErrorDialog] = useState(false)
   const [uploadErrors, setUploadErrors] = useState<string[]>([])
   const { toast } = useToast()
-
-  // Load user role
-  useEffect(() => {
-    const loadRole = async () => {
-      try {
-        const response = await fetch("/api/auth/me")
-        const data = await response.json()
-        if (response.ok && data.role) {
-          setRole(data.role)
-        }
-      } catch {
-        setRole(null)
-      }
-    }
-    loadRole()
-  }, [])
 
   // Load facilities when dialog opens
   useEffect(() => {

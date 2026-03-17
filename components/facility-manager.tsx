@@ -16,6 +16,7 @@ import { parseFacilityList } from "@/lib/utils"
 import type { SystemType, Location } from "@/lib/storage"
 import type { Facility } from "@/lib/storage-api"
 import { canDownloadTemplates, canUploadData } from "@/lib/auth"
+import { useAuth } from "@/components/auth-provider"
 import * as XLSX from "xlsx"
 
 const SYSTEMS: SystemType[] = ["NDWH", "CBS"]
@@ -68,24 +69,8 @@ export function FacilityManager() {
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [showErrorDialog, setShowErrorDialog] = useState(false)
   const [importErrors, setImportErrors] = useState<Array<{ facility: string; reason: string }>>([])
-  const [role, setRole] = useState<"admin" | "guest" | "superadmin" | null>(null)
+  const { role } = useAuth()
   const { toast } = useToast()
-
-  // Load user role
-  useEffect(() => {
-    const loadRole = async () => {
-      try {
-        const response = await fetch("/api/auth/me")
-        const data = await response.json()
-        if (response.ok && data.role) {
-          setRole(data.role)
-        }
-      } catch {
-        setRole(null)
-      }
-    }
-    loadRole()
-  }, [])
 
   const {
     masterFacilities,
