@@ -902,7 +902,11 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
           are intentionally NOT in this form – use the Resolve button.
       ════════════════════════════════════════════════════ */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className="max-w-2xl max-h-[90vh] overflow-y-auto"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>{editingTicket ? "Edit Ticket" : "Create New Ticket"}</DialogTitle>
             <DialogDescription>Log or update ticket details. To resolve, use the Resolve button on the card.</DialogDescription>
@@ -1133,7 +1137,11 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
           (Only shows resolvedBy + resolution steps – nothing else)
       ════════════════════════════════════════════════════ */}
       <Dialog open={showResolveDialog} onOpenChange={(open) => { if (!open) closeResolveDialog() }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent
+          className="max-w-lg"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-emerald-600" />
@@ -1219,7 +1227,11 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
           Mark In Progress Dialog
       ════════════════════════════════════════════════════ */}
       <Dialog open={showInProgressDialog} onOpenChange={(open) => { if (!open) closeInProgressDialog() }}>
-        <DialogContent className="max-w-sm">
+        <DialogContent
+          className="max-w-sm"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Clock className="h-5 w-5 text-amber-600" />
