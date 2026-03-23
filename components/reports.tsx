@@ -73,193 +73,348 @@ export function Reports() {
       ? locationData
       : locationData.filter((d) => d.location === selectedLocation)
 
-  const exportToCSV = () => {
-    const rows: string[] = []
-    const timestamp = new Date().toISOString().split("T")[0]
-    
-    // Header information
-    rows.push(`Facility Reporting Summary - ${selectedSystem}`)
-    rows.push(`Generated: ${new Date().toLocaleString()}`)
-    rows.push("")
-    
-    // Summary section with proper headers
-    rows.push("SUMMARY BY LOCATION")
-    rows.push("Location,Total Facilities,Reported (Matched),Unmatched Reported,Total Reported,Missing,Progress %")
-    displayData.forEach((data) => {
-      const progress = data.total > 0 ? ((data.matchedReported / data.total) * 100).toFixed(1) : "0.0"
-      rows.push(
-        `${data.location},${data.total},${data.matchedReported},${data.unmatchedReported},${data.reported},${data.missing},${progress}%`
-      )
-    })
-    rows.push("")
-    
-    // Detailed breakdown with proper headers for each location
-    displayData.forEach((data) => {
-      const location = data.location
-      
-      // Location header
-      rows.push(`LOCATION: ${location.toUpperCase()}`)
-      rows.push(`Total Facilities,Reported (Matched),Unmatched Reported,Total Reported,Missing`)
-      rows.push(`${data.total},${data.matchedReported},${data.unmatchedReported},${data.reported},${data.missing}`)
-      rows.push("")
-      
-      // Reported Facilities section with header
-      rows.push(`REPORTED FACILITIES - ${location.toUpperCase()}`)
-      rows.push("Facility Name,Status,Category,Notes")
-      
-      // Reported facilities (matched)
-      data.reportedFacilities.forEach((facility) => {
-        const variationComment = data.comparison?.reportedWithComments?.find(
-          item => item.facility === facility
-        )?.comment
-        const notes = variationComment ? `Matched with variation: ${variationComment}` : "Has reported"
-        rows.push(`"${facility}","Has Reported","Matched","${notes}"`)
-      })
-      
-      // Unmatched reported facilities
-      data.unmatchedReportedFacilities.forEach((facility) => {
-        const unmatchedComment = data.comparison?.unmatchedReportedWithComments?.find(
-          item => item.facility === facility
-        )?.comment || "Not in master list - needs to be added to master list for proper tracking"
-        rows.push(`"${facility}","Has Reported","Unmatched","${unmatchedComment}"`)
-      })
-      
-      rows.push("")
-      
-      // Missing Facilities section with header
-      rows.push(`MISSING FACILITIES - ${location.toUpperCase()}`)
-      rows.push("Facility Name,Status,Category,Notes")
-      
-      // Missing facilities
-      if (data.missingFacilities.length > 0) {
-        data.missingFacilities.forEach((facility) => {
-          rows.push(`"${facility}","Has Not Reported","Missing","Facility in master list but has not reported"`)
-        })
-      } else {
-        rows.push(`"All facilities reported","Complete","N/A","No missing facilities"`)
-      }
-      
-      rows.push("")
-      rows.push("")
-    })
-
-    const csv = rows.join("\n")
-    const blob = new Blob([csv], { type: "text/csv" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    const locationSuffix = selectedLocation !== "all" ? `-${selectedLocation}` : ""
-    a.download = `facility-report-${selectedSystem}${locationSuffix}-${timestamp}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-
-    toast({
-      title: "Success",
-      description: "Detailed CSV report exported",
-    })
+  const yieldToMain = async () => {
+    // Let the browser paint during long-running report generation loops.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
   }
 
-  const exportToText = () => {
+  const formatDuration = (ms: number) => {
+    if (!Number.isFinite(ms) || ms < 0) return "estimating..."
+    const sec = Math.round(ms / 1000)
+    if (sec < 60) return `${sec}s`
+    const min = Math.round(sec / 60)
+    if (min < 60) return `${min}m`
+    const hrs = Math.round(min / 60)
+    return `${hrs}h`
+  }
+
+  const exportToCSV = async () => {
+    const rows: string[] = []
     const timestamp = new Date().toISOString().split("T")[0]
-    let text = `╔${"═".repeat(78)}╗\n`
-    text += `║${" ".repeat(20)}FACILITY REPORTING SUMMARY${" ".repeat(33)}║\n`
-    text += `║${" ".repeat(78)}║\n`
-    text += `║  System: ${selectedSystem}${" ".repeat(78 - 12 - selectedSystem.length)}║\n`
-    text += `║  Generated: ${new Date().toLocaleString()}${" ".repeat(78 - 15 - new Date().toLocaleString().length)}║\n`
-    text += `╚${"═".repeat(78)}╝\n\n`
 
-    // Summary section
-    text += "SUMMARY\n"
-    text += "=".repeat(80) + "\n"
-    text += `${"Location".padEnd(15)}${"Total".padEnd(10)}${"Matched".padEnd(12)}${"Unmatched".padEnd(12)}${"Total Rep".padEnd(12)}${"Missing".padEnd(10)}${"Progress"}\n`
-    text += "-".repeat(80) + "\n"
-    displayData.forEach((data) => {
-      const progress = data.total > 0 ? ((data.matchedReported / data.total) * 100).toFixed(1) : "0.0"
-      text += `${data.location.padEnd(15)}${String(data.total).padEnd(10)}${String(data.matchedReported).padEnd(12)}${String(data.unmatchedReported).padEnd(12)}${String(data.reported).padEnd(12)}${String(data.missing).padEnd(10)}${progress}%\n`
+    const totalWork = displayData.reduce((acc, d) => {
+      return acc + d.reportedFacilities.length + d.unmatchedReportedFacilities.length + d.missingFacilities.length
+    }, 0)
+    const safeTotalWork = Math.max(totalWork, 1)
+    let doneWork = 0
+
+    const startedAt = performance.now()
+    const CHUNK_SIZE = 100
+    const progressToast = toast({
+      title: "Preparing CSV report...",
+      description: "Generating rows and estimating time...",
     })
-    text += "\n"
 
-    // Detailed section for each location
-    displayData.forEach((data, locationIndex) => {
-      text += "\n" + "=".repeat(80) + "\n"
-      text += `LOCATION: ${data.location.toUpperCase()}\n`
-      text += "=".repeat(80) + "\n"
-      text += `Total Facilities in Master List: ${data.total}\n`
-      text += `Reported (Matched with Master): ${data.matchedReported}\n`
-      if (data.unmatchedReported > 0) {
-        text += `Unmatched Reported (Not in Master List): ${data.unmatchedReported}\n`
+    try {
+      // Header information
+      rows.push(`Facility Reporting Summary - ${selectedSystem}`)
+      rows.push(`Generated: ${new Date().toLocaleString()}`)
+      rows.push("")
+
+      // Summary section
+      rows.push("SUMMARY BY LOCATION")
+      rows.push("Location,Total Facilities,Reported (Matched),Unmatched Reported,Total Reported,Missing,Progress %")
+      for (const data of displayData) {
+        const progress = data.total > 0 ? ((data.matchedReported / data.total) * 100).toFixed(1) : "0.0"
+        rows.push(
+          `${data.location},${data.total},${data.matchedReported},${data.unmatchedReported},${data.reported},${data.missing},${progress}%`
+        )
       }
-      text += `Total Reported Facilities: ${data.reported}\n`
-      text += `Missing Facilities: ${data.missing}\n`
-      text += `Progress: ${data.total > 0 ? ((data.matchedReported / data.total) * 100).toFixed(1) : 0}%\n`
-      text += "\n"
+      rows.push("")
 
-      // Reported Facilities Section
-      if (data.reportedFacilities.length > 0 || data.unmatchedReportedFacilities.length > 0) {
-        text += "─".repeat(80) + "\n"
-        text += `REPORTED FACILITIES - ${data.location.toUpperCase()}\n`
-        text += "─".repeat(80) + "\n"
+      // Detailed breakdown
+      for (const data of displayData) {
+        const location = data.location
 
-      if (data.reportedFacilities.length > 0) {
-          text += `\nMatched Facilities (${data.reportedFacilities.length}):\n`
-        data.reportedFacilities.forEach((facility, index) => {
-          const variationComment = data.comparison?.reportedWithComments?.find(
-            item => item.facility === facility
-          )?.comment
-            text += `  ${String(index + 1).padStart(3)}. ${facility}`
-          if (variationComment) {
-              text += `\n      [Note: ${variationComment}]`
+        // Pre-index comments so we don't repeatedly scan arrays in tight loops.
+        const reportedCommentByFacility = new Map(
+          (data.comparison?.reportedWithComments || []).map((item: any) => [item.facility, item.comment])
+        )
+        const unmatchedCommentByFacility = new Map(
+          (data.comparison?.unmatchedReportedWithComments || []).map((item: any) => [item.facility, item.comment])
+        )
+
+        // Location header
+        rows.push(`LOCATION: ${location.toUpperCase()}`)
+        rows.push(`Total Facilities,Reported (Matched),Unmatched Reported,Total Reported,Missing`)
+        rows.push(`${data.total},${data.matchedReported},${data.unmatchedReported},${data.reported},${data.missing}`)
+        rows.push("")
+
+        // Reported facilities (matched)
+        rows.push(`REPORTED FACILITIES - ${location.toUpperCase()}`)
+        rows.push("Facility Name,Status,Category,Notes")
+
+        for (let i = 0; i < data.reportedFacilities.length; i++) {
+          const facility = data.reportedFacilities[i]
+          const variationComment = reportedCommentByFacility.get(facility) as string | undefined
+          const notes = variationComment ? `Matched with variation: ${variationComment}` : "Has reported"
+          rows.push(`"${facility}","Has Reported","Matched","${notes}"`)
+
+          doneWork++
+          if (i % CHUNK_SIZE === 0) {
+            const elapsed = performance.now() - startedAt
+            const pct = Math.round((doneWork / safeTotalWork) * 100)
+            const rate = doneWork > 0 ? elapsed / doneWork : 0
+            const etaMs = doneWork > 0 ? rate * (safeTotalWork - doneWork) : -1
+            await yieldToMain()
+            progressToast.update({
+              title: "Preparing CSV report...",
+              description: `Progress: ${pct}% • ETA ${formatDuration(etaMs)}`,
+            })
           }
-          text += "\n"
-        })
         }
 
-        if (data.unmatchedReportedFacilities.length > 0) {
-          text += `\nUnmatched Reported Facilities (${data.unmatchedReportedFacilities.length}):\n`
-          text += `  [These facilities were reported but are not in the master list]\n\n`
-          data.unmatchedReportedFacilities.forEach((facility, index) => {
-            const unmatchedComment = data.comparison?.unmatchedReportedWithComments?.find(
-              item => item.facility === facility
-            )?.comment || "Not in master list - needs to be added to master list for proper tracking"
-            text += `  ${String(index + 1).padStart(3)}. ${facility}\n`
-            text += `      [Note: ${unmatchedComment}]\n`
-          })
+        // Unmatched reported facilities
+        for (let i = 0; i < data.unmatchedReportedFacilities.length; i++) {
+          const facility = data.unmatchedReportedFacilities[i]
+          const unmatchedComment =
+            (unmatchedCommentByFacility.get(facility) as string | undefined) ||
+            "Not in master list - needs to be added to master list for proper tracking"
+          rows.push(`"${facility}","Has Reported","Unmatched","${unmatchedComment}"`)
+
+          doneWork++
+          if (i % CHUNK_SIZE === 0) {
+            const elapsed = performance.now() - startedAt
+            const pct = Math.round((doneWork / safeTotalWork) * 100)
+            const rate = doneWork > 0 ? elapsed / doneWork : 0
+            const etaMs = doneWork > 0 ? rate * (safeTotalWork - doneWork) : -1
+            await yieldToMain()
+            progressToast.update({
+              title: "Preparing CSV report...",
+              description: `Progress: ${pct}% • ETA ${formatDuration(etaMs)}`,
+            })
+          }
+        }
+
+        rows.push("")
+
+        // Missing facilities
+        rows.push(`MISSING FACILITIES - ${location.toUpperCase()}`)
+        rows.push("Facility Name,Status,Category,Notes")
+
+        if (data.missingFacilities.length > 0) {
+          for (let i = 0; i < data.missingFacilities.length; i++) {
+            const facility = data.missingFacilities[i]
+            rows.push(
+              `"${facility}","Has Not Reported","Missing","Facility in master list but has not reported"`
+            )
+
+            doneWork++
+            if (i % CHUNK_SIZE === 0) {
+              const elapsed = performance.now() - startedAt
+              const pct = Math.round((doneWork / safeTotalWork) * 100)
+              const rate = doneWork > 0 ? elapsed / doneWork : 0
+              const etaMs = doneWork > 0 ? rate * (safeTotalWork - doneWork) : -1
+              await yieldToMain()
+              progressToast.update({
+                title: "Preparing CSV report...",
+                description: `Progress: ${pct}% • ETA ${formatDuration(etaMs)}`,
+              })
+            }
+          }
+        } else {
+          rows.push(`"All facilities reported","Complete","N/A","No missing facilities"`)
+        }
+
+        rows.push("")
+        rows.push("")
+      }
+
+      const csv = rows.join("\n")
+      const blob = new Blob([csv], { type: "text/csv" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      const locationSuffix = selectedLocation !== "all" ? `-${selectedLocation}` : ""
+      a.download = `facility-report-${selectedSystem}${locationSuffix}-${timestamp}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+
+      progressToast.update({
+        title: "Success",
+        description: "Detailed CSV report exported",
+      })
+    } catch (err) {
+      progressToast.update({
+        title: "Error",
+        description: err instanceof Error ? err.message : "Failed to export CSV report",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const exportToText = async () => {
+    const timestamp = new Date().toISOString().split("T")[0]
+    const totalWork = displayData.reduce((acc, d) => {
+      return acc + d.reportedFacilities.length + d.unmatchedReportedFacilities.length + d.missingFacilities.length
+    }, 0)
+    const safeTotalWork = Math.max(totalWork, 1)
+    let doneWork = 0
+
+    const startedAt = performance.now()
+    const CHUNK_SIZE = 100
+    const progressToast = toast({
+      title: "Preparing text report...",
+      description: "Generating report text and estimating time...",
+    })
+
+    try {
+      let text = `╔${"═".repeat(78)}╗\n`
+      text += `║${" ".repeat(20)}FACILITY REPORTING SUMMARY${" ".repeat(33)}║\n`
+      text += `║${" ".repeat(78)}║\n`
+      text += `║  System: ${selectedSystem}${" ".repeat(78 - 12 - selectedSystem.length)}║\n`
+      text += `║  Generated: ${new Date().toLocaleString()}${" ".repeat(78 - 15 - new Date().toLocaleString().length)}║\n`
+      text += `╚${"═".repeat(78)}╝\n\n`
+
+      // Summary section
+      text += "SUMMARY\n"
+      text += "=".repeat(80) + "\n"
+      text += `${"Location".padEnd(15)}${"Total".padEnd(10)}${"Matched".padEnd(12)}${"Unmatched".padEnd(12)}${"Total Rep".padEnd(12)}${"Missing".padEnd(10)}${"Progress"}\n`
+      text += "-".repeat(80) + "\n"
+      for (const data of displayData) {
+        const progress = data.total > 0 ? ((data.matchedReported / data.total) * 100).toFixed(1) : "0.0"
+        text += `${data.location.padEnd(15)}${String(data.total).padEnd(10)}${String(data.matchedReported).padEnd(12)}${String(data.unmatchedReported).padEnd(12)}${String(data.reported).padEnd(12)}${String(data.missing).padEnd(10)}${progress}%\n`
+      }
+      text += "\n"
+
+      // Detailed section for each location
+      for (const data of displayData) {
+        const reportedCommentByFacility = new Map(
+          (data.comparison?.reportedWithComments || []).map((item: any) => [item.facility, item.comment])
+        )
+        const unmatchedCommentByFacility = new Map(
+          (data.comparison?.unmatchedReportedWithComments || []).map((item: any) => [item.facility, item.comment])
+        )
+
+        text += "\n" + "=".repeat(80) + "\n"
+        text += `LOCATION: ${data.location.toUpperCase()}\n`
+        text += "=".repeat(80) + "\n"
+        text += `Total Facilities in Master List: ${data.total}\n`
+        text += `Reported (Matched with Master): ${data.matchedReported}\n`
+        if (data.unmatchedReported > 0) {
+          text += `Unmatched Reported (Not in Master List): ${data.unmatchedReported}\n`
+        }
+        text += `Total Reported Facilities: ${data.reported}\n`
+        text += `Missing Facilities: ${data.missing}\n`
+        text += `Progress: ${data.total > 0 ? ((data.matchedReported / data.total) * 100).toFixed(1) : 0}%\n`
+        text += "\n"
+
+        // Reported Facilities Section
+        if (data.reportedFacilities.length > 0 || data.unmatchedReportedFacilities.length > 0) {
+          text += "─".repeat(80) + "\n"
+          text += `REPORTED FACILITIES - ${data.location.toUpperCase()}\n`
+          text += "─".repeat(80) + "\n"
+
+          if (data.reportedFacilities.length > 0) {
+            text += `\nMatched Facilities (${data.reportedFacilities.length}):\n`
+            for (let i = 0; i < data.reportedFacilities.length; i++) {
+              const facility = data.reportedFacilities[i]
+              const variationComment = reportedCommentByFacility.get(facility) as string | undefined
+
+              text += `  ${String(i + 1).padStart(3)}. ${facility}`
+              if (variationComment) {
+                text += `\n      [Note: ${variationComment}]`
+              }
+              text += "\n"
+
+              doneWork++
+              if (i % CHUNK_SIZE === 0) {
+                const elapsed = performance.now() - startedAt
+                const pct = Math.round((doneWork / safeTotalWork) * 100)
+                const rate = doneWork > 0 ? elapsed / doneWork : 0
+                const etaMs = doneWork > 0 ? rate * (safeTotalWork - doneWork) : -1
+                await yieldToMain()
+                progressToast.update({
+                  title: "Preparing text report...",
+                  description: `Progress: ${pct}% • ETA ${formatDuration(etaMs)}`,
+                })
+              }
+            }
+          }
+
+          if (data.unmatchedReportedFacilities.length > 0) {
+            text += `\nUnmatched Reported Facilities (${data.unmatchedReportedFacilities.length}):\n`
+            text += `  [These facilities were reported but are not in the master list]\n\n`
+            for (let i = 0; i < data.unmatchedReportedFacilities.length; i++) {
+              const facility = data.unmatchedReportedFacilities[i]
+              const unmatchedComment =
+                (unmatchedCommentByFacility.get(facility) as string | undefined) ||
+                "Not in master list - needs to be added to master list for proper tracking"
+
+              text += `  ${String(i + 1).padStart(3)}. ${facility}\n`
+              text += `      [Note: ${unmatchedComment}]\n`
+
+              doneWork++
+              if (i % CHUNK_SIZE === 0) {
+                const elapsed = performance.now() - startedAt
+                const pct = Math.round((doneWork / safeTotalWork) * 100)
+                const rate = doneWork > 0 ? elapsed / doneWork : 0
+                const etaMs = doneWork > 0 ? rate * (safeTotalWork - doneWork) : -1
+                await yieldToMain()
+                progressToast.update({
+                  title: "Preparing text report...",
+                  description: `Progress: ${pct}% • ETA ${formatDuration(etaMs)}`,
+                })
+              }
+            }
+          }
+
+          text += "\n"
+        }
+
+        // Missing Facilities Section
+        text += "─".repeat(80) + "\n"
+        text += `MISSING FACILITIES - ${data.location.toUpperCase()}\n`
+        text += "─".repeat(80) + "\n"
+        if (data.missingFacilities.length > 0) {
+          text += `\nThe following ${data.missingFacilities.length} facility/facilities from the master list have NOT been reported:\n\n`
+          for (let i = 0; i < data.missingFacilities.length; i++) {
+            const facility = data.missingFacilities[i]
+            text += `  ${String(i + 1).padStart(3)}. ${facility}\n`
+
+            doneWork++
+            if (i % CHUNK_SIZE === 0) {
+              const elapsed = performance.now() - startedAt
+              const pct = Math.round((doneWork / safeTotalWork) * 100)
+              const rate = doneWork > 0 ? elapsed / doneWork : 0
+              const etaMs = doneWork > 0 ? rate * (safeTotalWork - doneWork) : -1
+              await yieldToMain()
+              progressToast.update({
+                title: "Preparing text report...",
+                description: `Progress: ${pct}% • ETA ${formatDuration(etaMs)}`,
+              })
+            }
+          }
+        } else {
+          text += `\n✓ All facilities in the master list have been reported!\n`
         }
         text += "\n"
       }
 
-      // Missing Facilities Section
-      text += "─".repeat(80) + "\n"
-      text += `MISSING FACILITIES - ${data.location.toUpperCase()}\n`
-      text += "─".repeat(80) + "\n"
-      if (data.missingFacilities.length > 0) {
-        text += `\nThe following ${data.missingFacilities.length} facility/facilities from the master list have NOT been reported:\n\n`
-        data.missingFacilities.forEach((facility, index) => {
-          text += `  ${String(index + 1).padStart(3)}. ${facility}\n`
-        })
-      } else {
-        text += `\n✓ All facilities in the master list have been reported!\n`
-      }
-      text += "\n"
-    })
+      text += "\n" + "═".repeat(80) + "\n"
+      text += `End of Report - Generated on ${new Date().toLocaleString()}\n`
+      text += "═".repeat(80) + "\n"
 
-    text += "\n" + "═".repeat(80) + "\n"
-    text += `End of Report - Generated on ${new Date().toLocaleString()}\n`
-    text += "═".repeat(80) + "\n"
+      const blob = new Blob([text], { type: "text/plain" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      const locationSuffix = selectedLocation !== "all" ? `-${selectedLocation}` : ""
+      a.download = `facility-report-${selectedSystem}${locationSuffix}-${timestamp}.txt`
+      a.click()
+      URL.revokeObjectURL(url)
 
-    const blob = new Blob([text], { type: "text/plain" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    const locationSuffix = selectedLocation !== "all" ? `-${selectedLocation}` : ""
-    a.download = `facility-report-${selectedSystem}${locationSuffix}-${timestamp}.txt`
-    a.click()
-    URL.revokeObjectURL(url)
-
-    toast({
-      title: "Success",
-      description: "Detailed text report exported",
-    })
+      progressToast.update({
+        title: "Success",
+        description: "Detailed text report exported",
+      })
+    } catch (err) {
+      progressToast.update({
+        title: "Error",
+        description: err instanceof Error ? err.message : "Failed to export text report",
+        variant: "destructive",
+      })
+    }
   }
 
   const copyMissingToClipboard = () => {
@@ -331,6 +486,24 @@ export function Reports() {
 
   // EMR Facilities Report
   const exportEMRReport = async () => {
+    const startedAt = performance.now()
+    const stepsTotal = 3
+    let stepsDone = 0
+    const emrToast = toast({
+      title: "Preparing EMR facilities report...",
+      description: "Collecting EMR facilities data...",
+    })
+
+    const updateEmrStep = (label: string) => {
+      stepsDone++
+      const elapsed = performance.now() - startedAt
+      const etaMs = stepsDone > 0 ? (elapsed / stepsDone) * (stepsTotal - stepsDone) : -1
+      emrToast.update({
+        title: "Preparing EMR facilities report...",
+        description: `${label} • ETA ${formatDuration(etaMs)}`,
+      })
+    }
+
     try {
       const wb = XLSX.utils.book_new()
       const timestamp = new Date().toISOString().split("T")[0]
@@ -363,6 +536,7 @@ export function Reports() {
         summaryWs["!cols"] = [{ wch: 15 }, { wch: 18 }, { wch: 15 }, { wch: 15 }, { wch: 12 }]
         XLSX.utils.book_append_sheet(wb, summaryWs, "Summary")
       }
+      updateEmrStep("Summary sheet ready")
 
       // 2. EMR Facilities Detail
       const facilityRows: any[] = []
@@ -398,15 +572,17 @@ export function Reports() {
         ]
         XLSX.utils.book_append_sheet(wb, facilityWs, "Facilities")
       }
+      updateEmrStep("Facilities sheet ready")
 
+      updateEmrStep("Writing final Excel file...")
       XLSX.writeFile(wb, `EMR_Facilities_Report_${timestamp}.xlsx`)
-      toast({
+      emrToast.update({
         title: "Success",
         description: "EMR Facilities report exported successfully",
       })
     } catch (error) {
       console.error("Error exporting EMR report:", error)
-      toast({
+      emrToast.update({
         title: "Error",
         description: "Failed to export EMR report",
         variant: "destructive",
@@ -416,6 +592,24 @@ export function Reports() {
 
   // EMR Inventory Report
   const exportEMRInventoryReport = async () => {
+    const startedAt = performance.now()
+    const stepsTotal = 5
+    let stepsDone = 0
+    const emrInvToast = toast({
+      title: "Preparing EMR inventory report...",
+      description: "Collecting inventory assets...",
+    })
+
+    const updateInvStep = (label: string) => {
+      stepsDone++
+      const elapsed = performance.now() - startedAt
+      const etaMs = stepsDone > 0 ? (elapsed / stepsDone) * (stepsTotal - stepsDone) : -1
+      emrInvToast.update({
+        title: "Preparing EMR inventory report...",
+        description: `${label} • ETA ${formatDuration(etaMs)}`,
+      })
+    }
+
     try {
       const wb = XLSX.utils.book_new()
       const timestamp = new Date().toISOString().split("T")[0]
@@ -450,6 +644,7 @@ export function Reports() {
         serverWs["!cols"] = [{ wch: 15 }, { wch: 40 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 50 }]
         XLSX.utils.book_append_sheet(wb, serverWs, "Servers")
       }
+      updateInvStep("Servers sheet ready")
 
       // Routers
       const routerRows: any[] = []
@@ -479,6 +674,7 @@ export function Reports() {
         routerWs["!cols"] = [{ wch: 15 }, { wch: 40 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 50 }]
         XLSX.utils.book_append_sheet(wb, routerWs, "Routers")
       }
+      updateInvStep("Routers sheet ready")
 
       // Simcards
       const simcardRows: any[] = []
@@ -509,6 +705,7 @@ export function Reports() {
         simcardWs["!cols"] = [{ wch: 15 }, { wch: 40 }, { wch: 20 }, { wch: 20 }, { wch: 15 }, { wch: 20 }, { wch: 50 }]
         XLSX.utils.book_append_sheet(wb, simcardWs, "Simcards")
       }
+      updateInvStep("Simcards sheet ready")
 
       // LAN Assets
       const lanRows: any[] = []
@@ -537,15 +734,17 @@ export function Reports() {
         lanWs["!cols"] = [{ wch: 15 }, { wch: 40 }, { wch: 15 }, { wch: 12 }, { wch: 50 }]
         XLSX.utils.book_append_sheet(wb, lanWs, "LAN")
       }
+      updateInvStep("LAN sheet ready")
 
+      updateInvStep("Writing final Excel file...")
       XLSX.writeFile(wb, `EMR_Inventory_Report_${timestamp}.xlsx`)
-      toast({
+      emrInvToast.update({
         title: "Success",
         description: "EMR Inventory report exported successfully",
       })
     } catch (error) {
       console.error("Error exporting EMR inventory report:", error)
-      toast({
+      emrInvToast.update({
         title: "Error",
         description: "Failed to export EMR inventory report",
         variant: "destructive",
@@ -555,6 +754,24 @@ export function Reports() {
 
   // Ticket Report
   const exportTicketReport = async () => {
+    const startedAt = performance.now()
+    const stepsTotal = 3
+    let stepsDone = 0
+    const ticketToast = toast({
+      title: "Preparing ticket report...",
+      description: "Collecting ticket data...",
+    })
+
+    const updateTicketStep = (label: string) => {
+      stepsDone++
+      const elapsed = performance.now() - startedAt
+      const etaMs = stepsDone > 0 ? (elapsed / stepsDone) * (stepsTotal - stepsDone) : -1
+      ticketToast.update({
+        title: "Preparing ticket report...",
+        description: `${label} • ETA ${formatDuration(etaMs)}`,
+      })
+    }
+
     try {
       const wb = XLSX.utils.book_new()
       const timestamp = new Date().toISOString().split("T")[0]
@@ -589,6 +806,7 @@ export function Reports() {
         summaryWs["!cols"] = [{ wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 15 }]
         XLSX.utils.book_append_sheet(wb, summaryWs, "Summary")
       }
+      updateTicketStep("Summary sheet ready")
 
       // Ticket Details
       const ticketRows: any[] = []
@@ -629,15 +847,17 @@ export function Reports() {
         ]
         XLSX.utils.book_append_sheet(wb, ticketWs, "Tickets")
       }
+      updateTicketStep("Ticket details sheet ready")
 
+      updateTicketStep("Writing final Excel file...")
       XLSX.writeFile(wb, `Ticket_Report_${timestamp}.xlsx`)
-      toast({
+      ticketToast.update({
         title: "Success",
         description: "Ticket report exported successfully",
       })
     } catch (error) {
       console.error("Error exporting ticket report:", error)
-      toast({
+      ticketToast.update({
         title: "Error",
         description: "Failed to export ticket report",
         variant: "destructive",
@@ -647,10 +867,29 @@ export function Reports() {
 
   // Ticket Analytics Report
   const exportTicketAnalyticsReport = async () => {
+    const startedAt = performance.now()
+    let stepsTotal = 1
+    let stepsDone = 0
+    const analyticsToast = toast({
+      title: "Preparing ticket analytics...",
+      description: "Collecting analytics by county...",
+    })
+
+    const updateAnalyticsStep = (label: string) => {
+      stepsDone++
+      const elapsed = performance.now() - startedAt
+      const etaMs = stepsDone > 0 ? (elapsed / stepsDone) * (stepsTotal - stepsDone) : -1
+      analyticsToast.update({
+        title: "Preparing ticket analytics...",
+        description: `${label} • ETA ${formatDuration(etaMs)}`,
+      })
+    }
+
     try {
       const wb = XLSX.utils.book_new()
       const timestamp = new Date().toISOString().split("T")[0]
       const locations = selectedLocation === "all" ? LOCATIONS : [selectedLocation as Location]
+      stepsTotal = locations.length + 1
 
       // Analytics by County
       const analyticsRows: any[] = []
@@ -695,6 +934,8 @@ export function Reports() {
         } catch (error) {
           console.error(`Error fetching analytics for ${loc}:`, error)
         }
+
+        updateAnalyticsStep(`Processed ${loc}`)
       }
 
       if (analyticsRows.length > 0) {
@@ -703,14 +944,15 @@ export function Reports() {
         XLSX.utils.book_append_sheet(wb, analyticsWs, "Analytics")
       }
 
+      updateAnalyticsStep("Writing final Excel file...")
       XLSX.writeFile(wb, `Ticket_Analytics_Report_${timestamp}.xlsx`)
-      toast({
+      analyticsToast.update({
         title: "Success",
         description: "Ticket analytics report exported successfully",
       })
     } catch (error) {
       console.error("Error exporting ticket analytics report:", error)
-      toast({
+      analyticsToast.update({
         title: "Error",
         description: "Failed to export ticket analytics report",
         variant: "destructive",
@@ -719,6 +961,24 @@ export function Reports() {
   }
 
   const exportToExcel = async () => {
+    const startedAt = performance.now()
+    const stepsTotal = 6
+    let stepsDone = 0
+    const excelToast = toast({
+      title: "Preparing Excel report...",
+      description: "Building workbook and collecting data...",
+    })
+
+    const updateExcelStep = (label: string) => {
+      stepsDone++
+      const elapsed = performance.now() - startedAt
+      const etaMs = stepsDone > 0 ? (elapsed / stepsDone) * (stepsTotal - stepsDone) : -1
+      excelToast.update({
+        title: "Preparing Excel report...",
+        description: `${label} • ETA ${formatDuration(etaMs)}`,
+      })
+    }
+
     try {
       const wb = XLSX.utils.book_new()
       const timestamp = new Date().toISOString().split("T")[0]
@@ -739,6 +999,7 @@ export function Reports() {
         { wch: 15 }, { wch: 10 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 15 }, { wch: 12 }, { wch: 12 }
       ]
       XLSX.utils.book_append_sheet(wb, summaryWs, "Summary")
+      updateExcelStep("Summary sheet ready")
 
       // 2. Facility Status Sheet - Detailed facility reporting status
       const detailRows = displayData.flatMap((data) => [
@@ -764,6 +1025,7 @@ export function Reports() {
       const detailWs = XLSX.utils.json_to_sheet(detailRows)
       detailWs["!cols"] = [{ wch: 15 }, { wch: 40 }, { wch: 15 }, { wch: 15 }]
       XLSX.utils.book_append_sheet(wb, detailWs, "Facility Status")
+      updateExcelStep("Facility status sheet ready")
 
       // 3. Facility Inventory Sheet - Server types, router types, simcards, LAN per facility
       const locations = selectedLocation === "all" ? LOCATIONS : [selectedLocation]
@@ -803,6 +1065,7 @@ export function Reports() {
           { wch: 15 }, { wch: 10 }, { wch: 40 }, { wch: 20 }, { wch: 25 }, { wch: 25 }, { wch: 15 }, { wch: 12 }, { wch: 20 }
         ]
         XLSX.utils.book_append_sheet(wb, inventoryWs, "Facility Inventory")
+        updateExcelStep("Facility inventory sheet ready")
       }
 
       // 4. Separate Asset Sheets - Servers, Routers, Simcards, LAN
@@ -917,6 +1180,7 @@ export function Reports() {
         lanWs["!cols"] = [{ wch: 15 }, { wch: 40 }, { wch: 20 }, { wch: 12 }, { wch: 15 }, { wch: 30 }]
         XLSX.utils.book_append_sheet(wb, lanWs, "LAN")
       }
+      updateExcelStep("Asset sheets ready")
 
       // 5. Tickets Sheet - Complete ticket information with all new fields
       const ticketRows: any[] = []
@@ -963,6 +1227,7 @@ export function Reports() {
           { wch: 20 }, { wch: 20 }, { wch: 20 }
         ]
         XLSX.utils.book_append_sheet(wb, ticketWs, "Tickets")
+        updateExcelStep("Tickets sheet ready")
       }
 
       // 6. Asset Summary Sheet - Statistics by asset type and location
@@ -990,15 +1255,20 @@ export function Reports() {
       }
 
       const locationSuffix = selectedLocation !== "all" ? `-${selectedLocation}` : "-AllLocations"
+      updateExcelStep("Final workbook ready")
+      excelToast.update({
+        title: "Preparing Excel report...",
+        description: "Writing final Excel file...",
+      })
       XLSX.writeFile(wb, `comprehensive-report-${selectedSystem}${locationSuffix}-${timestamp}.xlsx`)
 
-      toast({
+      excelToast.update({
         title: "Success",
         description: "Comprehensive Excel report exported with all system data",
       })
     } catch (error) {
       console.error("Error exporting Excel report:", error)
-      toast({
+      excelToast.update({
         title: "Error",
         description: "Failed to export Excel report",
         variant: "destructive",

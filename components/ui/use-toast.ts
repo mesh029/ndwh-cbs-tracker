@@ -138,7 +138,8 @@ type Toast = Omit<ToasterToast, "id">
 function toast({ ...props }: Toast) {
   const id = genId()
 
-  const update = (props: ToasterToast) =>
+  // `id` is already captured above, so callers shouldn't need to provide it.
+  const update = (props: Omit<ToasterToast, "id">) =>
     dispatch({
       type: "UPDATE_TOAST",
       toast: { ...props, id },

@@ -104,7 +104,7 @@ const AUTO_HIDE_DELAY = 5000
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
-  const { role, username } = useAuth()
+  const { role, username, refresh } = useAuth()
   const { toast } = useToast()
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
@@ -128,6 +128,8 @@ export function Sidebar() {
   const handleLogout = async () => {
     try {
       await fetch("/api/auth/logout", { method: "POST" })
+      // Ensure the sidebar updates immediately after cookies are cleared.
+      await refresh()
       router.push("/login")
       router.refresh()
     } catch {
@@ -517,7 +519,7 @@ function SidebarContent({
 export function MobileMenuButton() {
   const pathname = usePathname()
   const router = useRouter()
-  const { role, username } = useAuth()
+  const { role, username, refresh } = useAuth()
   const { toast } = useToast()
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(navigationSections.map((_, i) => `section-${i}`))
@@ -527,6 +529,8 @@ export function MobileMenuButton() {
   const handleLogout = async () => {
     try {
       await fetch("/api/auth/logout", { method: "POST" })
+      // Ensure the mobile sidebar updates immediately after cookies are cleared.
+      await refresh()
       router.push("/login")
       router.refresh()
       setOpen(false)

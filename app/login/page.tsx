@@ -2,12 +2,14 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
+import { useAuth } from "@/components/auth-provider"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 
 export default function LoginPage() {
   const router = useRouter()
+  const { refresh } = useAuth()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
@@ -27,6 +29,8 @@ export default function LoginPage() {
       if (!response.ok) {
         throw new Error(data.error || "Invalid credentials")
       }
+      // Ensure the sidebar/header updates immediately after cookies are set.
+      await refresh()
       router.push(data.redirectTo || "/nyamira")
       router.refresh()
     } catch (err) {
