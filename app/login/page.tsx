@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { flushSync } from "react-dom"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/components/auth-provider"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -9,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { APP_VERSION } from "@/lib/version"
 import { Badge } from "@/components/ui/badge"
+import { ArrowLeft } from "lucide-react"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -73,6 +75,12 @@ export default function LoginPage() {
             {error ? <p className="text-sm text-red-600">{error}</p> : null}
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? "Signing in..." : "Sign In"}
+            </Button>
+            <Button type="button" variant="ghost" className="w-full" asChild>
+              <Link href="/">
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Back to Home
+              </Link>
             </Button>
           </form>
         </CardContent>
