@@ -177,6 +177,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     endAuthTransition()
   }, [endAuthTransition])
 
+  useEffect(() => {
+    if (!authTransitionLoading) return
+
+    // Hard guard: never allow the auth overlay to block UI indefinitely.
+    const hardStop = window.setTimeout(() => {
+      setAuthTransitionLoading(false)
+      setPendingAuthDestination(null)
+      setWaitForServerRefresh(false)
+      setStopOnPathMatch(false)
+      authTransitionStartedAtRef.current = null
+    }, 12000)
+
+    return () => window.clearTimeout(hardStop)
+  }, [authTransitionLoading])
+
   const loadRole = async () => {
     try {
       const res = await fetch("/api/auth/me", { cache: "no-store" })
