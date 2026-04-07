@@ -7,10 +7,11 @@ import { Badge } from "@/components/ui/badge"
 import { APP_VERSION } from "@/lib/version"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { HomeGuidedTour } from "@/components/home-guided-tour"
+import { HomeAuthButton } from "@/components/home-auth-button"
 import { getArticles, getArticleSlug } from "@/lib/articles"
 import { HomeDistributionMap } from "@/components/home-distribution-map"
 import { prisma } from "@/lib/prisma"
-import { ArrowRight, FileText, Home as HomeIcon, LogIn, Monitor, Newspaper, Package, ShieldCheck, Ticket } from "lucide-react"
+import { ArrowRight, FileText, Home as HomeIcon, Monitor, Newspaper, Package, ShieldCheck, Ticket } from "lucide-react"
 import { AUTH_ACCESS_COOKIE, AUTH_COOKIE_NAME, AUTH_USERNAME_COOKIE, isValidRole, parseAccessCookie } from "@/lib/auth"
 
 const COUNTY_CENTERS = [
@@ -180,11 +181,7 @@ export default async function Home() {
                 <div className="flex items-center gap-2">
                   <HomeGuidedTour />
                   <ThemeToggle className="border-white/50 bg-white/85 text-slate-900 hover:bg-white dark:bg-black/40 dark:text-white dark:border-white/40 dark:hover:bg-black/55" />
-                  {!isLoggedIn && (
-                    <Button asChild size="sm" variant="secondary">
-                      <Link href="/login"><LogIn className="mr-2 h-4 w-4" />Login</Link>
-                    </Button>
-                  )}
+                  <HomeAuthButton />
                 </div>
               </div>
 

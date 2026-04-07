@@ -10,6 +10,7 @@ interface AuthContextValue {
   access: { locations: "all" | string[]; modules: string[] } | null
   loading: boolean
   refresh: () => Promise<void>
+  clearAuth: () => void
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -44,6 +45,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false)
     }
+  }
+
+  const clearAuth = () => {
+    setRole(null)
+    setUsername(null)
+    setEmail(null)
+    setAccess(null)
+    setLoading(false)
   }
 
   useEffect(() => {
@@ -81,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ role, username, email, access, loading, refresh: loadRole }}>
+    <AuthContext.Provider value={{ role, username, email, access, loading, refresh: loadRole, clearAuth }}>
       {children}
     </AuthContext.Provider>
   )

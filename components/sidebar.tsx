@@ -118,7 +118,7 @@ const AUTO_HIDE_DELAY = 5000
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
-  const { role, username, access, refresh } = useAuth()
+  const { role, username, access, clearAuth } = useAuth()
   const { toast } = useToast()
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
@@ -139,16 +139,12 @@ export function Sidebar() {
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
   }, [pathname])
 
-  const handleLogout = async () => {
-    try {
-      await fetch("/api/auth/logout", { method: "POST" })
-      // Ensure the sidebar updates immediately after cookies are cleared.
-      await refresh()
-      router.push("/")
+  const handleLogout = () => {
+    clearAuth()
+    router.push("/")
+    void fetch("/api/auth/logout", { method: "POST", keepalive: true }).finally(() => {
       router.refresh()
-    } catch {
-      router.push("/")
-    }
+    })
   }
 
   const handleBackup = async () => {
@@ -544,25 +540,20 @@ function SidebarContent({
 export function MobileMenuButton() {
   const pathname = usePathname()
   const router = useRouter()
-  const { role, username, access, refresh } = useAuth()
+  const { role, username, access, clearAuth } = useAuth()
   const { toast } = useToast()
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(navigationSections.map((_, i) => `section-${i}`))
   )
   const [open, setOpen] = useState(false)
 
-  const handleLogout = async () => {
-    try {
-      await fetch("/api/auth/logout", { method: "POST" })
-      // Ensure the mobile sidebar updates immediately after cookies are cleared.
-      await refresh()
-      router.push("/")
+  const handleLogout = () => {
+    clearAuth()
+    setOpen(false)
+    router.push("/")
+    void fetch("/api/auth/logout", { method: "POST", keepalive: true }).finally(() => {
       router.refresh()
-      setOpen(false)
-    } catch {
-      router.push("/")
-      setOpen(false)
-    }
+    })
   }
 
   const handleBackup = async () => {
