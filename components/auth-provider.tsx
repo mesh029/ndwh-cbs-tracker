@@ -1,7 +1,10 @@
 "use client"
 
-import { createContext, useContext, useEffect, useState, ReactNode } from "react"
+import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from "react"
+import { usePathname } from "next/navigation"
 import type { UserRole } from "@/lib/auth"
+import { normalizeAppPath } from "@/lib/app-path"
+import { AuthLoadingOverlay } from "@/components/auth-loading-overlay"
 
 interface AuthContextValue {
   role: UserRole | null
@@ -9,11 +12,99 @@ interface AuthContextValue {
   email: string | null
   access: { locations: "all" | string[]; modules: string[] } | null
   loading: boolean
+  authTransitionLoading: boolean
   refresh: () => Promise<void>
   clearAuth: () => void
+  beginAuthTransition: () => void
+  endAuthTransition: () => void
+  /** Call before router.push — overlay stays until destination route is ready. */
+  notifyAuthNavigationTarget: (to: string, options?: { waitForServerRefresh?: boolean }) => void
+  /** After logout: call from fetch.finally after router.refresh() so home RSC can apply before hiding overlay. */
+  markAuthServerRefreshComplete: () => void
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
+
+function scheduleWhenDocumentReady(cb: () => void) {
+  const run = () => {
+    if (typeof document === "undefined") {
+      cb()
+      return
+    }
+    if (document.readyState === "complete") cb()
+    else window.addEventListener("load", cb, { once: true })
+  }
+  requestAnimationFrame(() => {
+    requestAnimationFrame(run)
+  })
+}
+
+function scheduleAfterPaintAndIdle(onDone: () => void) {
+  let finished = false
+  const done = () => {
+    if (finished) return
+    finished = true
+    onDone()
+  }
+  scheduleWhenDocumentReady(() => {
+    if (typeof window === "undefined") {
+      done()
+      return
+    }
+    if ("requestIdleCallback" in window) {
+      window.requestIdleCallback(() => done(), { timeout: 2500 })
+    } else {
+      setTimeout(done, 450)
+    }
+  })
+}
+
+function AuthNavigationReadyWatcher({
+  pendingAuthDestination,
+  authTransitionLoading,
+  waitForServerRefresh,
+  onReady,
+  onFailSafeClear,
+}: {
+  pendingAuthDestination: string | null
+  authTransitionLoading: boolean
+  waitForServerRefresh: boolean
+  onReady: () => void
+  onFailSafeClear: () => void
+}) {
+  const pathname = usePathname()
+
+  useEffect(() => {
+    if (!pendingAuthDestination || !authTransitionLoading) return
+
+    const target = pendingAuthDestination
+    const here = normalizeAppPath(pathname)
+    if (here === "/login") return
+    if (here !== target) return
+
+    let cancelled = false
+    const finish = () => {
+      if (cancelled) return
+      onReady()
+    }
+
+    // Logout path: wait until caller confirms server refresh has been applied.
+    if (!waitForServerRefresh) {
+      scheduleAfterPaintAndIdle(finish)
+    }
+
+    const failSafe = window.setTimeout(() => {
+      if (!cancelled) onFailSafeClear()
+    }, 15000)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(failSafe)
+    }
+  }, [pathname, pendingAuthDestination, authTransitionLoading, waitForServerRefresh, onReady, onFailSafeClear])
+
+  return null
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<UserRole | null>(null)
@@ -21,6 +112,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [email, setEmail] = useState<string | null>(null)
   const [access, setAccess] = useState<{ locations: "all" | string[]; modules: string[] } | null>(null)
   const [loading, setLoading] = useState(true)
+  const [authTransitionLoading, setAuthTransitionLoading] = useState(false)
+  const authTransitionStartedAtRef = useRef<number | null>(null)
+  const [pendingAuthDestination, setPendingAuthDestination] = useState<string | null>(null)
+  const [waitForServerRefresh, setWaitForServerRefresh] = useState(false)
+
+  const beginAuthTransition = () => {
+    setPendingAuthDestination(null)
+    setWaitForServerRefresh(false)
+    authTransitionStartedAtRef.current = Date.now()
+    setAuthTransitionLoading(true)
+  }
+
+  const endAuthTransition = useCallback(() => {
+    const started = authTransitionStartedAtRef.current
+    if (started == null) {
+      setAuthTransitionLoading(false)
+      setPendingAuthDestination(null)
+      setWaitForServerRefresh(false)
+      return
+    }
+    const elapsed = Date.now() - started
+    const minVisibleMs = 700
+    const remaining = Math.max(0, minVisibleMs - elapsed)
+    window.setTimeout(() => {
+      setAuthTransitionLoading(false)
+      authTransitionStartedAtRef.current = null
+      setPendingAuthDestination(null)
+      setWaitForServerRefresh(false)
+    }, remaining)
+  }, [])
+
+  const notifyAuthNavigationTarget = useCallback((to: string, options?: { waitForServerRefresh?: boolean }) => {
+    setPendingAuthDestination(normalizeAppPath(to))
+    setWaitForServerRefresh(!!options?.waitForServerRefresh)
+  }, [])
+
+  const markAuthServerRefreshComplete = useCallback(() => {
+    setWaitForServerRefresh(false)
+  }, [])
+
+  const completeAuthNavigation = useCallback(() => {
+    setPendingAuthDestination(null)
+    setWaitForServerRefresh(false)
+    endAuthTransition()
+  }, [endAuthTransition])
 
   const loadRole = async () => {
     try {
@@ -90,8 +226,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ role, username, email, access, loading, refresh: loadRole, clearAuth }}>
+    <AuthContext.Provider
+      value={{
+        role,
+        username,
+        email,
+        access,
+        loading,
+        authTransitionLoading,
+        refresh: loadRole,
+        clearAuth,
+        beginAuthTransition,
+        endAuthTransition,
+        notifyAuthNavigationTarget,
+        markAuthServerRefreshComplete,
+      }}
+    >
+      <AuthNavigationReadyWatcher
+        pendingAuthDestination={pendingAuthDestination}
+        authTransitionLoading={authTransitionLoading}
+        waitForServerRefresh={waitForServerRefresh}
+        onReady={completeAuthNavigation}
+        onFailSafeClear={completeAuthNavigation}
+      />
       {children}
+      <AuthLoadingOverlay visible={authTransitionLoading} />
     </AuthContext.Provider>
   )
 }

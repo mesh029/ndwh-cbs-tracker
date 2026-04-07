@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { flushSync } from "react-dom"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/components/auth-provider"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,7 +12,7 @@ import { Badge } from "@/components/ui/badge"
 
 export default function LoginPage() {
   const router = useRouter()
-  const { refresh } = useAuth()
+  const { refresh, beginAuthTransition, endAuthTransition, notifyAuthNavigationTarget } = useAuth()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
@@ -19,6 +20,9 @@ export default function LoginPage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    flushSync(() => {
+      beginAuthTransition()
+    })
     setError("")
     setIsLoading(true)
     try {
@@ -33,9 +37,13 @@ export default function LoginPage() {
       }
       // Ensure the sidebar/header updates immediately after cookies are set.
       await refresh()
-      router.push(data.redirectTo || "/nyamira")
+      const dest = data.redirectTo || "/nyamira"
+      notifyAuthNavigationTarget(dest)
+      router.push(dest)
       router.refresh()
+      // Overlay stays until destination route is active and paint/idle (see AuthNavigationReadyWatcher).
     } catch (err) {
+      endAuthTransition()
       setError(err instanceof Error ? err.message : "Login failed")
     } finally {
       setIsLoading(false)

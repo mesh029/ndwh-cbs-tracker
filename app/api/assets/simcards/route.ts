@@ -313,6 +313,30 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden: assets access required" }, { status: 403 })
     }
     const body = await request.json().catch(() => ({}))
+
+    const purgeLocation = typeof body?.purgeLocation === "string" ? String(body.purgeLocation).trim() : ""
+    if (purgeLocation) {
+      if (role !== "superadmin") {
+        return NextResponse.json({ error: "Forbidden: superadmin only for location purge" }, { status: 403 })
+      }
+      if (!VALID_LOCATIONS.includes(purgeLocation as Location)) {
+        return NextResponse.json({ error: "Invalid location" }, { status: 400 })
+      }
+      if (!canAccessLocation(access, purgeLocation)) {
+        return NextResponse.json({ error: "Forbidden: location out of scope" }, { status: 403 })
+      }
+      const deleted = await prisma.simcardAsset.deleteMany({ where: { location: purgeLocation } })
+      await prisma.facility.updateMany({
+        where: { location: purgeLocation, isMaster: true },
+        data: { simcardCount: 0 },
+      })
+      return NextResponse.json({
+        success: true,
+        deletedCount: deleted.count,
+        purgedLocation: purgeLocation,
+      })
+    }
+
     const ids = Array.isArray(body?.ids) ? body.ids.map((v: unknown) => String(v)).filter(Boolean) : []
     if (ids.length > 0) {
       if (role !== "superadmin") {

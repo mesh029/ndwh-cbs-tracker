@@ -41,40 +41,51 @@ export default async function Home() {
   const heroImage = heroArticle?.imageUrl || "https://images.unsplash.com/photo-1516574187841-cb9cc2ca948b?auto=format&fit=crop&w=2200&q=80"
   const ticketHref = firstScopedLocation ? `/tickets?location=${encodeURIComponent(firstScopedLocation)}` : "/tickets"
   const dashboardHref = firstScopedLocation ? `/nyamira?location=${encodeURIComponent(firstScopedLocation)}` : "/nyamira"
-  const [serverByLocation, ticketByLocation] = await Promise.all([
-    prisma.serverAsset.groupBy({
-      by: ["location"],
-      _count: { _all: true },
-    }),
-    prisma.ticket.groupBy({
-      by: ["location"],
-      _count: { _all: true },
-    }),
-  ])
-  const [facilityServerByLocation, facilityServerBySubcounty] = await Promise.all([
-    prisma.facility.groupBy({
-      by: ["location"],
-      where: { isMaster: true, serverType: { not: null } },
-      _count: { _all: true },
-    }),
-    prisma.facility.groupBy({
-      by: ["location", "subcounty"],
-      where: { isMaster: true, serverType: { not: null }, subcounty: { not: null } },
-      _count: { _all: true },
-    }),
-  ])
-  const [serverBySubcounty, ticketBySubcounty] = await Promise.all([
-    prisma.serverAsset.groupBy({
-      by: ["location", "subcounty"],
-      where: { subcounty: { not: null } },
-      _count: { _all: true },
-    }),
-    prisma.ticket.groupBy({
-      by: ["location", "subcounty"],
-      where: { subcounty: { not: "" } },
-      _count: { _all: true },
-    }),
-  ])
+  let serverByLocation: Array<{ location: string; _count: { _all: number } }> = []
+  let ticketByLocation: Array<{ location: string; _count: { _all: number } }> = []
+  let facilityServerByLocation: Array<{ location: string; _count: { _all: number } }> = []
+  let facilityServerBySubcounty: Array<{ location: string; subcounty: string | null; _count: { _all: number } }> = []
+  let serverBySubcounty: Array<{ location: string; subcounty: string | null; _count: { _all: number } }> = []
+  let ticketBySubcounty: Array<{ location: string; subcounty: string | null; _count: { _all: number } }> = []
+
+  try {
+    ;[serverByLocation, ticketByLocation] = await Promise.all([
+      prisma.serverAsset.groupBy({
+        by: ["location"],
+        _count: { _all: true },
+      }),
+      prisma.ticket.groupBy({
+        by: ["location"],
+        _count: { _all: true },
+      }),
+    ])
+    ;[facilityServerByLocation, facilityServerBySubcounty] = await Promise.all([
+      prisma.facility.groupBy({
+        by: ["location"],
+        where: { isMaster: true, serverType: { not: null } },
+        _count: { _all: true },
+      }),
+      prisma.facility.groupBy({
+        by: ["location", "subcounty"],
+        where: { isMaster: true, serverType: { not: null }, subcounty: { not: null } },
+        _count: { _all: true },
+      }),
+    ])
+    ;[serverBySubcounty, ticketBySubcounty] = await Promise.all([
+      prisma.serverAsset.groupBy({
+        by: ["location", "subcounty"],
+        where: { subcounty: { not: null } },
+        _count: { _all: true },
+      }),
+      prisma.ticket.groupBy({
+        by: ["location", "subcounty"],
+        where: { subcounty: { not: "" } },
+        _count: { _all: true },
+      }),
+    ])
+  } catch (error) {
+    console.error("Home page metrics query failed:", error)
+  }
   const serverCountMap = new Map(serverByLocation.map((row) => [row.location, row._count._all]))
   const facilityServerCountMap = new Map(facilityServerByLocation.map((row) => [row.location, row._count._all]))
   const ticketCountMap = new Map(ticketByLocation.map((row) => [row.location, row._count._all]))

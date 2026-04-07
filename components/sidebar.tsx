@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { flushSync } from "react-dom"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
@@ -118,7 +119,7 @@ const AUTO_HIDE_DELAY = 5000
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
-  const { role, username, access, clearAuth } = useAuth()
+  const { role, username, access, clearAuth, beginAuthTransition, notifyAuthNavigationTarget, markAuthServerRefreshComplete } = useAuth()
   const { toast } = useToast()
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
@@ -140,10 +141,17 @@ export function Sidebar() {
   }, [pathname])
 
   const handleLogout = () => {
+    flushSync(() => {
+      beginAuthTransition()
+    })
+    notifyAuthNavigationTarget("/", { waitForServerRefresh: true })
     clearAuth()
     router.push("/")
     void fetch("/api/auth/logout", { method: "POST", keepalive: true }).finally(() => {
       router.refresh()
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => markAuthServerRefreshComplete())
+      })
     })
   }
 
@@ -540,7 +548,7 @@ function SidebarContent({
 export function MobileMenuButton() {
   const pathname = usePathname()
   const router = useRouter()
-  const { role, username, access, clearAuth } = useAuth()
+  const { role, username, access, clearAuth, beginAuthTransition, notifyAuthNavigationTarget, markAuthServerRefreshComplete } = useAuth()
   const { toast } = useToast()
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(navigationSections.map((_, i) => `section-${i}`))
@@ -548,11 +556,18 @@ export function MobileMenuButton() {
   const [open, setOpen] = useState(false)
 
   const handleLogout = () => {
+    flushSync(() => {
+      beginAuthTransition()
+    })
+    notifyAuthNavigationTarget("/", { waitForServerRefresh: true })
     clearAuth()
     setOpen(false)
     router.push("/")
     void fetch("/api/auth/logout", { method: "POST", keepalive: true }).finally(() => {
       router.refresh()
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => markAuthServerRefreshComplete())
+      })
     })
   }
 

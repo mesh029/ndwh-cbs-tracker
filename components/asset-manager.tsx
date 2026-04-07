@@ -175,9 +175,6 @@ export function AssetManager() {
       // Load assets for each location
       for (const loc of locationsToLoad) {
         let endpoint = ""
-        let facilityInventoryAssets: any[] = []
-        
-        // First, fetch detailed assets from asset tables
         switch (selectedAssetType) {
           case "server":
             endpoint = `/api/assets/servers?location=${loc}`
@@ -200,88 +197,70 @@ export function AssetManager() {
           detailedAssets = data.assets || []
         }
 
-        // Also fetch facilities with inventory data (serverType, routerType, etc.)
-        const facilities = await fetchMasterFacilities(loc)
-          
-          // Convert facilities with inventory to asset format
-          switch (selectedAssetType) {
-            case "server":
-              facilityInventoryAssets = facilities
-                .filter((f: any) => f.serverType)
-                .map((f: any) => ({
-                  id: `facility-${f.id}`,
-                  facilityId: f.id,
-                  sourceSystem: f.system || "NDWH",
-                  facilityName: f.name,
-                  location: f.location,
-                  subcounty: f.subcounty,
-                  serverType: f.serverType,
-                  assetTag: undefined,
-                  serialNumber: undefined,
-                  notes: "From facility inventory",
-                  isFromInventory: true,
-                }))
-              break
-            case "router":
-              facilityInventoryAssets = facilities
-                .filter((f: any) => f.routerType)
-                .map((f: any) => ({
-                  id: `facility-${f.id}`,
-                  facilityId: f.id,
-                  sourceSystem: f.system || "NDWH",
-                  facilityName: f.name,
-                  location: f.location,
-                  subcounty: f.subcounty,
-                  routerType: f.routerType,
-                  assetTag: undefined,
-                  serialNumber: undefined,
-                  notes: "From facility inventory",
-                  isFromInventory: true,
-                }))
-              break
-            case "simcard":
-              facilityInventoryAssets = facilities
-                .filter((f: any) => f.simcardCount && f.simcardCount > 0)
-                .flatMap((f: any) => 
-                  Array.from({ length: f.simcardCount }, (_, i) => ({
-                    id: `facility-${f.id}-simcard-${i}`,
-                    facilityId: f.id,
-                    sourceSystem: f.system || "NDWH",
-                    facilityName: f.name,
-                    location: f.location,
-                    subcounty: f.subcounty,
-                    simcardCount: f.simcardCount,
-                    phoneNumber: undefined,
-                    provider: undefined,
-                    assetTag: undefined,
-                    serialNumber: undefined,
-                    notes: `Simcard ${i + 1} of ${f.simcardCount} - From facility inventory`,
-                    isFromInventory: true,
-                  }))
-                )
-              break
-            case "lan":
-              facilityInventoryAssets = facilities
-                .filter((f: any) => f.hasLAN === true)
-                .map((f: any) => ({
-                  id: `facility-${f.id}`,
-                  facilityId: f.id,
-                  sourceSystem: f.system || "NDWH",
-                  facilityName: f.name,
-                  location: f.location,
-                  subcounty: f.subcounty,
-                  hasLAN: true,
-                  lanType: undefined,
-                  notes: "From facility inventory",
-                  isFromInventory: true,
-                }))
-              break
-          }
+        // Simcards: only real rows from simcard_assets (no phantom rows from facility.simcardCount — that caused 9000+ DOM nodes and hangs).
+        if (selectedAssetType === "simcard") {
+          assetsByLoc[loc] = detailedAssets
+          allAssets = [...allAssets, ...detailedAssets]
+          continue
+        }
 
-        // Combine detailed assets and facility inventory assets
+        let facilityInventoryAssets: any[] = []
+        const facilities = await fetchMasterFacilities(loc)
+
+        switch (selectedAssetType) {
+          case "server":
+            facilityInventoryAssets = facilities
+              .filter((f: any) => f.serverType)
+              .map((f: any) => ({
+                id: `facility-${f.id}`,
+                facilityId: f.id,
+                sourceSystem: f.system || "NDWH",
+                facilityName: f.name,
+                location: f.location,
+                subcounty: f.subcounty,
+                serverType: f.serverType,
+                assetTag: undefined,
+                serialNumber: undefined,
+                notes: "From facility inventory",
+                isFromInventory: true,
+              }))
+            break
+          case "router":
+            facilityInventoryAssets = facilities
+              .filter((f: any) => f.routerType)
+              .map((f: any) => ({
+                id: `facility-${f.id}`,
+                facilityId: f.id,
+                sourceSystem: f.system || "NDWH",
+                facilityName: f.name,
+                location: f.location,
+                subcounty: f.subcounty,
+                routerType: f.routerType,
+                assetTag: undefined,
+                serialNumber: undefined,
+                notes: "From facility inventory",
+                isFromInventory: true,
+              }))
+            break
+          case "lan":
+            facilityInventoryAssets = facilities
+              .filter((f: any) => f.hasLAN === true)
+              .map((f: any) => ({
+                id: `facility-${f.id}`,
+                facilityId: f.id,
+                sourceSystem: f.system || "NDWH",
+                facilityName: f.name,
+                location: f.location,
+                subcounty: f.subcounty,
+                hasLAN: true,
+                lanType: undefined,
+                notes: "From facility inventory",
+                isFromInventory: true,
+              }))
+            break
+        }
+
         const combinedAssets = [...detailedAssets]
-        
-        // Add facility inventory assets that don't have detailed assets
         facilityInventoryAssets.forEach((inventoryAsset) => {
           const hasDetailedAsset = detailedAssets.some(
             (detailed) => detailed.facilityName === inventoryAsset.facilityName
@@ -581,6 +560,43 @@ export function AssetManager() {
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to bulk delete simcards",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handlePurgeSimcardsInCounty = async () => {
+    if (selectedLocation === "all" || selectedAssetType !== "simcard") return
+    const county = selectedLocation as Location
+    if (
+      !confirm(
+        `Delete EVERY simcard row in ${county} and reset facility simcard counts to 0? This cannot be undone.`
+      )
+    ) {
+      return
+    }
+    if (!confirm("Second confirmation: proceed with full county purge?")) return
+
+    try {
+      const response = await fetch("/api/assets/simcards", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ purgeLocation: county }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.error || "Purge failed")
+      }
+      toast({
+        title: "County purge complete",
+        description: `Removed ${data.deletedCount ?? 0} simcard(s) in ${county}.`,
+      })
+      setSelectedSimcardIds(new Set())
+      loadAssets()
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Purge failed",
         variant: "destructive",
       })
     }
@@ -1011,6 +1027,16 @@ export function AssetManager() {
               <Trash2 className="h-4 w-4 mr-2" />
               Delete Selected ({selectedSimcardIds.size})
             </Button>
+            {selectedLocation !== "all" && (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full sm:w-auto border-destructive/50 text-destructive hover:bg-destructive/10"
+                onClick={handlePurgeSimcardsInCounty}
+              >
+                Purge all simcards in {selectedLocation}
+              </Button>
+            )}
           </>
         )}
       </div>
@@ -1022,7 +1048,14 @@ export function AssetManager() {
             {selectedAssetType.charAt(0).toUpperCase() + selectedAssetType.slice(1)} Assets - {selectedLocation === "all" ? "All Locations" : selectedLocation}
           </CardTitle>
           <CardDescription>
-            {isLoading ? "Loading..." : `${filteredSortedAssets.length} of ${assets.length} ${selectedAssetType}${assets.length !== 1 ? "s" : ""} shown${selectedLocation === "all" ? " across all locations" : ""}`}
+            {isLoading
+              ? "Loading..."
+              : `${filteredSortedAssets.length} of ${assets.length} ${selectedAssetType}${assets.length !== 1 ? "s" : ""} shown${selectedLocation === "all" ? " across all locations" : ""}`}
+            {!isLoading && selectedAssetType === "simcard" && (
+              <span className="block mt-1 text-xs">
+                Simcards listed here are real inventory rows from the database (not expanded from facility counts).
+              </span>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent>
