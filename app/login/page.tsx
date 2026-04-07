@@ -38,10 +38,10 @@ export default function LoginPage() {
       // Ensure the sidebar/header updates immediately after cookies are set.
       await refresh()
       const dest = data.redirectTo || "/nyamira"
-      notifyAuthNavigationTarget(dest)
+      notifyAuthNavigationTarget(dest, { stopOnPathMatch: true })
       router.push(dest)
       router.refresh()
-      // Overlay stays until destination route is active and paint/idle (see AuthNavigationReadyWatcher).
+      // For login, stop loader as soon as destination route is active.
     } catch (err) {
       endAuthTransition()
       setError(err instanceof Error ? err.message : "Login failed")

@@ -18,7 +18,10 @@ interface AuthContextValue {
   beginAuthTransition: () => void
   endAuthTransition: () => void
   /** Call before router.push — overlay stays until destination route is ready. */
-  notifyAuthNavigationTarget: (to: string, options?: { waitForServerRefresh?: boolean }) => void
+  notifyAuthNavigationTarget: (
+    to: string,
+    options?: { waitForServerRefresh?: boolean; stopOnPathMatch?: boolean }
+  ) => void
   /** After logout: call from fetch.finally after router.refresh() so home RSC can apply before hiding overlay. */
   markAuthServerRefreshComplete: () => void
 }
@@ -63,12 +66,14 @@ function AuthNavigationReadyWatcher({
   pendingAuthDestination,
   authTransitionLoading,
   waitForServerRefresh,
+  stopOnPathMatch,
   onReady,
   onFailSafeClear,
 }: {
   pendingAuthDestination: string | null
   authTransitionLoading: boolean
   waitForServerRefresh: boolean
+  stopOnPathMatch: boolean
   onReady: () => void
   onFailSafeClear: () => void
 }) {
@@ -88,6 +93,11 @@ function AuthNavigationReadyWatcher({
       onReady()
     }
 
+    if (stopOnPathMatch && !waitForServerRefresh) {
+      finish()
+      return
+    }
+
     // Logout path: wait until caller confirms server refresh has been applied.
     if (!waitForServerRefresh) {
       scheduleAfterPaintAndIdle(finish)
@@ -101,7 +111,7 @@ function AuthNavigationReadyWatcher({
       cancelled = true
       window.clearTimeout(failSafe)
     }
-  }, [pathname, pendingAuthDestination, authTransitionLoading, waitForServerRefresh, onReady, onFailSafeClear])
+  }, [pathname, pendingAuthDestination, authTransitionLoading, waitForServerRefresh, stopOnPathMatch, onReady, onFailSafeClear])
 
   return null
 }
@@ -116,10 +126,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const authTransitionStartedAtRef = useRef<number | null>(null)
   const [pendingAuthDestination, setPendingAuthDestination] = useState<string | null>(null)
   const [waitForServerRefresh, setWaitForServerRefresh] = useState(false)
+  const [stopOnPathMatch, setStopOnPathMatch] = useState(false)
 
   const beginAuthTransition = () => {
     setPendingAuthDestination(null)
     setWaitForServerRefresh(false)
+    setStopOnPathMatch(false)
     authTransitionStartedAtRef.current = Date.now()
     setAuthTransitionLoading(true)
   }
@@ -130,6 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAuthTransitionLoading(false)
       setPendingAuthDestination(null)
       setWaitForServerRefresh(false)
+      setStopOnPathMatch(false)
       return
     }
     const elapsed = Date.now() - started
@@ -140,12 +153,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       authTransitionStartedAtRef.current = null
       setPendingAuthDestination(null)
       setWaitForServerRefresh(false)
+      setStopOnPathMatch(false)
     }, remaining)
   }, [])
 
-  const notifyAuthNavigationTarget = useCallback((to: string, options?: { waitForServerRefresh?: boolean }) => {
+  const notifyAuthNavigationTarget = useCallback((
+    to: string,
+    options?: { waitForServerRefresh?: boolean; stopOnPathMatch?: boolean }
+  ) => {
     setPendingAuthDestination(normalizeAppPath(to))
     setWaitForServerRefresh(!!options?.waitForServerRefresh)
+    setStopOnPathMatch(!!options?.stopOnPathMatch)
   }, [])
 
   const markAuthServerRefreshComplete = useCallback(() => {
@@ -155,6 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const completeAuthNavigation = useCallback(() => {
     setPendingAuthDestination(null)
     setWaitForServerRefresh(false)
+    setStopOnPathMatch(false)
     endAuthTransition()
   }, [endAuthTransition])
 
@@ -246,6 +265,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         pendingAuthDestination={pendingAuthDestination}
         authTransitionLoading={authTransitionLoading}
         waitForServerRefresh={waitForServerRefresh}
+        stopOnPathMatch={stopOnPathMatch}
         onReady={completeAuthNavigation}
         onFailSafeClear={completeAuthNavigation}
       />
