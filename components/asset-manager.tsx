@@ -74,7 +74,7 @@ interface MasterFacility {
 }
 
 export function AssetManager() {
-  const { access } = useAuth()
+  const { access, role } = useAuth()
   const allowedLocations = (access?.locations === "all" || !access?.locations)
     ? LOCATIONS
     : LOCATIONS.filter((loc) => access.locations.includes(loc))
@@ -90,6 +90,7 @@ export function AssetManager() {
   const [isLoading, setIsLoading] = useState(false)
   const [inlineEditingId, setInlineEditingId] = useState<string | null>(null)
   const [inlineEditData, setInlineEditData] = useState<any>({})
+  const [selectedSimcardIds, setSelectedSimcardIds] = useState<Set<string>>(new Set())
   const [isAddingInline, setIsAddingInline] = useState(false)
   const [inlineCreateData, setInlineCreateData] = useState<any>({
     location: "Kakamega",
@@ -312,6 +313,10 @@ export function AssetManager() {
   useEffect(() => {
     loadAssets()
   }, [loadAssets])
+
+  useEffect(() => {
+    setSelectedSimcardIds(new Set())
+  }, [selectedAssetType, selectedLocation, itemFilter, sortBy, sortOrder])
 
   useEffect(() => {
     if (selectedLocation !== "all") {
@@ -540,6 +545,47 @@ export function AssetManager() {
     }
   }
 
+  const toggleSimcardSelection = (id: string) => {
+    setSelectedSimcardIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const handleBulkDeleteSimcards = async () => {
+    if (selectedSimcardIds.size === 0) {
+      toast({ title: "No selection", description: "Select simcard rows to delete", variant: "destructive" })
+      return
+    }
+    if (!confirm(`Delete ${selectedSimcardIds.size} selected simcard(s)? This cannot be undone.`)) return
+
+    try {
+      const response = await fetch("/api/assets/simcards", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: Array.from(selectedSimcardIds) }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to bulk delete simcards")
+      }
+      toast({
+        title: "Bulk delete complete",
+        description: `${data.deletedCount || selectedSimcardIds.size} simcard(s) deleted`,
+      })
+      setSelectedSimcardIds(new Set())
+      loadAssets()
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to bulk delete simcards",
+        variant: "destructive",
+      })
+    }
+  }
+
   const saveInlineCreate = async () => {
     if (!inlineCreateData.facilityName?.trim()) {
       toast({ title: "Error", description: "Facility name is required", variant: "destructive" })
@@ -664,6 +710,20 @@ export function AssetManager() {
       const base = av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" })
       return sortOrder === "asc" ? base : -base
     })
+
+  const bulkSelectableSimcardIds = filteredSortedAssets
+    .filter((asset) => !asset.isFromInventory && typeof asset.id === "string" && !asset.id.startsWith("facility-"))
+    .map((asset) => asset.id)
+
+  const allSimcardsSelected = bulkSelectableSimcardIds.length > 0 && bulkSelectableSimcardIds.every((id) => selectedSimcardIds.has(id))
+
+  const toggleSelectAllSimcards = () => {
+    if (allSimcardsSelected) {
+      setSelectedSimcardIds(new Set())
+      return
+    }
+    setSelectedSimcardIds(new Set(bulkSelectableSimcardIds))
+  }
 
   const toggleSort = (key: "facilityName" | "location" | "subcounty" | "itemValue") => {
     if (sortBy === key) {
@@ -942,6 +1002,17 @@ export function AssetManager() {
             ? "Report includes current filters + sort"
             : "Report includes all loaded rows for current location scope"}
         </span>
+        {selectedAssetType === "simcard" && role === "superadmin" && (
+          <>
+            <Button variant="outline" onClick={toggleSelectAllSimcards} className="w-full sm:w-auto">
+              {allSimcardsSelected ? "Clear Selection" : `Select All Visible (${bulkSelectableSimcardIds.length})`}
+            </Button>
+            <Button variant="destructive" onClick={handleBulkDeleteSimcards} disabled={selectedSimcardIds.size === 0} className="w-full sm:w-auto">
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete Selected ({selectedSimcardIds.size})
+            </Button>
+          </>
+        )}
       </div>
 
       <Card>
@@ -964,6 +1035,9 @@ export function AssetManager() {
               <table className="w-full text-sm">
                 <thead className="bg-muted/40">
                   <tr className="border-b">
+                    {selectedAssetType === "simcard" && role === "superadmin" && (
+                      <th className="text-left p-2 font-medium">Select</th>
+                    )}
                     <th className="text-left p-2 font-medium">
                       <button type="button" onClick={() => toggleSort("facilityName")} className="hover:underline">
                         Facility{sortIndicator("facilityName")}
@@ -1084,6 +1158,19 @@ export function AssetManager() {
                   )}
                   {filteredSortedAssets.map((asset) => (
                     <tr key={asset.id} className="border-b hover:bg-accent/30">
+                      {selectedAssetType === "simcard" && role === "superadmin" && (
+                        <td className="p-2">
+                          {!asset.isFromInventory && String(asset.id || "").startsWith("facility-") === false ? (
+                            <input
+                              type="checkbox"
+                              checked={selectedSimcardIds.has(asset.id)}
+                              onChange={() => toggleSimcardSelection(asset.id)}
+                            />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
+                        </td>
+                      )}
                       <td className="p-2 font-medium">{asset.facilityName}</td>
                       <td className="p-2">{asset.location || "-"}</td>
                       <td className="p-2">

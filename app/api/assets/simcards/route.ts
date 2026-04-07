@@ -313,8 +313,38 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden: assets access required" }, { status: 403 })
     }
     const body = await request.json().catch(() => ({}))
+    const ids = Array.isArray(body?.ids) ? body.ids.map((v: unknown) => String(v)).filter(Boolean) : []
+    if (ids.length > 0) {
+      if (role !== "superadmin") {
+        return NextResponse.json({ error: "Forbidden: superadmin only for bulk delete" }, { status: 403 })
+      }
+
+      const existingAssets = await prisma.simcardAsset.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, facilityId: true, location: true },
+      })
+      if (existingAssets.length === 0) {
+        return NextResponse.json({ error: "No matching assets found" }, { status: 404 })
+      }
+
+      const forbidden = existingAssets.find((asset) => !canAccessLocation(access, asset.location))
+      if (forbidden) {
+        return NextResponse.json({ error: "Forbidden: location out of scope" }, { status: 403 })
+      }
+
+      const facilityIds = Array.from(new Set(existingAssets.map((asset) => asset.facilityId).filter(Boolean)))
+      const deleted = await prisma.simcardAsset.deleteMany({ where: { id: { in: existingAssets.map((a) => a.id) } } })
+
+      for (const facilityId of facilityIds) {
+        const simcardCount = await prisma.simcardAsset.count({ where: { facilityId } })
+        await prisma.facility.update({ where: { id: facilityId }, data: { simcardCount } })
+      }
+
+      return NextResponse.json({ success: true, deletedCount: deleted.count })
+    }
+
     const id = body?.id || request.nextUrl.searchParams.get("id")
-    if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 })
+    if (!id) return NextResponse.json({ error: "id or ids is required" }, { status: 400 })
     const existing = await prisma.simcardAsset.findUnique({ where: { id: String(id) }, select: { facilityId: true, location: true } })
     if (!existing) return NextResponse.json({ error: "Asset not found" }, { status: 404 })
     if (!canAccessLocation(access, existing.location)) {
