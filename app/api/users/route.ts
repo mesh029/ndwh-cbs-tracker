@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getRoleFromRequest } from "@/lib/auth"
-import { APP_MODULES, APP_LOCATIONS, getUserAccounts, makeUserAccount, sanitizeLocations, sanitizeModules, saveUserAccounts } from "@/lib/user-accounts"
+import { APP_MODULES, APP_LOCATIONS, getUserAccounts, hashPassword, makeUserAccount, sanitizeLocations, sanitizeModules, saveUserAccounts } from "@/lib/user-accounts"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -82,18 +82,32 @@ export async function PATCH(request: NextRequest) {
   if (index < 0) return NextResponse.json({ error: "User not found" }, { status: 404 })
 
   const current = users[index]
+  const nextEmail = body.email !== undefined ? String(body.email || "").trim().toLowerCase() : current.email
   const nextRole = String(body.role || current.role).trim().toLowerCase() as "admin" | "guest" | "superadmin"
+  const nextPassword = body.password !== undefined ? String(body.password || "") : ""
+
+  if (!nextEmail || !nextEmail.includes("@")) {
+    return NextResponse.json({ error: "Email must be valid" }, { status: 400 })
+  }
+  if (users.some((u, i) => i !== index && u.email.toLowerCase() === nextEmail)) {
+    return NextResponse.json({ error: "Email already exists" }, { status: 409 })
+  }
   if (!["admin", "guest", "superadmin"].includes(nextRole)) {
     return NextResponse.json({ error: "Invalid role", receivedRole: body.role }, { status: 400 })
   }
   if (nextRole === "superadmin" && role !== "superadmin") {
     return NextResponse.json({ error: "Only superadmin can assign superadmin role" }, { status: 403 })
   }
+  if (body.password !== undefined && nextPassword.length < 6) {
+    return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 })
+  }
 
   const updated = {
     ...current,
     name: body.name !== undefined ? String(body.name).trim() : current.name,
+    email: nextEmail,
     role: nextRole,
+    passwordHash: body.password !== undefined ? hashPassword(nextPassword) : current.passwordHash,
     locations: body.locations !== undefined ? sanitizeLocations(body.locations) : current.locations,
     modules: body.modules !== undefined ? sanitizeModules(body.modules, nextRole) : current.modules,
     isActive: body.isActive !== undefined ? Boolean(body.isActive) : current.isActive,

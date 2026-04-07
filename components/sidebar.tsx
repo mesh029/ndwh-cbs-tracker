@@ -90,12 +90,23 @@ function getRoleIcon(role: UserRole | null) {
   return Eye
 }
 
+function getEffectiveModules(role: UserRole, access: { modules: string[] } | null): string[] {
+  if (role === "superadmin") return ["dashboard", "tickets", "assets", "facility", "reports", "uploads", "users"]
+  if (role === "admin") {
+    if (Array.isArray(access?.modules) && access.modules.length > 0) return access.modules
+    return ["dashboard", "tickets", "assets", "facility", "reports"]
+  }
+  if (Array.isArray(access?.modules) && access.modules.length > 0) return access.modules
+  return ["tickets"]
+}
+
 function getFilteredSections(role: UserRole | null, access: { modules: string[] } | null) {
   if (!role) return []
+  const modules = getEffectiveModules(role, access)
   return navigationSections
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => item.roles.includes(role) && (!item.module || access?.modules?.includes(item.module))),
+      items: section.items.filter((item) => item.roles.includes(role) && (!item.module || modules.includes(item.module))),
     }))
     .filter((section) => section.items.length > 0)
 }
