@@ -7,6 +7,11 @@ import "./globals.css"
 export const metadata: Metadata = {
   title: "PATH HIS — EMR & Assets",
   description: "EMR support, assets, and reporting dashboards",
+  icons: {
+    icon: "/icon.svg",
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
+  },
 }
 
 export default function RootLayout({
