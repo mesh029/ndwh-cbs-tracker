@@ -1403,13 +1403,13 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
                 Distribution of simcards and LAN availability across {location} facilities
               </CardDescription>
             </div>
-            <div className="flex flex-wrap gap-2 flex-shrink-0">
+            <div className="flex flex-col gap-2 w-full sm:w-auto sm:min-w-[280px] flex-shrink-0">
               <SectionUpload section="simcard" location={location} onUploadComplete={() => {
                 loadSimcardDistribution()
-              }} />
+              }} buttonLayout="column" />
               <SectionUpload section="lan" location={location} onUploadComplete={() => {
                 loadSimcardDistribution()
-              }} />
+              }} buttonLayout="column" />
             </div>
           </div>
         </CardHeader>

@@ -33,6 +33,7 @@ interface SectionUploadProps {
   section: "server" | "router" | "simcard" | "lan" | "ticket"
   location: Location
   onUploadComplete?: () => void
+  buttonLayout?: "row" | "column"
 }
 
 interface Facility {
@@ -41,7 +42,7 @@ interface Facility {
   subcounty?: string | null
 }
 
-export function SectionUpload({ section, location, onUploadComplete }: SectionUploadProps) {
+export function SectionUpload({ section, location, onUploadComplete, buttonLayout = "row" }: SectionUploadProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [showFacilityDialog, setShowFacilityDialog] = useState(false)
@@ -556,14 +557,14 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
 
   return (
     <>
-      <div className="flex flex-wrap gap-2">
+      <div className={buttonLayout === "column" ? "flex flex-col gap-2 w-full" : "flex flex-wrap gap-2"}>
         {canDownloadTemplates(role) && (
           <>
             <Button
               variant="outline"
               size="sm"
               onClick={handleQuickBulkTemplateDownload}
-              className="gap-2"
+              className={buttonLayout === "column" ? "gap-2 justify-start w-full" : "gap-2"}
             >
               <Download className="h-4 w-4" />
               <span className="hidden sm:inline">Bulk Template (All Facilities)</span>
@@ -573,7 +574,7 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
               variant="outline"
               size="sm"
               onClick={handleDownloadTemplate}
-              className="gap-2"
+              className={buttonLayout === "column" ? "gap-2 justify-start w-full" : "gap-2"}
             >
               <Download className="h-4 w-4" />
               <span className="hidden sm:inline">Template (Choose Facilities)</span>
@@ -593,7 +594,7 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
             <Button
               variant="outline"
               size="sm"
-              className="gap-2"
+              className={buttonLayout === "column" ? "gap-2 justify-start w-full" : "gap-2"}
               asChild
               disabled={isUploading}
             >
