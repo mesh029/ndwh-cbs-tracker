@@ -77,12 +77,14 @@ export function sanitizeLocations(input: unknown): "all" | AppLocation[] {
 export function sanitizeModules(input: unknown, role: UserRole): AppModule[] {
   const defaults: Record<UserRole, AppModule[]> = {
     superadmin: ["dashboard", "tickets", "assets", "facility", "reports", "uploads", "users"],
-    admin: ["dashboard", "tickets", "assets", "facility", "reports", "users"],
+    admin: ["dashboard", "tickets", "assets", "facility", "reports"],
     guest: ["tickets"],
   }
   if (!Array.isArray(input)) return defaults[role]
   const filtered = input.filter((m): m is AppModule => APP_MODULES.includes(m as AppModule))
   if (filtered.length === 0) return defaults[role]
+  if (role === "superadmin") return defaults.superadmin
+  if (role === "admin") return Array.from(new Set([...filtered, "dashboard", "tickets", "assets"]))
   return Array.from(new Set(filtered))
 }
 

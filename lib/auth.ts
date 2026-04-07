@@ -23,6 +23,13 @@ export function isValidRole(value: string | undefined | null): value is UserRole
   return value === "admin" || value === "guest" || value === "superadmin"
 }
 
+function normalizeModulesForRole(role: UserRole, modules: string[]): string[] {
+  const unique = Array.from(new Set(modules))
+  if (role === "superadmin") return ["dashboard", "tickets", "assets", "facility", "reports", "uploads", "users"]
+  if (role === "admin") return Array.from(new Set([...unique, "dashboard", "tickets", "assets"]))
+  return unique.length > 0 ? unique : ["tickets"]
+}
+
 function defaultAccessForRole(role: UserRole): UserAccess {
   if (role === "superadmin") {
     return { locations: "all", modules: ["dashboard", "tickets", "assets", "facility", "reports", "uploads", "users"] }
@@ -77,7 +84,7 @@ export async function resolveRoleFromCredentials(
       email: managedUser.email,
       access: {
         locations: managedUser.locations,
-        modules: managedUser.modules,
+        modules: normalizeModulesForRole(managedUser.role, managedUser.modules || []),
       },
     }
   }
@@ -115,7 +122,12 @@ export function getRoleFromRequest(request: NextRequest): UserRole | null {
 export function getAccessFromRequest(request: NextRequest): UserAccess | null {
   const role = getRoleFromRequest(request)
   if (!role) return null
-  return parseAccessCookie(request.cookies.get(AUTH_ACCESS_COOKIE)?.value) || defaultAccessForRole(role)
+  const parsed = parseAccessCookie(request.cookies.get(AUTH_ACCESS_COOKIE)?.value)
+  const resolved = parsed || defaultAccessForRole(role)
+  return {
+    locations: resolved.locations,
+    modules: normalizeModulesForRole(role, resolved.modules || []),
+  }
 }
 
 export function getDefaultRedirect(role: UserRole, access?: UserAccess | null): string {
