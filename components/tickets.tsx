@@ -1,6 +1,8 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
+import { driver } from "driver.js"
+import "driver.js/dist/driver.css"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -124,9 +126,10 @@ interface TicketsProps {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function Tickets({ initialLocation = "Nyamira", showBackToOverview = false }: TicketsProps) {
-  const { role } = useAuth()
+  const { role, access } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
+  const TICKET_TOUR_STORAGE_KEY = "admin_ticket_form_tour_seen_v1"
 
   // ── ticket list ──
   const [tickets, setTickets] = useState<Ticket[]>([])
@@ -181,11 +184,21 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
   const [inProgressTicket, setInProgressTicket] = useState<Ticket | null>(null)
   const [inProgressAssignee, setInProgressAssignee] = useState("")
   const [isMarkingInProgress, setIsMarkingInProgress] = useState(false)
+  const allowedLocations = useMemo(() => {
+    if (!access || access.locations === "all") return LOCATIONS
+    return LOCATIONS.filter((loc) => access.locations.includes(loc))
+  }, [access])
 
   // ─── Effects ──────────────────────────────────────────────────────────────
 
   useEffect(() => { loadAssignees() }, [])
   useEffect(() => { loadTickets() }, [statusFilter, selectedLocation])
+  useEffect(() => {
+    if (!allowedLocations.length) return
+    if (!allowedLocations.includes(selectedLocation)) {
+      setSelectedLocation(allowedLocations[0])
+    }
+  }, [allowedLocations, selectedLocation])
   useEffect(() => {
     if (selectedLocation) {
       loadFacilities(selectedLocation)
@@ -373,6 +386,66 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
     resetForm()
     setShowForm(true)
     loadFacilities(selectedLocation)
+    if (typeof window !== "undefined" && window.localStorage.getItem(TICKET_TOUR_STORAGE_KEY) !== "1") {
+      window.setTimeout(() => {
+        launchTicketTour()
+      }, 250)
+    }
+  }
+
+  const launchTicketTour = () => {
+    const tour = driver({
+      showProgress: true,
+      animate: true,
+      steps: [
+        {
+          element: '[data-tour="admin-location"]',
+          popover: {
+            title: "Set county scope",
+            description: "Choose the correct county/location to align facilities and subcounties with the reporting site.",
+          },
+        },
+        {
+          element: '[data-tour="admin-facility"]',
+          popover: {
+            title: "Identify facility",
+            description: "Use the master facility match so analytics, ownership, and follow-up remain accurate.",
+          },
+        },
+        {
+          element: '[data-tour="admin-categories"]',
+          popover: {
+            title: "Classify for triage",
+            description: "Add one or more categories to support queue routing and dashboard reporting.",
+          },
+        },
+        {
+          element: '[data-tour="admin-problem"]',
+          popover: {
+            title: "Capture operational impact",
+            description: "Document user impact, affected services, and key symptoms for faster HIS triage.",
+          },
+        },
+        {
+          element: '[data-tour="admin-assigned"]',
+          popover: {
+            title: "Assign accountable owner",
+            description: "Set who owns response and follow-up. Reassign quickly if SLA risk is high.",
+          },
+        },
+        {
+          element: '[data-tour="admin-submit"]',
+          popover: {
+            title: "Save and monitor SLA",
+            description: "Create or update the ticket, then track status and escalate unresolved high-impact issues per SOP.",
+          },
+        },
+      ],
+      onDestroyed: () => {
+        window.localStorage.setItem(TICKET_TOUR_STORAGE_KEY, "1")
+      },
+    })
+    tour.drive()
   }
 
   const handleEdit = (ticket: Ticket) => {
@@ -721,10 +794,13 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
           <label className="text-sm font-medium text-muted-foreground">Location:</label>
           <Select value={selectedLocation} onValueChange={(v) => setSelectedLocation(v as Location)}>
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-            <SelectContent>{LOCATIONS.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
+            <SelectContent>{allowedLocations.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
           </Select>
           <Button onClick={handleNewTicket}>
             <Plus className="mr-2 h-4 w-4" />New Ticket
+          </Button>
+          <Button variant="outline" onClick={() => { handleNewTicket(); window.setTimeout(() => launchTicketTour(), 250) }}>
+            Guided Ticket Form
           </Button>
           <SectionUpload section="ticket" location={selectedLocation} onUploadComplete={loadTickets} />
         </div>
@@ -903,7 +979,7 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
       ════════════════════════════════════════════════════ */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent
-          className="max-w-2xl max-h-[90vh] overflow-y-auto"
+          className="w-[95vw] sm:w-full max-w-2xl max-h-[92vh] overflow-y-auto p-4 sm:p-6"
           onPointerDownOutside={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
         >
@@ -911,15 +987,15 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
             <DialogTitle>{editingTicket ? "Edit Ticket" : "Create New Ticket"}</DialogTitle>
             <DialogDescription>Log or update ticket details. To resolve, use the Resolve button on the card.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4 pb-20 sm:pb-0">
 
             {/* Location + Subcounty */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-sm font-medium mb-2 block">Location <span className="text-red-500">*</span></label>
                 <Select value={location || ""} onValueChange={(v) => { setLocation(v); loadFacilities(v); loadSubcounties(v); setFacilityName(""); setSubcounty("") }}>
-                  <SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger>
-                  <SelectContent>{LOCATIONS.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
+                  <SelectTrigger data-tour="admin-location"><SelectValue placeholder="Select location" /></SelectTrigger>
+                  <SelectContent>{allowedLocations.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div>
@@ -960,6 +1036,7 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
               ) : (
                 <>
                   <Input
+                    data-tour="admin-facility"
                     value={facilityName}
                     onChange={(e) => handleFacilityNameChange(e.target.value)}
                     placeholder="Type to search or select facility"
@@ -979,7 +1056,7 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
             {/* Issue Type Chips */}
             <div>
               <label className="text-sm font-medium mb-2 block">Issue Categories <span className="text-red-500">*</span></label>
-              <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-muted/30">
+              <div data-tour="admin-categories" className="flex flex-wrap gap-2 p-3 border rounded-md bg-muted/30">
                 {ISSUE_CHIPS.map((chip) => (
                   <button
                     key={chip}
@@ -1009,7 +1086,7 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
             {/* Problem */}
             <div>
               <label className="text-sm font-medium mb-2 block">Problem Description <span className="text-red-500">*</span></label>
-              <Textarea value={problem} onChange={(e) => setProblem(e.target.value)} placeholder="Describe the problem in detail…" rows={4} required />
+              <Textarea data-tour="admin-problem" value={problem} onChange={(e) => setProblem(e.target.value)} placeholder="Describe the problem in detail…" rows={4} required />
             </div>
 
             {/* Reported By */}
@@ -1044,7 +1121,7 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
             <div>
               <label className="text-sm font-medium mb-2 block">Assigned To <span className="text-red-500">*</span></label>
               {assigneeChips.length > 0 ? (
-                <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-muted/30">
+                <div data-tour="admin-assigned" className="flex flex-wrap gap-2 p-3 border rounded-md bg-muted/30">
                   {assigneeChips.map((name) => (
                     <button
                       key={name}
@@ -1121,9 +1198,9 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
               </div>
             </div>
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={resetForm}><X className="mr-2 h-4 w-4" />Cancel</Button>
-              <Button type="submit" disabled={!assignedTo || selectedChips.length === 0}>
+            <DialogFooter className="fixed bottom-0 left-0 right-0 sm:static bg-background border-t sm:border-t-0 p-4 sm:p-0 flex-col sm:flex-row gap-2">
+              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={resetForm}><X className="mr-2 h-4 w-4" />Cancel</Button>
+              <Button data-tour="admin-submit" type="submit" className="w-full sm:w-auto" disabled={!assignedTo || selectedChips.length === 0}>
                 <Plus className="mr-2 h-4 w-4" />
                 {editingTicket ? "Update Ticket" : "Create Ticket"}
               </Button>

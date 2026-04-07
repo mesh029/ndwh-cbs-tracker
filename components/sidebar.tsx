@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { useAuth } from "@/components/auth-provider"
 import { useToast } from "@/components/ui/use-toast"
+import { APP_VERSION } from "@/lib/version"
 
 // ─── Nav structure ─────────────────────────────────────────────────────────
 
@@ -23,6 +24,7 @@ interface NavItem {
   href: string
   icon: React.ComponentType<{ className?: string }>
   roles: Array<"superadmin" | "admin" | "guest">
+  module?: string
 }
 
 interface NavSection {
@@ -34,22 +36,23 @@ interface NavSection {
 
 const navigationSections: NavSection[] = [
   {
-    title: "NDWH/CBS Monitoring",
+    title: "Dashboards",
     icon: LayoutDashboard,
     items: [
-      { name: "Dashboard",  href: "/",        icon: LayoutDashboard, roles: ["superadmin", "admin"] },
+      { name: "Home",       href: "/",        icon: LayoutDashboard, roles: ["superadmin", "admin"] },
       { name: "Uploads",    href: "/uploads",  icon: Upload,          roles: ["superadmin"] },
     ],
     defaultOpen: true,
   },
   {
-    title: "EMR Management",
+    title: "EMR & Assets",
     icon: Building2,
     items: [
       { name: "Facility Manager", href: "/facility-manager", icon: Building2, roles: ["superadmin", "admin"] },
-      { name: "Asset Manager",    href: "/asset-manager",    icon: Building2, roles: ["superadmin", "admin"] },
-      { name: "EMR Tickets",      href: "/tickets",          icon: Ticket,    roles: ["superadmin", "admin", "guest"] },
-      { name: "County Dashboard", href: "/nyamira",          icon: MapPin,    roles: ["superadmin", "admin"] },
+      { name: "Assets",           href: "/asset-manager",    icon: Building2, roles: ["superadmin", "admin"], module: "assets" },
+      { name: "EMR Tickets",      href: "/tickets",          icon: Ticket,    roles: ["superadmin", "admin", "guest"], module: "tickets" },
+      { name: "County Dashboard", href: "/nyamira",          icon: MapPin,    roles: ["superadmin", "admin"], module: "dashboard" },
+      { name: "Users",            href: "/users",            icon: UserCheck, roles: ["superadmin"], module: "users" },
     ],
     defaultOpen: true,
   },
@@ -57,7 +60,7 @@ const navigationSections: NavSection[] = [
     title: "Reports",
     icon: FileText,
     items: [
-      { name: "Reports", href: "/reports", icon: FileText, roles: ["superadmin", "admin"] },
+      { name: "Reports", href: "/reports", icon: FileText, roles: ["superadmin", "admin"], module: "reports" },
     ],
     defaultOpen: true,
   },
@@ -87,12 +90,12 @@ function getRoleIcon(role: UserRole | null) {
   return Eye
 }
 
-function getFilteredSections(role: UserRole | null) {
+function getFilteredSections(role: UserRole | null, access: { modules: string[] } | null) {
   if (!role) return []
   return navigationSections
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => item.roles.includes(role)),
+      items: section.items.filter((item) => item.roles.includes(role) && (!item.module || access?.modules?.includes(item.module))),
     }))
     .filter((section) => section.items.length > 0)
 }
@@ -104,7 +107,7 @@ const AUTO_HIDE_DELAY = 5000
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
-  const { role, username, refresh } = useAuth()
+  const { role, username, access, refresh } = useAuth()
   const { toast } = useToast()
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
@@ -130,10 +133,10 @@ export function Sidebar() {
       await fetch("/api/auth/logout", { method: "POST" })
       // Ensure the sidebar updates immediately after cookies are cleared.
       await refresh()
-      router.push("/login")
+      router.push("/")
       router.refresh()
     } catch {
-      router.push("/login")
+      router.push("/")
     }
   }
 
@@ -149,7 +152,7 @@ export function Sidebar() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `ndwh_backup_${new Date().toISOString().slice(0, 10)}.sql`
+      a.download = `his_backup_${new Date().toISOString().slice(0, 10)}.sql`
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -176,7 +179,7 @@ export function Sidebar() {
     timeoutRef.current = setTimeout(() => setIsCollapsed(true), AUTO_HIDE_DELAY)
   }
 
-  const visibleSections = getFilteredSections(role as UserRole | null)
+  const visibleSections = getFilteredSections(role as UserRole | null, access)
   const RoleIcon = getRoleIcon(role as UserRole | null)
 
   return (
@@ -191,9 +194,12 @@ export function Sidebar() {
       {/* Header */}
       <div className="flex h-16 items-center justify-between border-b px-2 sm:px-4 relative gap-2">
         {!isCollapsed && (
-          <h1 className="text-lg sm:text-xl font-bold text-primary whitespace-nowrap truncate flex-1 min-w-0">
-            PATH HIS Dashboards
-          </h1>
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <h1 className="text-lg sm:text-xl font-bold text-primary whitespace-nowrap truncate">
+              PATH HIS
+            </h1>
+            <Badge variant="outline" className="text-[10px] h-5 px-2 shrink-0">v{APP_VERSION}</Badge>
+          </div>
         )}
         {isCollapsed ? (
           <div className="flex items-center justify-center w-full">
@@ -234,9 +240,14 @@ export function Sidebar() {
           {/* Permissions summary */}
           <p className="text-[10px] text-muted-foreground mt-1.5 leading-tight">
             {role === "superadmin" && "Full access · uploads · backups · all tickets"}
-            {role === "admin"      && "Create · edit · resolve tickets · view reports"}
-            {role === "guest"      && "Create tickets only · read-only access"}
+            {role === "admin"      && "Scoped access by module and location"}
+            {role === "guest"      && "Scoped ticket access"}
           </p>
+          {access && (
+            <p className="text-[10px] text-muted-foreground mt-1 leading-tight">
+              Locations: {access.locations === "all" ? "all" : access.locations.join(", ")}
+            </p>
+          )}
         </div>
       )}
 
@@ -414,7 +425,10 @@ function SidebarContent({
   return (
     <>
       <div className="flex h-16 items-center justify-between border-b px-4">
-        <h1 className="text-lg font-bold text-primary">PATH HIS Dashboards</h1>
+        <div className="flex items-center gap-2 min-w-0">
+          <h1 className="text-lg font-bold text-primary truncate">PATH HIS</h1>
+          <Badge variant="outline" className="text-[10px] h-5 px-2 shrink-0">v{APP_VERSION}</Badge>
+        </div>
         <ThemeToggle />
       </div>
 
@@ -519,7 +533,7 @@ function SidebarContent({
 export function MobileMenuButton() {
   const pathname = usePathname()
   const router = useRouter()
-  const { role, username, refresh } = useAuth()
+  const { role, username, access, refresh } = useAuth()
   const { toast } = useToast()
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(navigationSections.map((_, i) => `section-${i}`))
@@ -531,11 +545,11 @@ export function MobileMenuButton() {
       await fetch("/api/auth/logout", { method: "POST" })
       // Ensure the mobile sidebar updates immediately after cookies are cleared.
       await refresh()
-      router.push("/login")
+      router.push("/")
       router.refresh()
       setOpen(false)
     } catch {
-      router.push("/login")
+      router.push("/")
       setOpen(false)
     }
   }
@@ -553,7 +567,7 @@ export function MobileMenuButton() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `ndwh_backup_${new Date().toISOString().slice(0, 10)}.sql`
+      a.download = `his_backup_${new Date().toISOString().slice(0, 10)}.sql`
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -568,7 +582,7 @@ export function MobileMenuButton() {
     }
   }
 
-  const visibleSections = getFilteredSections(role as UserRole | null)
+  const visibleSections = getFilteredSections(role as UserRole | null, access)
 
   useEffect(() => {
     setOpen(false)

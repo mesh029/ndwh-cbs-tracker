@@ -6,6 +6,8 @@ import type { UserRole } from "@/lib/auth"
 interface AuthContextValue {
   role: UserRole | null
   username: string | null
+  email: string | null
+  access: { locations: "all" | string[]; modules: string[] } | null
   loading: boolean
   refresh: () => Promise<void>
 }
@@ -15,6 +17,8 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<UserRole | null>(null)
   const [username, setUsername] = useState<string | null>(null)
+  const [email, setEmail] = useState<string | null>(null)
+  const [access, setAccess] = useState<{ locations: "all" | string[]; modules: string[] } | null>(null)
   const [loading, setLoading] = useState(true)
 
   const loadRole = async () => {
@@ -24,13 +28,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.ok && data.role) {
         setRole(data.role)
         setUsername(data.username || null)
+        setEmail(data.email || null)
+        setAccess(data.access || null)
       } else {
         setRole(null)
         setUsername(null)
+        setEmail(null)
+        setAccess(null)
       }
     } catch {
       setRole(null)
       setUsername(null)
+      setEmail(null)
+      setAccess(null)
     } finally {
       setLoading(false)
     }
@@ -71,7 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ role, username, loading, refresh: loadRole }}>
+    <AuthContext.Provider value={{ role, username, email, access, loading, refresh: loadRole }}>
       {children}
     </AuthContext.Provider>
   )

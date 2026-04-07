@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { determineIssueType, generateRandomWeekdayDate } from "@/lib/date-utils"
 import { facilitiesMatch } from "@/lib/utils"
 import { validateLocation, validateSubcounty } from "@/lib/location-utils"
-import { getRoleFromRequest } from "@/lib/auth"
+import { canAccessLocation, getAccessFromRequest, getRoleFromRequest } from "@/lib/auth"
 
 // Force dynamic rendering to prevent build-time static generation
 export const dynamic = 'force-dynamic'
@@ -19,6 +19,11 @@ export const revalidate = 0
  */
 export async function GET(request: NextRequest) {
   try {
+    const role = getRoleFromRequest(request)
+    if (!role) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    const access = getAccessFromRequest(request)
     const searchParams = request.nextUrl.searchParams
     const status = searchParams.get("status")
     const location = searchParams.get("location")
@@ -34,6 +39,10 @@ export async function GET(request: NextRequest) {
     }
 
     // Validate location
+    if (!canAccessLocation(access, location)) {
+      return NextResponse.json({ error: "Forbidden: location out of scope" }, { status: 403 })
+    }
+
     try {
       validateLocation(location)
     } catch (error: any) {
@@ -84,6 +93,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const role = getRoleFromRequest(request)
+    const access = getAccessFromRequest(request)
     if (!role) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
@@ -137,6 +147,9 @@ export async function POST(request: NextRequest) {
         { error: error.message || "Location is required" },
         { status: 400 }
       )
+    }
+    if (!canAccessLocation(access, validatedLocation)) {
+      return NextResponse.json({ error: "Forbidden: location out of scope" }, { status: 403 })
     }
 
     // Validate subcounty (REQUIRED for categorization)

@@ -8,6 +8,7 @@ import { AlertCircle, CheckCircle2, Clock, MapPin } from "lucide-react"
 import type { Location } from "@/lib/storage"
 import { cachedFetch } from "@/lib/cache"
 import { useRouter } from "next/navigation"
+import { useAuth } from "@/components/auth-provider"
 
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
@@ -33,6 +34,7 @@ interface TicketSummary {
 
 export function TicketsOverview() {
   const router = useRouter()
+  const { access } = useAuth()
   const [isLoading, setIsLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [overall, setOverall] = useState<TicketOverviewStats>({
@@ -44,11 +46,16 @@ export function TicketsOverview() {
   const [byCounty, setByCounty] = useState<CountyTicketStats[]>([])
   const [allTickets, setAllTickets] = useState<TicketSummary[]>([])
 
+  const allowedLocations = useMemo(() => {
+    if (!access || access.locations === "all") return LOCATIONS
+    return LOCATIONS.filter((l) => access.locations.includes(l))
+  }, [access])
+
   const loadOverview = async () => {
     setIsLoading(true)
     try {
         const results = await Promise.all(
-          LOCATIONS.map(async (location): Promise<{ county: CountyTicketStats; tickets: TicketSummary[] }> => {
+          allowedLocations.map(async (location): Promise<{ county: CountyTicketStats; tickets: TicketSummary[] }> => {
             try {
               const data = await cachedFetch<{ tickets: any[] }>(`/api/tickets?location=${location}`)
               const tickets = data.tickets || []
@@ -112,7 +119,7 @@ export function TicketsOverview() {
 
   useEffect(() => {
     loadOverview()
-  }, [])
+  }, [access])
 
   const recentTickets = useMemo(() => {
     return [...allTickets]
@@ -126,7 +133,7 @@ export function TicketsOverview() {
         <div>
           <h1 className="text-3xl font-bold">Tickets Overview</h1>
           <p className="text-muted-foreground">
-            High-level view of EMR tickets across all counties. Click a county to drill into details.
+            High-level view of EMR tickets across your allowed locations. Click a county to drill into details.
           </p>
         </div>
         <div className="flex items-center gap-3">

@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { useRouter } from "next/navigation"
+import { useAuth } from "@/components/auth-provider"
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, AreaChart, Area, LineChart, Line, ResponsiveContainer, Legend } from "recharts"
 import {
   ChartContainer,
@@ -50,6 +51,7 @@ interface CountyData {
 export function OverviewDashboard() {
   const router = useRouter()
   const { toast } = useToast()
+  const { access } = useAuth()
   const [countyData, setCountyData] = useState<CountyData[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [ticketAnalytics, setTicketAnalytics] = useState<{
@@ -87,13 +89,23 @@ export function OverviewDashboard() {
       label: "Facilities",
     },
   } satisfies ChartConfig
+  const allowedLocations = useMemo(() => {
+    if (!access || access.locations === "all") return LOCATIONS
+    return LOCATIONS.filter((loc) => access.locations.includes(loc))
+  }, [access])
 
   // Load data for all counties
   useEffect(() => {
+    if (!allowedLocations.length) {
+      setCountyData([])
+      setTicketAnalytics(null)
+      setIsLoading(false)
+      return
+    }
     const loadAllCountyData = async () => {
       setIsLoading(true)
       try {
-        const dataPromises = LOCATIONS.map(async (location): Promise<CountyData> => {
+        const dataPromises = allowedLocations.map(async (location): Promise<CountyData> => {
           // Load facilities (cached for 5 minutes)
           let facilities: any[] = []
           try {
@@ -203,7 +215,7 @@ export function OverviewDashboard() {
         setCountyData(allCountyData)
 
         // Calculate aggregated ticket analytics
-        await calculateTicketAnalytics(allCountyData)
+        await calculateTicketAnalytics(allCountyData, allowedLocations)
       } catch (error) {
         console.error("Error loading overview data:", error)
         toast({
@@ -217,12 +229,12 @@ export function OverviewDashboard() {
     }
 
     loadAllCountyData()
-  }, [toast])
+  }, [toast, allowedLocations])
 
-  const calculateTicketAnalytics = async (countyDataArray: CountyData[]) => {
+  const calculateTicketAnalytics = async (countyDataArray: CountyData[], scopedLocations: Location[]) => {
     try {
       // Load all tickets across all counties (cached for 2 minutes)
-      const allTicketsPromises = LOCATIONS.map(async (location) => {
+      const allTicketsPromises = scopedLocations.map(async (location) => {
         try {
           const data = await cachedFetch<{ tickets: any[] }>(`/api/tickets?location=${location}`, undefined, 2 * 60 * 1000)
           return data.tickets || []
@@ -236,7 +248,7 @@ export function OverviewDashboard() {
       const allTickets = allTicketsArrays.flat()
 
       // Load all facilities to match server types (cached for 5 minutes)
-      const allFacilitiesPromises = LOCATIONS.map(async (location) => {
+      const allFacilitiesPromises = scopedLocations.map(async (location) => {
         try {
           const data = await cachedFetch<{ facilities: any[] }>(`/api/facilities?system=NDWH&location=${location}&isMaster=true`, undefined, 5 * 60 * 1000)
           return data.facilities || []
@@ -250,7 +262,7 @@ export function OverviewDashboard() {
       const allFacilities = allFacilitiesArrays.flat()
 
       // Load all server assets (cached for 5 minutes)
-      const allServersPromises = LOCATIONS.map(async (location) => {
+      const allServersPromises = scopedLocations.map(async (location) => {
         try {
           const data = await cachedFetch<{ assets: any[] }>(`/api/assets/servers?location=${location}`, undefined, 5 * 60 * 1000)
           return data.assets || []
@@ -471,11 +483,11 @@ export function OverviewDashboard() {
         <div className="flex-1">
           <h1 className="text-3xl font-bold">County Dashboard - Overview</h1>
           <p className="text-muted-foreground">
-            Aggregated EMR data across all counties
+            Aggregated EMR data across allowed counties
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {LOCATIONS.map((location) => (
+          {allowedLocations.map((location) => (
             <Button
               key={location}
               variant="outline"

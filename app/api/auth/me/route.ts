@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { AUTH_USERNAME_COOKIE, getRoleFromRequest } from "@/lib/auth"
+import { AUTH_EMAIL_COOKIE, AUTH_USERNAME_COOKIE, getAccessFromRequest, getRoleFromRequest } from "@/lib/auth"
 
 // Force dynamic rendering to prevent build-time static generation
 export const dynamic = 'force-dynamic'
@@ -13,5 +13,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ authenticated: false }, { status: 401 })
   }
   const username = request.cookies.get(AUTH_USERNAME_COOKIE)?.value || role
-  return NextResponse.json({ authenticated: true, role, username })
+  const email = request.cookies.get(AUTH_EMAIL_COOKIE)?.value || null
+  const access = getAccessFromRequest(request)
+  return NextResponse.json({ authenticated: true, role, username, email, access })
 }

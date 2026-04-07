@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getRoleFromRequest, isSuperAdmin } from "@/lib/auth"
+import { canAccessLocation, canManageAssets, getAccessFromRequest, getRoleFromRequest } from "@/lib/auth"
 import { facilitiesMatch } from "@/lib/utils"
 import type { Location } from "@/lib/storage"
 
@@ -16,8 +16,9 @@ const VALID_LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 export async function POST(request: NextRequest) {
   try {
     const role = getRoleFromRequest(request)
-    if (!isSuperAdmin(role)) {
-      return NextResponse.json({ error: "Forbidden: superadmin only" }, { status: 403 })
+    const access = getAccessFromRequest(request)
+    if (!canManageAssets(role, access)) {
+      return NextResponse.json({ error: "Forbidden: assets access required" }, { status: 403 })
     }
 
     // Ensure Prisma is initialized
@@ -80,6 +81,11 @@ export async function POST(request: NextRequest) {
         if (!VALID_LOCATIONS.includes(trimmedLocation as Location)) {
           errorCount++
           errors.push(`Invalid location: ${trimmedLocation}`)
+          continue
+        }
+        if (!canAccessLocation(access, trimmedLocation)) {
+          errorCount++
+          errors.push(`Forbidden location: ${trimmedLocation}`)
           continue
         }
 
@@ -194,11 +200,17 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const role = getRoleFromRequest(request)
+    if (!role) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    const access = getAccessFromRequest(request)
     const searchParams = request.nextUrl.searchParams
     const location = searchParams.get("location")
 
     if (!location) {
       return NextResponse.json({ error: "Location is required" }, { status: 400 })
+    }
+    if (!canAccessLocation(access, location)) {
+      return NextResponse.json({ error: "Forbidden: location out of scope" }, { status: 403 })
     }
 
     const lanAssets = await prisma.lanAsset.findMany({
@@ -225,5 +237,64 @@ export async function GET(request: NextRequest) {
       { error: "Failed to fetch LAN assets" },
       { status: 500 }
     )
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const role = getRoleFromRequest(request)
+    const access = getAccessFromRequest(request)
+    if (!canManageAssets(role, access)) {
+      return NextResponse.json({ error: "Forbidden: assets access required" }, { status: 403 })
+    }
+    const body = await request.json()
+    const { id, ...data } = body || {}
+    if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 })
+    const existing = await prisma.lanAsset.findUnique({ where: { id: String(id) }, select: { location: true } })
+    if (!existing) return NextResponse.json({ error: "Asset not found" }, { status: 404 })
+    if (!canAccessLocation(access, existing.location)) {
+      return NextResponse.json({ error: "Forbidden: location out of scope" }, { status: 403 })
+    }
+    const asset = await prisma.lanAsset.update({
+      where: { id: String(id) },
+      data,
+    })
+    if (asset.facilityId) {
+      await prisma.facility.update({
+        where: { id: asset.facilityId },
+        data: { hasLAN: Boolean(asset.hasLAN) },
+      })
+    }
+    return NextResponse.json({ success: true, asset })
+  } catch (error) {
+    console.error("Error patching LAN asset:", error)
+    return NextResponse.json({ error: "Failed to patch LAN asset" }, { status: 500 })
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const role = getRoleFromRequest(request)
+    const access = getAccessFromRequest(request)
+    if (!canManageAssets(role, access)) {
+      return NextResponse.json({ error: "Forbidden: assets access required" }, { status: 403 })
+    }
+    const body = await request.json().catch(() => ({}))
+    const id = body?.id || request.nextUrl.searchParams.get("id")
+    if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 })
+    const existing = await prisma.lanAsset.findUnique({ where: { id: String(id) }, select: { facilityId: true, location: true } })
+    if (!existing) return NextResponse.json({ error: "Asset not found" }, { status: 404 })
+    if (!canAccessLocation(access, existing.location)) {
+      return NextResponse.json({ error: "Forbidden: location out of scope" }, { status: 403 })
+    }
+    await prisma.lanAsset.delete({ where: { id: String(id) } })
+    if (existing?.facilityId) {
+      const remaining = await prisma.lanAsset.count({ where: { facilityId: existing.facilityId, hasLAN: true } })
+      await prisma.facility.update({ where: { id: existing.facilityId }, data: { hasLAN: remaining > 0 } })
+    }
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error("Error deleting LAN asset:", error)
+    return NextResponse.json({ error: "Failed to delete LAN asset" }, { status: 500 })
   }
 }

@@ -7,12 +7,12 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Trash2, Edit2, Plus, Server, Router, Smartphone, Wifi, Download } from "lucide-react"
+import { Trash2, Edit2, Plus, Server, Router, Smartphone, Wifi, Download, Save, XCircle } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import type { Location } from "@/lib/storage"
 import { SectionUpload } from "@/components/section-upload"
 import * as XLSX from "xlsx"
+import { useAuth } from "@/components/auth-provider"
 
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
@@ -74,20 +74,25 @@ interface MasterFacility {
 }
 
 export function AssetManager() {
+  const { access } = useAuth()
+  const allowedLocations = (access?.locations === "all" || !access?.locations)
+    ? LOCATIONS
+    : LOCATIONS.filter((loc) => access.locations.includes(loc))
   const [selectedLocation, setSelectedLocation] = useState<Location | "all">("all")
   const [selectedAssetType, setSelectedAssetType] = useState<AssetType>("server")
+  const [itemFilter, setItemFilter] = useState("")
+  const [sortBy, setSortBy] = useState<"facilityName" | "location" | "subcounty" | "itemValue">("facilityName")
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc")
+  const [reportScope, setReportScope] = useState<"filtered" | "loaded">("filtered")
   const [assets, setAssets] = useState<any[]>([])
   const [assetsByLocation, setAssetsByLocation] = useState<Record<string, any[]>>({})
-  const [facilities, setFacilities] = useState<Array<{ id: string; name: string; subcounty?: string | null }>>([])
+  const [subcountiesByLocation, setSubcountiesByLocation] = useState<Record<string, string[]>>({})
   const [isLoading, setIsLoading] = useState(false)
-  const [isLoadingFacilities, setIsLoadingFacilities] = useState(false)
-  const [showAddDialog, setShowAddDialog] = useState(false)
-  const [editingAsset, setEditingAsset] = useState<any | null>(null)
-  const { toast } = useToast()
-
-  // Form state
-  const [formData, setFormData] = useState<any>({
-    facilityId: "",
+  const [inlineEditingId, setInlineEditingId] = useState<string | null>(null)
+  const [inlineEditData, setInlineEditData] = useState<any>({})
+  const [isAddingInline, setIsAddingInline] = useState(false)
+  const [inlineCreateData, setInlineCreateData] = useState<any>({
+    location: "Kakamega",
     facilityName: "",
     subcounty: "",
     serverType: "",
@@ -100,25 +105,36 @@ export function AssetManager() {
     lanType: "",
     notes: "",
   })
+  const { toast } = useToast()
 
-  const loadFacilities = useCallback(async () => {
+  useEffect(() => {
+    if (!allowedLocations.length) return
     if (selectedLocation === "all") {
-      setFacilities([])
+      if (access?.locations !== "all") {
+        setSelectedLocation(allowedLocations[0])
+      }
       return
     }
-    
-    setIsLoadingFacilities(true)
-    try {
-      const masterFacilities = await fetchMasterFacilities(selectedLocation)
-      setFacilities(
-        masterFacilities.map((f) => ({ id: f.id, name: f.name, subcounty: f.subcounty || undefined }))
-      )
-    } catch (error) {
-      console.error("Error loading facilities:", error)
-    } finally {
-      setIsLoadingFacilities(false)
+    if (!allowedLocations.includes(selectedLocation)) {
+      setSelectedLocation(allowedLocations[0])
     }
-  }, [selectedLocation])
+  }, [allowedLocations, selectedLocation, access?.locations])
+
+  const loadSubcountiesForLocation = useCallback(async (location: Location) => {
+    try {
+      const masterFacilities = await fetchMasterFacilities(location)
+      const subcounties = Array.from(
+        new Set(
+          masterFacilities
+            .map((f) => (f.subcounty ? String(f.subcounty).trim() : ""))
+            .filter(Boolean)
+        )
+      ).sort()
+      setSubcountiesByLocation((prev) => ({ ...prev, [location]: subcounties }))
+    } catch {
+      // no-op
+    }
+  }, [])
 
   const fetchMasterFacilities = async (location: string): Promise<MasterFacility[]> => {
     const systems = ["NDWH", "CBS"]
@@ -151,7 +167,7 @@ export function AssetManager() {
   const loadAssets = useCallback(async () => {
     setIsLoading(true)
     try {
-      const locationsToLoad = selectedLocation === "all" ? LOCATIONS : [selectedLocation]
+      const locationsToLoad = selectedLocation === "all" ? allowedLocations : [selectedLocation]
       let allAssets: any[] = []
       const assetsByLoc: Record<string, any[]> = {}
 
@@ -193,6 +209,8 @@ export function AssetManager() {
                 .filter((f: any) => f.serverType)
                 .map((f: any) => ({
                   id: `facility-${f.id}`,
+                  facilityId: f.id,
+                  sourceSystem: f.system || "NDWH",
                   facilityName: f.name,
                   location: f.location,
                   subcounty: f.subcounty,
@@ -208,6 +226,8 @@ export function AssetManager() {
                 .filter((f: any) => f.routerType)
                 .map((f: any) => ({
                   id: `facility-${f.id}`,
+                  facilityId: f.id,
+                  sourceSystem: f.system || "NDWH",
                   facilityName: f.name,
                   location: f.location,
                   subcounty: f.subcounty,
@@ -224,9 +244,12 @@ export function AssetManager() {
                 .flatMap((f: any) => 
                   Array.from({ length: f.simcardCount }, (_, i) => ({
                     id: `facility-${f.id}-simcard-${i}`,
+                    facilityId: f.id,
+                    sourceSystem: f.system || "NDWH",
                     facilityName: f.name,
                     location: f.location,
                     subcounty: f.subcounty,
+                    simcardCount: f.simcardCount,
                     phoneNumber: undefined,
                     provider: undefined,
                     assetTag: undefined,
@@ -241,6 +264,8 @@ export function AssetManager() {
                 .filter((f: any) => f.hasLAN === true)
                 .map((f: any) => ({
                   id: `facility-${f.id}`,
+                  facilityId: f.id,
+                  sourceSystem: f.system || "NDWH",
                   facilityName: f.name,
                   location: f.location,
                   subcounty: f.subcounty,
@@ -290,20 +315,19 @@ export function AssetManager() {
 
   useEffect(() => {
     if (selectedLocation !== "all") {
-      loadFacilities()
+      loadSubcountiesForLocation(selectedLocation)
+      return
     }
-  }, [selectedLocation, loadFacilities])
-
-  useEffect(() => {
-    if (selectedLocation !== "all") {
-      loadFacilities()
-    }
-  }, [selectedLocation, loadFacilities])
+    allowedLocations.forEach((loc) => { loadSubcountiesForLocation(loc) })
+  }, [selectedLocation, loadSubcountiesForLocation])
 
   const handleAdd = () => {
-    setEditingAsset(null)
-    setFormData({
-      facilityId: "",
+    const initialLocation = selectedLocation === "all" ? "Kakamega" : selectedLocation
+    if (!subcountiesByLocation[initialLocation]) {
+      loadSubcountiesForLocation(initialLocation as Location)
+    }
+    setInlineCreateData({
+      location: initialLocation,
       facilityName: "",
       subcounty: "",
       serverType: "",
@@ -316,15 +340,15 @@ export function AssetManager() {
       lanType: "",
       notes: "",
     })
-    setShowAddDialog(true)
+    setIsAddingInline(true)
   }
 
   const handleEdit = (asset: any) => {
-    setEditingAsset(asset)
-    // Find facility ID from facilities list
-    const facility = facilities.find(f => f.name === asset.facilityName)
-    setFormData({
-      facilityId: facility?.id || "",
+    if (asset.location && !subcountiesByLocation[asset.location]) {
+      loadSubcountiesForLocation(asset.location as Location)
+    }
+    setInlineEditingId(asset.id)
+    setInlineEditData({
       facilityName: asset.facilityName || "",
       subcounty: asset.subcounty || "",
       serverType: asset.serverType || "",
@@ -337,25 +361,135 @@ export function AssetManager() {
       lanType: asset.lanType || "",
       notes: asset.notes || "",
     })
-    setShowAddDialog(true)
   }
 
-  const handleFacilityChange = (facilityId: string) => {
-    const facility = facilities.find(f => f.id === facilityId)
-    if (facility) {
-      setFormData({
-        ...formData,
-        facilityId: facility.id,
-        facilityName: facility.name,
-        subcounty: facility.subcounty || "",
+  const cancelInlineEdit = () => {
+    setInlineEditingId(null)
+    setInlineEditData({})
+  }
+
+  const saveInlineEdit = async (asset: any) => {
+    try {
+      if (asset.isFromInventory) {
+        const facilityId = asset.facilityId || String(asset.id || "").replace("facility-", "").split("-simcard-")[0]
+        const facilityPayload: any = {
+          id: facilityId,
+          name: inlineEditData.facilityName || asset.facilityName,
+          system: asset.sourceSystem || "NDWH",
+          location: asset.location || selectedLocation,
+          subcounty: inlineEditData.subcounty || asset.subcounty || "",
+        }
+        if (selectedAssetType === "server") facilityPayload.serverType = inlineEditData.serverType || null
+        if (selectedAssetType === "router") facilityPayload.routerType = inlineEditData.routerType || null
+        if (selectedAssetType === "simcard") {
+          const parsedCount = Number(inlineEditData.simcardCount ?? asset.simcardCount ?? 0)
+          facilityPayload.simcardCount = Number.isFinite(parsedCount) ? Math.max(0, parsedCount) : 0
+        }
+        if (selectedAssetType === "lan") {
+          facilityPayload.hasLAN = !!inlineEditData.hasLAN
+        }
+        const facilityRes = await fetch("/api/facilities", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(facilityPayload),
+        })
+        if (!facilityRes.ok) throw new Error("Failed to update facility inventory")
+        toast({ title: "Updated", description: "Facility inventory updated from Asset Manager." })
+        cancelInlineEdit()
+        loadAssets()
+        return
+      }
+
+      let endpoint = ""
+      let payload: any = {
+        facilityName: inlineEditData.facilityName || asset.facilityName,
+        location: asset.location || selectedLocation,
+        subcounty: inlineEditData.subcounty || undefined,
+        notes: inlineEditData.notes || undefined,
+      }
+
+      switch (selectedAssetType) {
+        case "server":
+          endpoint = `/api/assets/servers/${asset.id}`
+          payload = { ...payload, serverType: inlineEditData.serverType || undefined, assetTag: inlineEditData.assetTag || undefined, serialNumber: inlineEditData.serialNumber || undefined }
+          break
+        case "router":
+          endpoint = `/api/assets/routers/${asset.id}`
+          payload = { ...payload, routerType: inlineEditData.routerType || undefined, assetTag: inlineEditData.assetTag || undefined, serialNumber: inlineEditData.serialNumber || undefined }
+          break
+        case "simcard":
+          endpoint = `/api/assets/simcards/${asset.id}`
+          payload = {
+            ...payload,
+            phoneNumber: inlineEditData.phoneNumber || undefined,
+            provider: inlineEditData.provider || undefined,
+            assetTag: inlineEditData.assetTag || undefined,
+            serialNumber: inlineEditData.serialNumber || undefined,
+          }
+          break
+        case "lan":
+          endpoint = `/api/assets/lan/${asset.id}`
+          payload = { ...payload, hasLAN: !!inlineEditData.hasLAN, lanType: inlineEditData.lanType || undefined }
+          break
+      }
+
+      const response = await fetch(endpoint, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       })
+      if (response.status === 405) {
+        const fallbackEndpoint = endpoint.split("/").slice(0, -1).join("/")
+        const fallbackResponse = await fetch(fallbackEndpoint, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: asset.id, ...payload }),
+        })
+        if (!fallbackResponse.ok) throw new Error("Failed to update asset (fallback)")
+      } else if (!response.ok) {
+        throw new Error("Failed to update asset")
+      }
+      toast({ title: "Updated", description: "Asset updated inline." })
+      cancelInlineEdit()
+      loadAssets()
+    } catch {
+      toast({ title: "Error", description: "Failed to update inline row", variant: "destructive" })
     }
   }
 
   const handleDelete = async (id: string) => {
+    const asset = assets.find((a) => a.id === id)
     if (!confirm("Are you sure you want to delete this asset?")) return
 
     try {
+      if (asset?.isFromInventory) {
+        const facilityId = asset.facilityId || String(asset.id || "").replace("facility-", "").split("-simcard-")[0]
+        const facilityPayload: any = {
+          id: facilityId,
+          name: asset.facilityName,
+          system: asset.sourceSystem || "NDWH",
+          location: asset.location || selectedLocation,
+          subcounty: asset.subcounty || "",
+        }
+        if (selectedAssetType === "server") facilityPayload.serverType = null
+        if (selectedAssetType === "router") facilityPayload.routerType = null
+        if (selectedAssetType === "simcard") {
+          const count = Number(asset.simcardCount ?? 1)
+          facilityPayload.simcardCount = Math.max(0, count - 1)
+        }
+        if (selectedAssetType === "lan") facilityPayload.hasLAN = false
+
+        const facilityRes = await fetch("/api/facilities", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(facilityPayload),
+        })
+        if (!facilityRes.ok) throw new Error("Failed to update facility inventory")
+        toast({ title: "Success", description: "Facility inventory updated" })
+        loadAssets()
+        return
+      }
+
       let endpoint = ""
       switch (selectedAssetType) {
         case "server":
@@ -373,6 +507,21 @@ export function AssetManager() {
       }
 
       const response = await fetch(endpoint, { method: "DELETE" })
+      if (response.status === 405) {
+        const fallbackEndpoint = endpoint.split("/").slice(0, -1).join("/")
+        const fallbackResponse = await fetch(fallbackEndpoint, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+        })
+        if (!fallbackResponse.ok) throw new Error("Failed to delete (fallback)")
+        toast({
+          title: "Success",
+          description: "Asset deleted successfully",
+        })
+        loadAssets()
+        return
+      }
       if (response.ok) {
         toast({
           title: "Success",
@@ -391,101 +540,67 @@ export function AssetManager() {
     }
   }
 
-  const handleSave = async () => {
-    if (!formData.facilityId || !formData.facilityName.trim()) {
-      toast({
-        title: "Error",
-        description: "Please select a facility",
-        variant: "destructive",
-      })
+  const saveInlineCreate = async () => {
+    if (!inlineCreateData.facilityName?.trim()) {
+      toast({ title: "Error", description: "Facility name is required", variant: "destructive" })
       return
     }
-
-    if (selectedLocation === "all") {
-      toast({
-        title: "Error",
-        description: "Please select a specific location to add assets",
-        variant: "destructive",
-      })
+    const targetLocation = (selectedLocation === "all" ? inlineCreateData.location : selectedLocation) as Location
+    if (!targetLocation) {
+      toast({ title: "Error", description: "Location is required", variant: "destructive" })
       return
     }
 
     try {
       let endpoint = ""
       let payload: any = {
-        facilityName: formData.facilityName.trim(),
-        location: selectedLocation as Location,
-        subcounty: formData.subcounty || undefined,
-        notes: formData.notes || undefined,
+        facilityName: inlineCreateData.facilityName.trim(),
+        location: targetLocation,
+        subcounty: inlineCreateData.subcounty || undefined,
+        notes: inlineCreateData.notes || undefined,
       }
 
       switch (selectedAssetType) {
         case "server":
-          endpoint = editingAsset ? `/api/assets/servers/${editingAsset.id}` : "/api/assets/servers"
-          payload = {
-            ...payload,
-            serverType: formData.serverType || undefined,
-            assetTag: formData.assetTag || undefined,
-            serialNumber: formData.serialNumber || undefined,
-          }
+          endpoint = "/api/assets/servers"
+          payload = { ...payload, serverType: inlineCreateData.serverType || undefined, assetTag: inlineCreateData.assetTag || undefined, serialNumber: inlineCreateData.serialNumber || undefined }
           break
         case "router":
-          endpoint = editingAsset ? `/api/assets/routers/${editingAsset.id}` : "/api/assets/routers"
-          payload = {
-            ...payload,
-            routerType: formData.routerType || undefined,
-            assetTag: formData.assetTag || undefined,
-            serialNumber: formData.serialNumber || undefined,
-          }
+          endpoint = "/api/assets/routers"
+          payload = { ...payload, routerType: inlineCreateData.routerType || undefined, assetTag: inlineCreateData.assetTag || undefined, serialNumber: inlineCreateData.serialNumber || undefined }
           break
         case "simcard":
-          endpoint = editingAsset ? `/api/assets/simcards/${editingAsset.id}` : "/api/assets/simcards"
+          endpoint = "/api/assets/simcards"
           payload = {
             ...payload,
-            phoneNumber: formData.phoneNumber || undefined,
-            provider: formData.provider || undefined,
-            assetTag: formData.assetTag || undefined,
-            serialNumber: formData.serialNumber || undefined,
+            phoneNumber: inlineCreateData.phoneNumber || undefined,
+            provider: inlineCreateData.provider || undefined,
+            assetTag: inlineCreateData.assetTag || undefined,
+            serialNumber: inlineCreateData.serialNumber || undefined,
           }
           break
         case "lan":
-          endpoint = editingAsset ? `/api/assets/lan/${editingAsset.id}` : "/api/assets/lan"
-          payload = {
-            ...payload,
-            hasLAN: formData.hasLAN,
-            lanType: formData.lanType || undefined,
-          }
+          endpoint = "/api/assets/lan"
+          payload = { ...payload, hasLAN: !!inlineCreateData.hasLAN, lanType: inlineCreateData.lanType || undefined }
           break
       }
 
       const response = await fetch(endpoint, {
-        method: editingAsset ? "PATCH" : "POST",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editingAsset 
-          ? payload 
-          : selectedAssetType === "lan" 
+        body: JSON.stringify(
+          selectedAssetType === "lan"
             ? { data: [payload] }
-            : selectedAssetType === "server" || selectedAssetType === "router" || selectedAssetType === "simcard"
-              ? { data: [payload], mode: "merge" }
-              : payload),
+            : { data: [payload], mode: "merge" }
+        ),
       })
+      if (!response.ok) throw new Error("Failed to add asset")
 
-      if (response.ok) {
-        toast({
-          title: "Success",
-          description: editingAsset ? "Asset updated successfully" : "Asset added successfully",
-        })
-        setShowAddDialog(false)
-        loadAssets()
-      } else {
-        throw new Error("Failed to save")
-      }
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to save asset",
-        variant: "destructive",
-      })
+      toast({ title: "Success", description: "Asset added inline" })
+      setIsAddingInline(false)
+      loadAssets()
+    } catch {
+      toast({ title: "Error", description: "Failed to add asset", variant: "destructive" })
     }
   }
 
@@ -504,33 +619,96 @@ export function AssetManager() {
     }
   }
 
+  const getItemValue = (asset: any) => {
+    switch (selectedAssetType) {
+      case "server":
+        return asset.serverType || ""
+      case "router":
+        return asset.routerType || ""
+      case "simcard":
+        return `${asset.phoneNumber || ""} ${asset.provider || ""}`.trim()
+      case "lan":
+        return asset.lanType || (asset.hasLAN ? "Has LAN" : "No LAN")
+      default:
+        return ""
+    }
+  }
+
+  const filteredSortedAssets = [...assets]
+    .filter((asset) => {
+      const q = itemFilter.trim().toLowerCase()
+      if (!q) return true
+      const haystack = [
+        asset.facilityName,
+        asset.location,
+        asset.subcounty,
+        getItemValue(asset),
+        asset.assetTag,
+        asset.serialNumber,
+        asset.phoneNumber,
+        asset.provider,
+        asset.notes,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+      return haystack.includes(q)
+    })
+    .sort((a, b) => {
+      const valueFor = (asset: any) => {
+        if (sortBy === "itemValue") return getItemValue(asset)
+        return asset[sortBy] || ""
+      }
+      const av = String(valueFor(a)).toLowerCase()
+      const bv = String(valueFor(b)).toLowerCase()
+      const base = av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" })
+      return sortOrder === "asc" ? base : -base
+    })
+
+  const toggleSort = (key: "facilityName" | "location" | "subcounty" | "itemValue") => {
+    if (sortBy === key) {
+      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"))
+    } else {
+      setSortBy(key)
+      setSortOrder("asc")
+    }
+  }
+
+  const sortIndicator = (key: "facilityName" | "location" | "subcounty" | "itemValue") => {
+    if (sortBy !== key) return ""
+    return sortOrder === "asc" ? " ▲" : " ▼"
+  }
+
   const generateReport = () => {
     try {
       const wb = XLSX.utils.book_new()
+      const reportAssets = reportScope === "filtered" ? filteredSortedAssets : assets
       
       // Summary sheet
       const summaryData = [
         ["ASSET REPORT SUMMARY"],
         ["Asset Type", selectedAssetType.charAt(0).toUpperCase() + selectedAssetType.slice(1)],
         ["Location", selectedLocation === "all" ? "All Locations" : selectedLocation],
+        ["Scope", reportScope === "filtered" ? "Filtered View" : "All Loaded Data"],
         ["Generated", new Date().toLocaleString()],
         [""],
         ["Location", "Total Assets", "With Asset Tags", "With Serial Numbers", "From Inventory"],
       ]
 
-      if (selectedLocation === "all") {
-        LOCATIONS.forEach((loc) => {
-          const locAssets = assetsByLocation[loc] || []
+      if (selectedLocation === "all" || reportScope === "filtered") {
+        allowedLocations.forEach((loc) => {
+          const locAssets = reportAssets.filter((a: any) => (a.location || "").toLowerCase() === loc.toLowerCase())
+          if (locAssets.length === 0) return
           const withTags = locAssets.filter((a: any) => a.assetTag).length
           const withSerial = locAssets.filter((a: any) => a.serialNumber).length
           const fromInventory = locAssets.filter((a: any) => a.isFromInventory).length
           summaryData.push([loc, String(locAssets.length), String(withTags), String(withSerial), String(fromInventory)])
         })
       } else {
-        const withTags = assets.filter((a: any) => a.assetTag).length
-        const withSerial = assets.filter((a: any) => a.serialNumber).length
-        const fromInventory = assets.filter((a: any) => a.isFromInventory).length
-        summaryData.push([selectedLocation, String(assets.length), String(withTags), String(withSerial), String(fromInventory)])
+        const withTags = reportAssets.filter((a: any) => a.assetTag).length
+        const withSerial = reportAssets.filter((a: any) => a.serialNumber).length
+        const fromInventory = reportAssets.filter((a: any) => a.isFromInventory).length
+        summaryData.push([selectedLocation, String(reportAssets.length), String(withTags), String(withSerial), String(fromInventory)])
       }
 
       const summaryWs = XLSX.utils.aoa_to_sheet(summaryData)
@@ -538,9 +716,9 @@ export function AssetManager() {
       XLSX.utils.book_append_sheet(wb, summaryWs, "Summary")
 
       // Detailed data sheets
-      if (selectedLocation === "all") {
-        LOCATIONS.forEach((loc) => {
-          const locAssets = assetsByLocation[loc] || []
+      if (selectedLocation === "all" || reportScope === "filtered") {
+        allowedLocations.forEach((loc) => {
+          const locAssets = reportAssets.filter((a: any) => (a.location || "").toLowerCase() === loc.toLowerCase())
           if (locAssets.length === 0) return
 
           const assetData = locAssets.map((asset: any) => {
@@ -592,7 +770,7 @@ export function AssetManager() {
           XLSX.utils.book_append_sheet(wb, ws, loc)
         })
       } else {
-        const assetData = assets.map((asset: any) => {
+        const assetData = reportAssets.map((asset: any) => {
           const base: any = {
             "Facility Name": asset.facilityName,
             "Location": asset.location || selectedLocation,
@@ -641,7 +819,7 @@ export function AssetManager() {
         XLSX.utils.book_append_sheet(wb, ws, selectedLocation)
       }
 
-      const fileName = `${selectedAssetType}_Assets_Report_${selectedLocation === "all" ? "AllLocations" : selectedLocation}_${new Date().toISOString().split("T")[0]}.xlsx`
+      const fileName = `${selectedAssetType}_Assets_Report_${selectedLocation === "all" ? "AllLocations" : selectedLocation}_${reportScope}_${new Date().toISOString().split("T")[0]}.xlsx`
       XLSX.writeFile(wb, fileName)
 
       toast({
@@ -660,23 +838,24 @@ export function AssetManager() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Asset Manager</h1>
-          <p className="text-muted-foreground">
-            Manage servers, routers, simcards, and LAN assets for facilities
+      <section className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/10 via-background to-secondary/20 p-4 sm:p-6">
+        <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-primary/10 blur-3xl" />
+        <div className="relative">
+          <h1 className="text-2xl sm:text-3xl font-bold">Asset Command Center</h1>
+          <p className="text-sm sm:text-base text-muted-foreground mt-1">
+            Manage servers, routers, simcards, and LAN assets with fast inline workflows.
           </p>
         </div>
-      </div>
+      </section>
 
-      <div className="flex gap-4">
+      <div className="flex flex-wrap gap-3">
         <Select value={selectedLocation} onValueChange={(v) => setSelectedLocation(v as Location | "all")}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-full sm:w-44">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Locations</SelectItem>
-            {LOCATIONS.map((location) => (
+            {access?.locations === "all" && <SelectItem value="all">All Locations</SelectItem>}
+            {allowedLocations.map((location) => (
               <SelectItem key={location} value={location}>
                 {location}
               </SelectItem>
@@ -684,8 +863,8 @@ export function AssetManager() {
           </SelectContent>
         </Select>
 
-        <Tabs value={selectedAssetType} onValueChange={(v) => setSelectedAssetType(v as AssetType)} className="w-auto">
-          <TabsList>
+        <Tabs value={selectedAssetType} onValueChange={(v) => setSelectedAssetType(v as AssetType)} className="w-full lg:w-auto">
+          <TabsList className="w-full lg:w-auto overflow-x-auto">
             <TabsTrigger value="server">
               <Server className="h-4 w-4 mr-2" />
               Servers
@@ -705,13 +884,13 @@ export function AssetManager() {
           </TabsList>
         </Tabs>
 
-        <Button onClick={handleAdd} className="ml-auto" disabled={selectedLocation === "all"}>
+        <Button onClick={handleAdd} className="w-full sm:w-auto lg:ml-auto">
           <Plus className="h-4 w-4 mr-2" />
-          Add {selectedAssetType.charAt(0).toUpperCase() + selectedAssetType.slice(1)}
+          Add {selectedAssetType.charAt(0).toUpperCase() + selectedAssetType.slice(1)} Row
         </Button>
-        <Button onClick={generateReport} variant="outline">
+        <Button onClick={generateReport} variant="outline" className="w-full sm:w-auto">
           <Download className="h-4 w-4 mr-2" />
-          Download Report
+          Download Report ({reportScope === "filtered" ? filteredSortedAssets.length : assets.length})
         </Button>
         {selectedLocation !== "all" && (
           <SectionUpload
@@ -722,6 +901,49 @@ export function AssetManager() {
         )}
       </div>
 
+      <div className="flex flex-wrap gap-3">
+        <Input
+          value={itemFilter}
+          onChange={(e) => setItemFilter(e.target.value)}
+          placeholder={`Filter by facility, ${selectedAssetType} item, tag, serial...`}
+          className="w-full md:w-[360px]"
+        />
+        <Select value={sortBy} onValueChange={(v) => setSortBy(v as "facilityName" | "location" | "subcounty" | "itemValue")}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Sort by" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="facilityName">Facility</SelectItem>
+            <SelectItem value="location">Location</SelectItem>
+            <SelectItem value="subcounty">Subcounty</SelectItem>
+            <SelectItem value="itemValue">Item</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as "asc" | "desc")}>
+          <SelectTrigger className="w-[140px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="asc">Asc</SelectItem>
+            <SelectItem value="desc">Desc</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={reportScope} onValueChange={(v) => setReportScope(v as "filtered" | "loaded")}>
+          <SelectTrigger className="w-[190px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="filtered">Report: Filtered View</SelectItem>
+            <SelectItem value="loaded">Report: All Loaded Data</SelectItem>
+          </SelectContent>
+        </Select>
+        <span className="text-xs text-muted-foreground self-center">
+          {reportScope === "filtered"
+            ? "Report includes current filters + sort"
+            : "Report includes all loaded rows for current location scope"}
+        </span>
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -729,401 +951,240 @@ export function AssetManager() {
             {selectedAssetType.charAt(0).toUpperCase() + selectedAssetType.slice(1)} Assets - {selectedLocation === "all" ? "All Locations" : selectedLocation}
           </CardTitle>
           <CardDescription>
-            {isLoading ? "Loading..." : `${assets.length} ${selectedAssetType}${assets.length !== 1 ? "s" : ""} found${selectedLocation === "all" ? " across all locations" : ""}`}
+            {isLoading ? "Loading..." : `${filteredSortedAssets.length} of ${assets.length} ${selectedAssetType}${assets.length !== 1 ? "s" : ""} shown${selectedLocation === "all" ? " across all locations" : ""}`}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <p className="text-center text-muted-foreground py-8">Loading assets...</p>
-          ) : assets.length === 0 ? (
+          ) : filteredSortedAssets.length === 0 ? (
             <p className="text-center text-muted-foreground py-8">No assets found{selectedLocation === "all" ? " across all locations" : ` for ${selectedLocation}`}</p>
-          ) : selectedLocation === "all" ? (
-            <div className="space-y-6">
-              {LOCATIONS.map((loc) => {
-                const locAssets = assetsByLocation[loc] || []
-                if (locAssets.length === 0) return null
-                
-                return (
-                  <div key={loc} className="space-y-2">
-                    <div className="flex items-center justify-between border-b pb-2 mb-2">
-                      <h3 className="font-semibold text-lg">{loc}</h3>
-                      <Badge variant="secondary">{locAssets.length} {selectedAssetType}{locAssets.length !== 1 ? "s" : ""}</Badge>
-                    </div>
-                    <div className="space-y-2 pl-4">
-                      {locAssets.map((asset) => (
-                        <div
-                          key={asset.id}
-                          className="flex items-center justify-between rounded-md border p-3 hover:bg-accent/50 transition-colors"
-                        >
-                          <div className="flex-1">
-                            <div className="font-medium">{asset.facilityName}</div>
-                            <div className="flex flex-wrap gap-2 mt-2">
-                              {asset.subcounty && (
-                                <Badge variant="outline" className="text-xs">
-                                  📍 {asset.subcounty}
-                                </Badge>
-                              )}
-                              {asset.serverType && (
-                                <Badge variant="secondary" className="text-xs">
-                                  🖥️ {asset.serverType}
-                                </Badge>
-                              )}
-                              {asset.routerType && (
-                                <Badge variant="secondary" className="text-xs">
-                                  📡 {asset.routerType}
-                                </Badge>
-                              )}
-                              {asset.phoneNumber && (
-                                <Badge variant="secondary" className="text-xs">
-                                  📱 {asset.phoneNumber}
-                                </Badge>
-                              )}
-                              {asset.provider && (
-                                <Badge variant="secondary" className="text-xs">
-                                  {asset.provider}
-                                </Badge>
-                              )}
-                              {asset.hasLAN !== undefined && (
-                                <Badge variant="secondary" className="text-xs">
-                                  {asset.hasLAN ? "🌐 Has LAN" : "❌ No LAN"}
-                                </Badge>
-                              )}
-                              {asset.assetTag && (
-                                <Badge variant="outline" className="text-xs">
-                                  🏷️ {asset.assetTag}
-                                </Badge>
-                              )}
-                              {asset.serialNumber && (
-                                <Badge variant="outline" className="text-xs">
-                                  🔢 {asset.serialNumber}
-                                </Badge>
-                              )}
-                            </div>
-                            {asset.notes && (
-                              <p className="text-xs text-muted-foreground mt-1">{asset.notes}</p>
-                            )}
-                            {asset.isFromInventory && (
-                              <Badge variant="outline" className="text-xs mt-1">
-                                📋 From Facility Inventory
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="flex gap-1">
-                            {!asset.isFromInventory && (
-                              <>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleEdit(asset)}
-                                  className="h-8 w-8"
-                                >
-                                  <Edit2 className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleDelete(asset.id)}
-                                  className="h-8 w-8"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </>
-                            )}
-                            {asset.isFromInventory && (
-                              <Badge variant="secondary" className="text-xs">
-                                Edit via Facility Manager
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
           ) : (
-            <div className="space-y-2">
-              {assets.map((asset) => (
-                <div
-                  key={asset.id}
-                  className="flex items-center justify-between rounded-md border p-3 hover:bg-accent/50 transition-colors"
-                >
-                  <div className="flex-1">
-                    <div className="font-medium">{asset.facilityName}</div>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {asset.subcounty && (
-                        <Badge variant="outline" className="text-xs">
-                          📍 {asset.subcounty}
-                        </Badge>
-                      )}
-                      {asset.serverType && (
-                        <Badge variant="secondary" className="text-xs">
-                          🖥️ {asset.serverType}
-                        </Badge>
-                      )}
-                      {asset.routerType && (
-                        <Badge variant="secondary" className="text-xs">
-                          📡 {asset.routerType}
-                        </Badge>
-                      )}
-                      {asset.phoneNumber && (
-                        <Badge variant="secondary" className="text-xs">
-                          📱 {asset.phoneNumber}
-                        </Badge>
-                      )}
-                      {asset.provider && (
-                        <Badge variant="secondary" className="text-xs">
-                          {asset.provider}
-                        </Badge>
-                      )}
-                      {asset.hasLAN !== undefined && (
-                        <Badge variant="secondary" className="text-xs">
-                          {asset.hasLAN ? "🌐 Has LAN" : "❌ No LAN"}
-                        </Badge>
-                      )}
-                      {asset.assetTag && (
-                        <Badge variant="outline" className="text-xs">
-                          🏷️ {asset.assetTag}
-                        </Badge>
-                      )}
-                      {asset.serialNumber && (
-                        <Badge variant="outline" className="text-xs">
-                          🔢 {asset.serialNumber}
-                        </Badge>
-                      )}
-                    </div>
-                    {asset.notes && (
-                      <p className="text-xs text-muted-foreground mt-1">{asset.notes}</p>
-                    )}
-                    {asset.isFromInventory && (
-                      <Badge variant="outline" className="text-xs mt-1">
-                        📋 From Facility Inventory
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="flex gap-1">
-                    {!asset.isFromInventory && (
-                      <>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleEdit(asset)}
-                          className="h-8 w-8"
+            <div className="rounded-md border overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40">
+                  <tr className="border-b">
+                    <th className="text-left p-2 font-medium">
+                      <button type="button" onClick={() => toggleSort("facilityName")} className="hover:underline">
+                        Facility{sortIndicator("facilityName")}
+                      </button>
+                    </th>
+                    <th className="text-left p-2 font-medium">
+                      <button type="button" onClick={() => toggleSort("location")} className="hover:underline">
+                        Location{sortIndicator("location")}
+                      </button>
+                    </th>
+                    <th className="text-left p-2 font-medium">
+                      <button type="button" onClick={() => toggleSort("subcounty")} className="hover:underline">
+                        Subcounty{sortIndicator("subcounty")}
+                      </button>
+                    </th>
+                    <th className="text-left p-2 font-medium">
+                      <button type="button" onClick={() => toggleSort("itemValue")} className="hover:underline">
+                        Item{sortIndicator("itemValue")}
+                      </button>
+                    </th>
+                    <th className="text-left p-2 font-medium">Asset Tag</th>
+                    <th className="text-left p-2 font-medium">Serial</th>
+                    <th className="text-left p-2 font-medium">Notes</th>
+                    <th className="text-left p-2 font-medium">Source</th>
+                    <th className="text-left p-2 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {isAddingInline && (
+                    <tr className="border-b bg-primary/5">
+                      <td className="p-2">
+                        <Input
+                          value={inlineCreateData.facilityName || ""}
+                          onChange={(e) => setInlineCreateData({ ...inlineCreateData, facilityName: e.target.value })}
+                          className="h-8"
+                          placeholder="Facility name"
+                        />
+                      </td>
+                      <td className="p-2">
+                        {selectedLocation === "all" ? (
+                          <Select
+                            value={inlineCreateData.location || ""}
+                            onValueChange={(v) => {
+                              setInlineCreateData({ ...inlineCreateData, location: v, subcounty: "" })
+                              if (!subcountiesByLocation[v]) loadSubcountiesForLocation(v as Location)
+                            }}
+                          >
+                            <SelectTrigger className="h-8 min-w-[140px]">
+                              <SelectValue placeholder="Location" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {allowedLocations.map((loc) => <SelectItem key={loc} value={loc}>{loc}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span>{selectedLocation}</span>
+                        )}
+                      </td>
+                      <td className="p-2">
+                        <Select
+                          value={inlineCreateData.subcounty || ""}
+                          onValueChange={(v) => setInlineCreateData({ ...inlineCreateData, subcounty: v })}
                         >
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDelete(asset.id)}
-                          className="h-8 w-8"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </>
-                    )}
-                    {asset.isFromInventory && (
-                      <Badge variant="secondary" className="text-xs">
-                        Edit via Facility Manager
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              ))}
+                          <SelectTrigger className="h-8 min-w-[150px]">
+                            <SelectValue placeholder="Subcounty" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(
+                              subcountiesByLocation[
+                                (selectedLocation === "all" ? inlineCreateData.location : selectedLocation) || "Kakamega"
+                              ] || []
+                            ).map((sc) => (
+                              <SelectItem key={sc} value={sc}>{sc}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </td>
+                      <td className="p-2">
+                        {selectedAssetType === "server" ? (
+                          <Input value={inlineCreateData.serverType || ""} onChange={(e) => setInlineCreateData({ ...inlineCreateData, serverType: e.target.value })} className="h-8" placeholder="Server type" />
+                        ) : selectedAssetType === "router" ? (
+                          <Input value={inlineCreateData.routerType || ""} onChange={(e) => setInlineCreateData({ ...inlineCreateData, routerType: e.target.value })} className="h-8" placeholder="Router type" />
+                        ) : selectedAssetType === "simcard" ? (
+                          <div className="flex gap-1">
+                            <Input value={inlineCreateData.phoneNumber || ""} onChange={(e) => setInlineCreateData({ ...inlineCreateData, phoneNumber: e.target.value })} className="h-8 w-28" placeholder="Phone" />
+                            <Input value={inlineCreateData.provider || ""} onChange={(e) => setInlineCreateData({ ...inlineCreateData, provider: e.target.value })} className="h-8 w-24" placeholder="Provider" />
+                          </div>
+                        ) : (
+                          <div className="flex gap-1 items-center">
+                            <input type="checkbox" checked={!!inlineCreateData.hasLAN} onChange={(e) => setInlineCreateData({ ...inlineCreateData, hasLAN: e.target.checked })} />
+                            <Input value={inlineCreateData.lanType || ""} onChange={(e) => setInlineCreateData({ ...inlineCreateData, lanType: e.target.value })} className="h-8 w-24" placeholder="LAN type" />
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-2">
+                        <Input value={inlineCreateData.assetTag || ""} onChange={(e) => setInlineCreateData({ ...inlineCreateData, assetTag: e.target.value })} className="h-8" />
+                      </td>
+                      <td className="p-2">
+                        <Input value={inlineCreateData.serialNumber || ""} onChange={(e) => setInlineCreateData({ ...inlineCreateData, serialNumber: e.target.value })} className="h-8" />
+                      </td>
+                      <td className="p-2">
+                        <Input value={inlineCreateData.notes || ""} onChange={(e) => setInlineCreateData({ ...inlineCreateData, notes: e.target.value })} className="h-8" />
+                      </td>
+                      <td className="p-2">
+                        <Badge variant="secondary" className="text-xs">New</Badge>
+                      </td>
+                      <td className="p-2">
+                        <div className="flex items-center gap-1">
+                          <Button variant="ghost" size="icon" onClick={saveInlineCreate} className="h-8 w-8">
+                            <Save className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => setIsAddingInline(false)} className="h-8 w-8">
+                            <XCircle className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  {filteredSortedAssets.map((asset) => (
+                    <tr key={asset.id} className="border-b hover:bg-accent/30">
+                      <td className="p-2 font-medium">{asset.facilityName}</td>
+                      <td className="p-2">{asset.location || "-"}</td>
+                      <td className="p-2">
+                        {inlineEditingId === asset.id ? (
+                          <Select
+                            value={inlineEditData.subcounty || ""}
+                            onValueChange={(v) => setInlineEditData({ ...inlineEditData, subcounty: v })}
+                          >
+                            <SelectTrigger className="h-8 min-w-[150px]">
+                              <SelectValue placeholder="Select subcounty" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(subcountiesByLocation[asset.location] || []).map((sc) => (
+                                <SelectItem key={sc} value={sc}>{sc}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (asset.subcounty || "-")}
+                      </td>
+                      <td className="p-2">
+                        {inlineEditingId === asset.id ? (
+                          selectedAssetType === "server" ? (
+                            <Input value={inlineEditData.serverType || ""} onChange={(e) => setInlineEditData({ ...inlineEditData, serverType: e.target.value })} className="h-8" />
+                          ) : selectedAssetType === "router" ? (
+                            <Input value={inlineEditData.routerType || ""} onChange={(e) => setInlineEditData({ ...inlineEditData, routerType: e.target.value })} className="h-8" />
+                          ) : selectedAssetType === "simcard" ? (
+                            asset.isFromInventory ? (
+                              <Input
+                                value={String(inlineEditData.simcardCount ?? asset.simcardCount ?? 0)}
+                                onChange={(e) => setInlineEditData({ ...inlineEditData, simcardCount: e.target.value })}
+                                className="h-8 w-20"
+                                placeholder="Count"
+                              />
+                            ) : (
+                              <div className="flex gap-1">
+                                <Input value={inlineEditData.phoneNumber || ""} onChange={(e) => setInlineEditData({ ...inlineEditData, phoneNumber: e.target.value })} className="h-8 w-28" />
+                                <Input value={inlineEditData.provider || ""} onChange={(e) => setInlineEditData({ ...inlineEditData, provider: e.target.value })} className="h-8 w-24" />
+                              </div>
+                            )
+                          ) : (
+                            <div className="flex gap-1 items-center">
+                              <input type="checkbox" checked={!!inlineEditData.hasLAN} onChange={(e) => setInlineEditData({ ...inlineEditData, hasLAN: e.target.checked })} />
+                              <Input value={inlineEditData.lanType || ""} onChange={(e) => setInlineEditData({ ...inlineEditData, lanType: e.target.value })} className="h-8 w-24" />
+                            </div>
+                          )
+                        ) : (getItemValue(asset) || "-")}
+                      </td>
+                      <td className="p-2">
+                        {inlineEditingId === asset.id ? (
+                          <Input value={inlineEditData.assetTag || ""} onChange={(e) => setInlineEditData({ ...inlineEditData, assetTag: e.target.value })} className="h-8" />
+                        ) : (asset.assetTag || "-")}
+                      </td>
+                      <td className="p-2">
+                        {inlineEditingId === asset.id ? (
+                          <Input value={inlineEditData.serialNumber || ""} onChange={(e) => setInlineEditData({ ...inlineEditData, serialNumber: e.target.value })} className="h-8" />
+                        ) : (asset.serialNumber || "-")}
+                      </td>
+                      <td className="p-2">
+                        {inlineEditingId === asset.id ? (
+                          <Input value={inlineEditData.notes || ""} onChange={(e) => setInlineEditData({ ...inlineEditData, notes: e.target.value })} className="h-8" />
+                        ) : (asset.notes || "-")}
+                      </td>
+                      <td className="p-2">
+                        {asset.isFromInventory ? (
+                          <Badge variant="outline" className="text-xs">Facility Inventory</Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-xs">Detailed Asset</Badge>
+                        )}
+                      </td>
+                      <td className="p-2">
+                        <div className="flex items-center gap-1">
+                          {inlineEditingId === asset.id ? (
+                            <>
+                              <Button variant="ghost" size="icon" onClick={() => saveInlineEdit(asset)} className="h-8 w-8">
+                                <Save className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" size="icon" onClick={cancelInlineEdit} className="h-8 w-8">
+                                <XCircle className="h-4 w-4" />
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button variant="ghost" size="icon" onClick={() => handleEdit(asset)} className="h-8 w-8">
+                                <Edit2 className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" size="icon" onClick={() => handleDelete(asset.id)} className="h-8 w-8">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Add/Edit Dialog */}
-      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {editingAsset ? "Edit" : "Add"} {selectedAssetType.charAt(0).toUpperCase() + selectedAssetType.slice(1)}
-            </DialogTitle>
-            <DialogDescription>
-              {editingAsset ? "Update asset details" : "Add a new asset"}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium">Facility *</label>
-              <Select
-                value={formData.facilityId}
-                onValueChange={handleFacilityChange}
-                disabled={isLoadingFacilities}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={isLoadingFacilities ? "Loading facilities..." : "Select a facility"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {facilities.map((facility) => (
-                    <SelectItem key={facility.id} value={facility.id}>
-                      {facility.name} {facility.subcounty ? `(${facility.subcounty})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {formData.facilityName && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Selected: {formData.facilityName} {formData.subcounty ? `- ${formData.subcounty}` : ""}
-                </p>
-              )}
-            </div>
-
-            {selectedAssetType === "server" && (
-              <>
-                <div>
-                  <label className="text-sm font-medium">Server Type</label>
-                  <Input
-                    value={formData.serverType}
-                    onChange={(e) => setFormData({ ...formData, serverType: e.target.value })}
-                    placeholder="e.g., Dell PowerEdge R440"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium">Asset Tag</label>
-                    <Input
-                      value={formData.assetTag}
-                      onChange={(e) => setFormData({ ...formData, assetTag: e.target.value })}
-                      placeholder="e.g., SRV-001"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Serial Number</label>
-                    <Input
-                      value={formData.serialNumber}
-                      onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
-                      placeholder="e.g., SN-SRV-001"
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-
-            {selectedAssetType === "router" && (
-              <>
-                <div>
-                  <label className="text-sm font-medium">Router Type</label>
-                  <Input
-                    value={formData.routerType}
-                    onChange={(e) => setFormData({ ...formData, routerType: e.target.value })}
-                    placeholder="e.g., Cisco Catalyst 2960"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium">Asset Tag</label>
-                    <Input
-                      value={formData.assetTag}
-                      onChange={(e) => setFormData({ ...formData, assetTag: e.target.value })}
-                      placeholder="e.g., RTR-001"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Serial Number</label>
-                    <Input
-                      value={formData.serialNumber}
-                      onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
-                      placeholder="e.g., SN-RTR-001"
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-
-            {selectedAssetType === "simcard" && (
-              <>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium">Phone Number</label>
-                    <Input
-                      value={formData.phoneNumber}
-                      onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
-                      placeholder="e.g., 0712345678"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Provider</label>
-                    <Input
-                      value={formData.provider}
-                      onChange={(e) => setFormData({ ...formData, provider: e.target.value })}
-                      placeholder="e.g., Safaricom"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium">Asset Tag</label>
-                    <Input
-                      value={formData.assetTag}
-                      onChange={(e) => setFormData({ ...formData, assetTag: e.target.value })}
-                      placeholder="e.g., SIM-001"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Serial Number</label>
-                    <Input
-                      value={formData.serialNumber}
-                      onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
-                      placeholder="e.g., SN-SIM-001"
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-
-            {selectedAssetType === "lan" && (
-              <>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="hasLAN"
-                    checked={formData.hasLAN}
-                    onChange={(e) => setFormData({ ...formData, hasLAN: e.target.checked })}
-                    className="h-4 w-4"
-                  />
-                  <label htmlFor="hasLAN" className="text-sm font-medium">
-                    Has LAN
-                  </label>
-                </div>
-                {formData.hasLAN && (
-                  <div>
-                    <label className="text-sm font-medium">LAN Type</label>
-                    <Input
-                      value={formData.lanType}
-                      onChange={(e) => setFormData({ ...formData, lanType: e.target.value })}
-                      placeholder="e.g., Fiber, Ethernet"
-                    />
-                  </div>
-                )}
-              </>
-            )}
-
-            <div>
-              <label className="text-sm font-medium">Notes</label>
-              <Input
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                placeholder="Additional notes"
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSave}>
-              {editingAsset ? "Update" : "Add"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
