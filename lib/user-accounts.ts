@@ -84,7 +84,10 @@ export function sanitizeModules(input: unknown, role: UserRole): AppModule[] {
   const filtered = input.filter((m): m is AppModule => APP_MODULES.includes(m as AppModule))
   if (filtered.length === 0) return defaults[role]
   if (role === "superadmin") return defaults.superadmin
-  if (role === "admin") return Array.from(new Set([...filtered, "dashboard", "tickets", "assets"]))
+  if (role === "admin") {
+    const required: AppModule[] = ["dashboard", "tickets", "assets"]
+    return Array.from(new Set([...filtered, ...required])) as AppModule[]
+  }
   return Array.from(new Set(filtered))
 }
 

@@ -91,6 +91,7 @@ const REPORTER_ROLES = [
 
 const DEFAULT_ASSIGNEES = ["Lawrence", "Meshack", "Kevin", "Priscah", "Other"]
 const ASSIGNEES_KEY = "ticket_assignees"
+let activeAdminTicketTour: ReturnType<typeof driver> | null = null
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -394,6 +395,7 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
   }
 
   const launchTicketTour = () => {
+    activeAdminTicketTour?.destroy()
     const tour = driver({
       showProgress: true,
       animate: true,
@@ -445,8 +447,16 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
         window.localStorage.setItem(TICKET_TOUR_STORAGE_KEY, "1")
       },
     })
+    activeAdminTicketTour = tour
     tour.drive()
   }
+
+  useEffect(() => {
+    return () => {
+      activeAdminTicketTour?.destroy()
+      activeAdminTicketTour = null
+    }
+  }, [])
 
   const handleEdit = (ticket: Ticket) => {
     setEditingTicket(ticket)

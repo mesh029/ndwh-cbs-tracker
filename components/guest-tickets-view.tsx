@@ -35,6 +35,7 @@ const REPORTER_ROLES = [
 ] as const
 
 const DEFAULT_ASSIGNEES = ["Lawrence", "Meshack", "Kevin", "Priscah", "Other"]
+let activeGuestTicketTour: ReturnType<typeof driver> | null = null
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -299,6 +300,7 @@ export function GuestTicketsView() {
   }
 
   const launchTicketTour = () => {
+    activeGuestTicketTour?.destroy()
     const tour = driver({
       showProgress: true,
       animate: true,
@@ -350,6 +352,7 @@ export function GuestTicketsView() {
         window.localStorage.setItem(TICKET_TOUR_STORAGE_KEY, "1")
       },
     })
+    activeGuestTicketTour = tour
     tour.drive()
   }
 
@@ -425,6 +428,10 @@ export function GuestTicketsView() {
     const hasSeenTour = window.localStorage.getItem(TICKET_TOUR_STORAGE_KEY) === "1"
     if (!hasSeenTour && !showForm) {
       openFormAndTour()
+    }
+    return () => {
+      activeGuestTicketTour?.destroy()
+      activeGuestTicketTour = null
     }
   }, [])
 

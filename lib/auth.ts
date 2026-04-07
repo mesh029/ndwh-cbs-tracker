@@ -12,12 +12,12 @@ export const AUTH_USERNAME_COOKIE = "ndwh_user"
 export const AUTH_ACCESS_COOKIE = "ndwh_access"
 export const AUTH_EMAIL_COOKIE = "ndwh_email"
 
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin"
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123"
-const GUEST_USERNAME = process.env.GUEST_USERNAME || "guest"
-const GUEST_PASSWORD = process.env.GUEST_PASSWORD || "guest123"
-const SUPERADMIN_USERNAME = process.env.SUPERADMIN_USERNAME || "superadmin"
-const SUPERADMIN_PASSWORD = process.env.SUPERADMIN_PASSWORD || "superadmin123"
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
+const GUEST_USERNAME = process.env.GUEST_USERNAME
+const GUEST_PASSWORD = process.env.GUEST_PASSWORD
+const SUPERADMIN_USERNAME = process.env.SUPERADMIN_USERNAME
+const SUPERADMIN_PASSWORD = process.env.SUPERADMIN_PASSWORD
 
 export function isValidRole(value: string | undefined | null): value is UserRole {
   return value === "admin" || value === "guest" || value === "superadmin"
@@ -28,6 +28,14 @@ function normalizeModulesForRole(role: UserRole, modules: string[]): string[] {
   if (role === "superadmin") return ["dashboard", "tickets", "assets", "facility", "reports", "uploads", "users"]
   if (role === "admin") return Array.from(new Set([...unique, "dashboard", "tickets", "assets"]))
   return unique.length > 0 ? unique : ["tickets"]
+}
+
+function normalizeAccessForRole(role: UserRole, access: UserAccess | null | undefined): UserAccess {
+  const base = access || defaultAccessForRole(role)
+  return {
+    locations: base.locations,
+    modules: normalizeModulesForRole(role, base.modules || []),
+  }
 }
 
 function defaultAccessForRole(role: UserRole): UserAccess {
@@ -89,13 +97,13 @@ export async function resolveRoleFromCredentials(
     }
   }
 
-  if (cleanUsername === SUPERADMIN_USERNAME && password === SUPERADMIN_PASSWORD) {
+  if (SUPERADMIN_USERNAME && SUPERADMIN_PASSWORD && cleanUsername === SUPERADMIN_USERNAME && password === SUPERADMIN_PASSWORD) {
     return { role: "superadmin", displayName: SUPERADMIN_USERNAME, access: defaultAccessForRole("superadmin") }
   }
-  if (cleanUsername === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+  if (ADMIN_USERNAME && ADMIN_PASSWORD && cleanUsername === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
     return { role: "admin", displayName: ADMIN_USERNAME, access: defaultAccessForRole("admin") }
   }
-  if (cleanUsername === GUEST_USERNAME && password === GUEST_PASSWORD) {
+  if (GUEST_USERNAME && GUEST_PASSWORD && cleanUsername === GUEST_USERNAME && password === GUEST_PASSWORD) {
     return { role: "guest", displayName: GUEST_USERNAME, access: defaultAccessForRole("guest") }
   }
   return null
@@ -123,15 +131,11 @@ export function getAccessFromRequest(request: NextRequest): UserAccess | null {
   const role = getRoleFromRequest(request)
   if (!role) return null
   const parsed = parseAccessCookie(request.cookies.get(AUTH_ACCESS_COOKIE)?.value)
-  const resolved = parsed || defaultAccessForRole(role)
-  return {
-    locations: resolved.locations,
-    modules: normalizeModulesForRole(role, resolved.modules || []),
-  }
+  return normalizeAccessForRole(role, parsed || defaultAccessForRole(role))
 }
 
 export function getDefaultRedirect(role: UserRole, access?: UserAccess | null): string {
-  const resolvedAccess = access || defaultAccessForRole(role)
+  const resolvedAccess = normalizeAccessForRole(role, access || defaultAccessForRole(role))
   const firstLocation = resolvedAccess.locations === "all" ? null : resolvedAccess.locations[0]
   if (resolvedAccess.modules.includes("dashboard")) {
     return firstLocation ? `/nyamira?location=${encodeURIComponent(firstLocation)}` : "/nyamira"
@@ -152,12 +156,12 @@ export function canAccessLocation(access: UserAccess | null | undefined, locatio
 export function canManageAssets(role: UserRole | null, access: UserAccess | null | undefined): boolean {
   if (!role) return false
   if (role === "superadmin") return true
-  const resolvedAccess = access || defaultAccessForRole(role)
+  const resolvedAccess = normalizeAccessForRole(role, access || defaultAccessForRole(role))
   return resolvedAccess.modules.includes("assets")
 }
 
 export function canAccessPath(role: UserRole, pathname: string, access?: UserAccess | null): boolean {
-  const resolvedAccess = access || defaultAccessForRole(role)
+  const resolvedAccess = normalizeAccessForRole(role, access || defaultAccessForRole(role))
   const hasModule = (moduleName: string) => resolvedAccess.modules.includes(moduleName)
   // Superadmin has full access
   if (role === "superadmin") return true

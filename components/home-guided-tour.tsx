@@ -6,8 +6,10 @@ import "driver.js/dist/driver.css"
 import { Button } from "@/components/ui/button"
 
 const HOME_TOUR_STORAGE_KEY = "home_guided_tour_seen_v1"
+let activeHomeTour: ReturnType<typeof driver> | null = null
 
 function runHomeTour() {
+  activeHomeTour?.destroy()
   const tour = driver({
     showProgress: true,
     allowClose: true,
@@ -52,6 +54,7 @@ function runHomeTour() {
     ],
   })
 
+  activeHomeTour = tour
   tour.drive()
 }
 
@@ -62,6 +65,10 @@ export function HomeGuidedTour() {
     if (!seen) {
       runHomeTour()
       window.localStorage.setItem(HOME_TOUR_STORAGE_KEY, "true")
+    }
+    return () => {
+      activeHomeTour?.destroy()
+      activeHomeTour = null
     }
   }, [])
 
