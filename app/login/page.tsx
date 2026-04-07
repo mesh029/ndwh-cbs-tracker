@@ -6,6 +6,8 @@ import { useAuth } from "@/components/auth-provider"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { APP_VERSION } from "@/lib/version"
+import { Badge } from "@/components/ui/badge"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -44,14 +46,17 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-2xl">PATH HIS Dashboards</CardTitle>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle className="text-2xl">PATH HIS</CardTitle>
+            <Badge variant="outline" className="text-xs">v{APP_VERSION}</Badge>
+          </div>
           <CardDescription>Sign in to access the system</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
-              <label className="text-sm font-medium mb-1 block">Username</label>
-              <Input value={username} onChange={(e) => setUsername(e.target.value)} required />
+              <label className="text-sm font-medium mb-1 block">Email</label>
+              <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="name@path.org" required />
             </div>
             <div>
               <label className="text-sm font-medium mb-1 block">Password</label>

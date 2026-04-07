@@ -1,6 +1,8 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { driver } from "driver.js"
+import "driver.js/dist/driver.css"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -136,6 +138,7 @@ function TicketCard({ ticket }: { ticket: Ticket }) {
 
 export function GuestTicketsView() {
   const { toast } = useToast()
+  const TICKET_TOUR_STORAGE_KEY = "guest_ticket_form_tour_seen_v1"
 
   // ── create form state ──
   const [showForm, setShowForm] = useState(false)
@@ -295,6 +298,68 @@ export function GuestTicketsView() {
     setShowForm(false)
   }
 
+  const launchTicketTour = () => {
+    const tour = driver({
+      showProgress: true,
+      animate: true,
+      steps: [
+        {
+          element: '[data-tour="guest-location"]',
+          popover: {
+            title: "Pick county and location",
+            description: "Select the county first (Kakamega, Vihiga, Nyamira, or Kisumu) so facility and subcounty options are correct.",
+          },
+        },
+        {
+          element: '[data-tour="guest-facility"]',
+          popover: {
+            title: "Choose facility",
+            description: "Type your facility name and pick the best match. Subcounty auto-detects from the master list.",
+          },
+        },
+        {
+          element: '[data-tour="guest-categories"]',
+          popover: {
+            title: "Tag the issue correctly",
+            description: "Pick one or more categories to improve triage and route faster to EMR support.",
+          },
+        },
+        {
+          element: '[data-tour="guest-problem"]',
+          popover: {
+            title: "Describe impact clearly",
+            description: "Include symptoms, downtime impact, and when the issue started to speed first response.",
+          },
+        },
+        {
+          element: '[data-tour="guest-assigned"]',
+          popover: {
+            title: "Set first responder",
+            description: "Select the support owner for immediate action. Urgent outages should be assigned right away.",
+          },
+        },
+        {
+          element: '[data-tour="guest-submit"]',
+          popover: {
+            title: "Submit and escalate if critical",
+            description: "Submit now to alert support. For critical service outages, follow your escalation SOP after submission.",
+          },
+        },
+      ],
+      onDestroyed: () => {
+        window.localStorage.setItem(TICKET_TOUR_STORAGE_KEY, "1")
+      },
+    })
+    tour.drive()
+  }
+
+  const openFormAndTour = () => {
+    setShowForm(true)
+    window.setTimeout(() => {
+      launchTicketTour()
+    }, 250)
+  }
+
   // ── Submit ──
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -355,6 +420,14 @@ export function GuestTicketsView() {
   const activeTickets = ticketsByLocation[activeTab] || []
   const isLoadingTab = loadingLocations.has(activeTab)
 
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const hasSeenTour = window.localStorage.getItem(TICKET_TOUR_STORAGE_KEY) === "1"
+    if (!hasSeenTour && !showForm) {
+      openFormAndTour()
+    }
+  }, [])
+
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="max-w-3xl mx-auto space-y-8 py-4">
@@ -391,6 +464,14 @@ export function GuestTicketsView() {
           >
             <Plus className="mr-2 h-5 w-5" />
             Log a Ticket
+          </Button>
+          <Button
+            size="lg"
+            variant="outline"
+            className="border-white/40 text-white hover:bg-white/10"
+            onClick={openFormAndTour}
+          >
+            Guided Help
           </Button>
           <Button
             size="lg"
@@ -501,7 +582,7 @@ export function GuestTicketsView() {
       {/* ── Create Ticket Dialog ─────────────────────────────────────────── */}
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) resetForm() }}>
         <DialogContent
-          className="max-w-2xl max-h-[90vh] overflow-y-auto"
+          className="w-[95vw] sm:w-full max-w-2xl max-h-[92vh] overflow-y-auto p-4 sm:p-6"
           onPointerDownOutside={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
         >
@@ -515,14 +596,14 @@ export function GuestTicketsView() {
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4 pb-20 sm:pb-0">
 
             {/* Location + Subcounty */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-sm font-medium mb-2 block">Location <span className="text-red-500">*</span></label>
                 <Select value={location} onValueChange={setLocation}>
-                  <SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger>
+                  <SelectTrigger data-tour="guest-location"><SelectValue placeholder="Select location" /></SelectTrigger>
                   <SelectContent>{LOCATIONS.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
@@ -556,6 +637,7 @@ export function GuestTicketsView() {
               ) : (
                 <>
                   <Input
+                    data-tour="guest-facility"
                     value={facilityName}
                     onChange={(e) => handleFacilityNameChange(e.target.value)}
                     placeholder="Type to search or select facility"
@@ -575,7 +657,7 @@ export function GuestTicketsView() {
             {/* Issue categories */}
             <div>
               <label className="text-sm font-medium mb-2 block">Issue Categories <span className="text-red-500">*</span></label>
-              <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-muted/30">
+              <div data-tour="guest-categories" className="flex flex-wrap gap-2 p-3 border rounded-md bg-muted/30">
                 {ISSUE_CHIPS.map((chip) => (
                   <button
                     key={chip} type="button" onClick={() => toggleChip(chip)}
@@ -597,6 +679,7 @@ export function GuestTicketsView() {
             <div>
               <label className="text-sm font-medium mb-2 block">Problem Description <span className="text-red-500">*</span></label>
               <Textarea
+                data-tour="guest-problem"
                 value={problem}
                 onChange={(e) => setProblem(e.target.value)}
                 placeholder="Describe the issue in as much detail as possible…"
@@ -632,7 +715,7 @@ export function GuestTicketsView() {
             {/* Assigned To */}
             <div>
               <label className="text-sm font-medium mb-2 block">Assign To <span className="text-red-500">*</span></label>
-              <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-muted/30">
+              <div data-tour="guest-assigned" className="flex flex-wrap gap-2 p-3 border rounded-md bg-muted/30">
                 {assigneeChips.map((name) => (
                   <button
                     key={name} type="button" onClick={() => setAssignedTo(name)}
@@ -666,12 +749,13 @@ export function GuestTicketsView() {
               </p>
             </div>
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={resetForm}>Cancel</Button>
+            <DialogFooter className="fixed bottom-0 left-0 right-0 sm:static bg-background border-t sm:border-t-0 p-4 sm:p-0 flex-col sm:flex-row gap-2">
+              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={resetForm}>Cancel</Button>
               <Button
+                data-tour="guest-submit"
                 type="submit"
                 disabled={isSaving || !assignedTo || selectedChips.length === 0}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
+                className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white"
               >
                 {isSaving ? (
                   <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Submitting…</>

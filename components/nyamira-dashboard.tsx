@@ -31,6 +31,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
+import { useAuth } from "@/components/auth-provider"
 import type { ChartConfig } from "@/components/ui/chart"
 import type { Location } from "@/lib/storage"
 
@@ -44,8 +45,15 @@ interface NyamiraDashboardProps {
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
 export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardProps = {}) {
+  const { access } = useAuth()
+  const allowedLocations = access?.locations === "all"
+    ? LOCATIONS
+    : LOCATIONS.filter((location) => access?.locations?.includes(location))
+  const defaultLocation = propLocation && allowedLocations.includes(propLocation)
+    ? propLocation
+    : (allowedLocations[0] || "Nyamira")
   // Use state for location so users can switch
-  const [selectedLocation, setSelectedLocation] = useState<Location>(propLocation || "Nyamira")
+  const [selectedLocation, setSelectedLocation] = useState<Location>(defaultLocation)
   const location: Location = selectedLocation
   const [serverDistribution, setServerDistribution] = useState<Array<{ serverType: string; count: number; facilities: string[] }>>([])
   const [tickets, setTickets] = useState<any[]>([])
@@ -101,6 +109,13 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
   const [hasLoadedTickets, setHasLoadedTickets] = useState(false)
   const [hasLoadedServerDistribution, setHasLoadedServerDistribution] = useState(false)
   const { toast } = useToast()
+
+  useEffect(() => {
+    if (allowedLocations.length === 0) return
+    if (!allowedLocations.includes(selectedLocation)) {
+      setSelectedLocation(allowedLocations[0])
+    }
+  }, [allowedLocations, selectedLocation])
 
   // Get facility data for both systems
   const ndwhData = useFacilityData("NDWH", location)
@@ -850,7 +865,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {LOCATIONS.map((loc) => (
+              {allowedLocations.map((loc) => (
                 <SelectItem key={loc} value={loc}>
                   {loc}
                 </SelectItem>

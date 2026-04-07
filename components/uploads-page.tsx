@@ -20,10 +20,16 @@ import {
 } from "@/components/ui/chart"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Legend } from "recharts"
 import type { Location } from "@/lib/storage"
+import { useAuth } from "@/components/auth-provider"
 
 const AVAILABLE_LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
 export function UploadsPage() {
+  const { access } = useAuth()
+  const allowedLocations = access?.locations === "all"
+    ? AVAILABLE_LOCATIONS
+    : AVAILABLE_LOCATIONS.filter((location) => access?.locations?.includes(location))
+  const defaultLocation = allowedLocations[0] || "Nyamira"
   const [cbsUploadText, setCbsUploadText] = useState("")
   const [ndwhUploadText, setNdwhUploadText] = useState("")
   const [isCbsUploading, setIsCbsUploading] = useState(false)
@@ -32,9 +38,9 @@ export function UploadsPage() {
   const [ndwhDate, setNdwhDate] = useState<Date | undefined>(new Date())
   const [cbsDateOpen, setCbsDateOpen] = useState(false)
   const [ndwhDateOpen, setNdwhDateOpen] = useState(false)
-  const [cbsLocation, setCbsLocation] = useState<Location>("Nyamira")
-  const [ndwhLocation, setNdwhLocation] = useState<Location>("Nyamira")
-  const [selectedLocationForHistory, setSelectedLocationForHistory] = useState<Location>("Nyamira")
+  const [cbsLocation, setCbsLocation] = useState<Location>(defaultLocation)
+  const [ndwhLocation, setNdwhLocation] = useState<Location>(defaultLocation)
+  const [selectedLocationForHistory, setSelectedLocationForHistory] = useState<Location>(defaultLocation)
   const [uploadHistory, setUploadHistory] = useState<any[]>([])
   const [masterFacilityCounts, setMasterFacilityCounts] = useState<{
     cbs: number
@@ -76,6 +82,13 @@ export function UploadsPage() {
     loadUploadHistory()
     loadMasterFacilityCounts()
   }, [loadUploadHistory, loadMasterFacilityCounts])
+
+  useEffect(() => {
+    if (allowedLocations.length === 0) return
+    if (!allowedLocations.includes(cbsLocation)) setCbsLocation(allowedLocations[0])
+    if (!allowedLocations.includes(ndwhLocation)) setNdwhLocation(allowedLocations[0])
+    if (!allowedLocations.includes(selectedLocationForHistory)) setSelectedLocationForHistory(allowedLocations[0])
+  }, [allowedLocations, cbsLocation, ndwhLocation, selectedLocationForHistory])
 
   const getWeekString = (date: Date): string => {
     const weekStart = startOfWeek(date, { weekStartsOn: 1 }) // Monday
@@ -337,7 +350,7 @@ export function UploadsPage() {
                       <SelectValue placeholder="Select location" />
                     </SelectTrigger>
                     <SelectContent>
-                      {AVAILABLE_LOCATIONS.map((loc) => (
+                      {allowedLocations.map((loc) => (
                         <SelectItem key={loc} value={loc}>
                           {loc}
                         </SelectItem>
@@ -425,7 +438,7 @@ export function UploadsPage() {
                       <SelectValue placeholder="Select location" />
                     </SelectTrigger>
                     <SelectContent>
-                      {AVAILABLE_LOCATIONS.map((loc) => (
+                      {allowedLocations.map((loc) => (
                         <SelectItem key={loc} value={loc}>
                           {loc}
                         </SelectItem>
@@ -516,7 +529,7 @@ export function UploadsPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {AVAILABLE_LOCATIONS.map((loc) => (
+                      {allowedLocations.map((loc) => (
                         <SelectItem key={loc} value={loc}>
                           {loc}
                         </SelectItem>

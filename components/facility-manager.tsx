@@ -19,11 +19,10 @@ import { canDownloadTemplates, canUploadData } from "@/lib/auth"
 import { useAuth } from "@/components/auth-provider"
 import * as XLSX from "xlsx"
 
-const SYSTEMS: SystemType[] = ["NDWH", "CBS"]
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
 export function FacilityManager() {
-  const [selectedSystem, setSelectedSystem] = useState<SystemType>("NDWH")
+  const selectedSystem: SystemType = "NDWH"
   const [selectedLocation, setSelectedLocation] = useState<Location>("Kakamega")
   const [pasteText, setPasteText] = useState("")
   const [bulkFacilities, setBulkFacilities] = useState("")
@@ -69,8 +68,17 @@ export function FacilityManager() {
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [showErrorDialog, setShowErrorDialog] = useState(false)
   const [importErrors, setImportErrors] = useState<Array<{ facility: string; reason: string }>>([])
-  const { role } = useAuth()
+  const { role, access } = useAuth()
   const { toast } = useToast()
+  const allowedLocations = access?.locations === "all"
+    ? LOCATIONS
+    : LOCATIONS.filter((location) => access?.locations?.includes(location))
+
+  useEffect(() => {
+    if (allowedLocations.length > 0 && !allowedLocations.includes(selectedLocation)) {
+      setSelectedLocation(allowedLocations[0])
+    }
+  }, [allowedLocations, selectedLocation])
 
   const {
     masterFacilities,
@@ -855,25 +863,12 @@ export function FacilityManager() {
         <div>
           <h1 className="text-3xl font-bold">Facility Manager</h1>
           <p className="text-muted-foreground">
-            Manage master facility lists by system and location
+            Manage master facility lists by location
           </p>
         </div>
       </div>
 
       <div className="flex gap-4">
-        <Select value={selectedSystem} onValueChange={(v) => setSelectedSystem(v as SystemType)}>
-          <SelectTrigger className="w-40">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {SYSTEMS.map((system) => (
-              <SelectItem key={system} value={system}>
-                {system}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
         <Select
           value={selectedLocation}
           onValueChange={(v) => setSelectedLocation(v as Location)}
@@ -882,7 +877,7 @@ export function FacilityManager() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {LOCATIONS.map((location) => (
+            {allowedLocations.map((location) => (
               <SelectItem key={location} value={location}>
                 {location}
               </SelectItem>
@@ -896,7 +891,7 @@ export function FacilityManager() {
           <CardHeader>
             <CardTitle>Add Facilities</CardTitle>
             <CardDescription>
-              Add facilities for {selectedSystem} - {selectedLocation}
+              Add facilities for {selectedLocation}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

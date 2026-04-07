@@ -5,8 +5,8 @@ import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "Facility Reporting Dashboard",
-  description: "Track facility reporting status by location",
+  title: "PATH HIS — EMR & Assets",
+  description: "EMR support, assets, and reporting dashboards",
 }
 
 export default function RootLayout({

@@ -74,21 +74,7 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
 
   const loadFacilities = async () => {
     try {
-      const responses = await Promise.all([
-        fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`),
-        fetch(`/api/facilities?system=CBS&location=${location}&isMaster=true`),
-      ])
-
-      const merged = new Map<string, Facility>()
-      for (const response of responses) {
-        if (!response.ok) continue
-        const data = await response.json()
-        for (const facility of (data.facilities || []) as Facility[]) {
-          const key = facility.name.trim().toLowerCase()
-          if (!merged.has(key)) merged.set(key, facility)
-        }
-      }
-      const facilitiesList = Array.from(merged.values())
+      const facilitiesList = await fetchFacilitiesForLocation()
       setFacilities(facilitiesList)
       setSelectedFacilities(new Set(facilitiesList.map((f) => f.id)))
       setSelectAll(true)
@@ -102,67 +88,85 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
     }
   }
 
+  const fetchFacilitiesForLocation = async (): Promise<Facility[]> => {
+    const responses = await Promise.all([
+        fetch(`/api/facilities?system=NDWH&location=${location}&isMaster=true`),
+        fetch(`/api/facilities?system=CBS&location=${location}&isMaster=true`),
+    ])
+
+    const merged = new Map<string, Facility>()
+    for (const response of responses) {
+      if (!response.ok) continue
+      const data = await response.json()
+      for (const facility of (data.facilities || []) as Facility[]) {
+        const key = facility.name.trim().toLowerCase()
+        if (!merged.has(key)) merged.set(key, facility)
+      }
+    }
+    return Array.from(merged.values())
+  }
+
   const handleDownloadTemplate = () => {
     setShowFacilityDialog(true)
+  }
+
+  const downloadTemplateForFacilities = async (selectedFacilityList: Facility[]) => {
+    // Fetch existing assets for selected facilities to pre-fill templates
+    let existingAssets: any[] = []
+    if (selectedFacilityList.length > 0) {
+      try {
+        let assetsEndpoint = ""
+
+        switch (section) {
+          case "server":
+            assetsEndpoint = `/api/assets/servers?location=${location}`
+            break
+          case "router":
+            assetsEndpoint = `/api/assets/routers?location=${location}`
+            break
+          case "simcard":
+            assetsEndpoint = `/api/assets/simcards?location=${location}`
+            break
+        }
+
+        if (assetsEndpoint) {
+          const assetsRes = await fetch(assetsEndpoint)
+          if (assetsRes.ok) {
+            const assetsData = await assetsRes.json()
+            const selectedFacilityNames = new Set(selectedFacilityList.map((f) => f.name))
+            existingAssets = (assetsData.assets || []).filter((a: any) =>
+              selectedFacilityNames.has(a.facilityName)
+            )
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching existing assets:", error)
+      }
+    }
+
+    switch (section) {
+      case "server":
+        generateServerTemplate(location, selectedFacilityList, existingAssets)
+        break
+      case "router":
+        generateRouterTemplate(location, selectedFacilityList, existingAssets)
+        break
+      case "simcard":
+        generateSimcardTemplate(location, selectedFacilityList, existingAssets)
+        break
+      case "lan":
+        generateLANTemplate(location, selectedFacilityList)
+        break
+      case "ticket":
+        generateTicketTemplate(location, selectedFacilityList)
+        break
+    }
   }
 
   const handleConfirmTemplateDownload = async () => {
     try {
       const selectedFacilityList = facilities.filter(f => selectedFacilities.has(f.id))
-      
-      // Fetch existing assets for selected facilities to pre-fill templates
-      let existingAssets: any[] = []
-      if (selectedFacilityList.length > 0) {
-        try {
-          const facilityIds = selectedFacilityList.map(f => f.id).join(",")
-          let assetsEndpoint = ""
-          
-          switch (section) {
-            case "server":
-              assetsEndpoint = `/api/assets/servers?location=${location}`
-              break
-            case "router":
-              assetsEndpoint = `/api/assets/routers?location=${location}`
-              break
-            case "simcard":
-              assetsEndpoint = `/api/assets/simcards?location=${location}`
-              break
-          }
-          
-          if (assetsEndpoint) {
-            const assetsRes = await fetch(assetsEndpoint)
-            if (assetsRes.ok) {
-              const assetsData = await assetsRes.json()
-              // Filter to only include assets for selected facilities
-              const selectedFacilityNames = new Set(selectedFacilityList.map(f => f.name))
-              existingAssets = (assetsData.assets || []).filter((a: any) => 
-                selectedFacilityNames.has(a.facilityName)
-              )
-            }
-          }
-        } catch (error) {
-          console.error("Error fetching existing assets:", error)
-          // Continue without existing assets if fetch fails
-        }
-      }
-      
-      switch (section) {
-        case "server":
-          generateServerTemplate(location, selectedFacilityList, existingAssets)
-          break
-        case "router":
-          generateRouterTemplate(location, selectedFacilityList, existingAssets)
-          break
-        case "simcard":
-          generateSimcardTemplate(location, selectedFacilityList, existingAssets)
-          break
-        case "lan":
-          generateLANTemplate(location, selectedFacilityList)
-          break
-        case "ticket":
-          generateTicketTemplate(location, selectedFacilityList)
-          break
-      }
+      await downloadTemplateForFacilities(selectedFacilityList)
       toast({
         title: "Success",
         description: `Template downloaded with ${selectedFacilityList.length} facility${selectedFacilityList.length !== 1 ? "ies" : ""}`,
@@ -174,6 +178,32 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
       toast({
         title: "Error",
         description: "Failed to generate template",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleQuickBulkTemplateDownload = async () => {
+    try {
+      const selectedFacilityList = await fetchFacilitiesForLocation()
+      if (selectedFacilityList.length === 0) {
+        toast({
+          title: "No facilities",
+          description: `No facilities found for ${location}`,
+          variant: "destructive",
+        })
+        return
+      }
+
+      await downloadTemplateForFacilities(selectedFacilityList)
+      toast({
+        title: "Template ready",
+        description: `Bulk template downloaded for ${selectedFacilityList.length} facilities in ${location}.`,
+      })
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to generate bulk template",
         variant: "destructive",
       })
     }
@@ -528,16 +558,28 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
     <>
       <div className="flex flex-wrap gap-2">
         {canDownloadTemplates(role) && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleDownloadTemplate}
-            className="gap-2"
-          >
-            <Download className="h-4 w-4" />
-            <span className="hidden sm:inline">Download Template</span>
-            <span className="sm:hidden">Template</span>
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleQuickBulkTemplateDownload}
+              className="gap-2"
+            >
+              <Download className="h-4 w-4" />
+              <span className="hidden sm:inline">Bulk Template (All Facilities)</span>
+              <span className="sm:hidden">Bulk Template</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDownloadTemplate}
+              className="gap-2"
+            >
+              <Download className="h-4 w-4" />
+              <span className="hidden sm:inline">Template (Choose Facilities)</span>
+              <span className="sm:hidden">Choose Facilities</span>
+            </Button>
+          </>
         )}
         {canUploadData(role) && (
           <label>
@@ -559,7 +601,7 @@ export function SectionUpload({ section, location, onUploadComplete }: SectionUp
                 <Upload className="h-4 w-4" />
                 {isUploading ? "Uploading..." : (
                   <>
-                    <span className="hidden sm:inline">Upload {sectionLabels[section]}</span>
+                    <span className="hidden sm:inline">Upload Filled {sectionLabels[section]} Template</span>
                     <span className="sm:hidden">Upload</span>
                   </>
                 )}

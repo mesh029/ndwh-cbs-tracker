@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -9,13 +9,19 @@ import { Upload } from "lucide-react"
 import { useFacilityData } from "@/hooks/use-facility-data"
 import { useToast } from "@/components/ui/use-toast"
 import type { SystemType, Location } from "@/lib/storage"
+import { useAuth } from "@/components/auth-provider"
 
 const SYSTEMS: SystemType[] = ["NDWH", "CBS"]
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
 export function ReportingInput() {
+  const { access } = useAuth()
+  const allowedLocations = access?.locations === "all"
+    ? LOCATIONS
+    : LOCATIONS.filter((location) => access?.locations?.includes(location))
+  const defaultLocation = allowedLocations[0] || "Kakamega"
   const [selectedSystem, setSelectedSystem] = useState<SystemType>("NDWH")
-  const [selectedLocation, setSelectedLocation] = useState<Location>("Kakamega")
+  const [selectedLocation, setSelectedLocation] = useState<Location>(defaultLocation)
   const [reportText, setReportText] = useState("")
   const { toast } = useToast()
 
@@ -23,6 +29,12 @@ export function ReportingInput() {
     selectedSystem,
     selectedLocation
   )
+
+  useEffect(() => {
+    if (allowedLocations.length > 0 && !allowedLocations.includes(selectedLocation)) {
+      setSelectedLocation(allowedLocations[0])
+    }
+  }, [allowedLocations, selectedLocation])
 
   const handleSubmit = async () => {
     if (!reportText.trim()) {
@@ -92,7 +104,7 @@ export function ReportingInput() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {LOCATIONS.map((location) => (
+              {allowedLocations.map((location) => (
                 <SelectItem key={location} value={location}>
                   {location}
                 </SelectItem>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -9,14 +9,25 @@ import { useFacilityData } from "@/hooks/use-facility-data"
 import { useToast } from "@/components/ui/use-toast"
 import type { SystemType, Location } from "@/lib/storage"
 import * as XLSX from "xlsx"
+import { useAuth } from "@/components/auth-provider"
 
 const SYSTEMS: SystemType[] = ["NDWH", "CBS"]
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
 export function Reports() {
+  const { access } = useAuth()
+  const allowedLocations = (access?.locations === "all" || !access?.locations)
+    ? LOCATIONS
+    : LOCATIONS.filter((loc) => access.locations.includes(loc))
   const [selectedSystem, setSelectedSystem] = useState<SystemType>("NDWH")
   const [selectedLocation, setSelectedLocation] = useState<Location | "all">("all")
   const { toast } = useToast()
+
+  useEffect(() => {
+    if (access?.locations !== "all" && allowedLocations.length > 0 && selectedLocation === "all") {
+      setSelectedLocation(allowedLocations[0])
+    }
+  }, [access?.locations, allowedLocations, selectedLocation])
 
   // Get data for all locations - using hooks properly
   const kakamegaData = useFacilityData(selectedSystem, "Kakamega")
@@ -507,7 +518,7 @@ export function Reports() {
     try {
       const wb = XLSX.utils.book_new()
       const timestamp = new Date().toISOString().split("T")[0]
-      const locations = selectedLocation === "all" ? LOCATIONS : [selectedLocation as Location]
+      const locations = selectedLocation === "all" ? allowedLocations : [selectedLocation as Location]
 
       // 1. EMR Facilities Summary
       const summaryRows: any[] = []
@@ -613,7 +624,7 @@ export function Reports() {
     try {
       const wb = XLSX.utils.book_new()
       const timestamp = new Date().toISOString().split("T")[0]
-      const locations = selectedLocation === "all" ? LOCATIONS : [selectedLocation as Location]
+      const locations = selectedLocation === "all" ? allowedLocations : [selectedLocation as Location]
 
       // Servers
       const serverRows: any[] = []
@@ -775,7 +786,7 @@ export function Reports() {
     try {
       const wb = XLSX.utils.book_new()
       const timestamp = new Date().toISOString().split("T")[0]
-      const locations = selectedLocation === "all" ? LOCATIONS : [selectedLocation as Location]
+      const locations = selectedLocation === "all" ? allowedLocations : [selectedLocation as Location]
 
       // Ticket Summary
       const summaryRows: any[] = []
@@ -888,7 +899,7 @@ export function Reports() {
     try {
       const wb = XLSX.utils.book_new()
       const timestamp = new Date().toISOString().split("T")[0]
-      const locations = selectedLocation === "all" ? LOCATIONS : [selectedLocation as Location]
+      const locations = selectedLocation === "all" ? allowedLocations : [selectedLocation as Location]
       stepsTotal = locations.length + 1
 
       // Analytics by County
@@ -1028,7 +1039,7 @@ export function Reports() {
       updateExcelStep("Facility status sheet ready")
 
       // 3. Facility Inventory Sheet - Server types, router types, simcards, LAN per facility
-      const locations = selectedLocation === "all" ? LOCATIONS : [selectedLocation]
+      const locations = selectedLocation === "all" ? allowedLocations : [selectedLocation]
       const facilityInventoryRows: any[] = []
       
       for (const loc of locations) {
@@ -1308,8 +1319,8 @@ export function Reports() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Locations</SelectItem>
-            {LOCATIONS.map((location) => (
+            {access?.locations === "all" && <SelectItem value="all">All Locations</SelectItem>}
+            {allowedLocations.map((location) => (
               <SelectItem key={location} value={location}>
                 {location}
               </SelectItem>
@@ -1376,7 +1387,7 @@ export function Reports() {
 
       {selectedLocation === "all" && (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {LOCATIONS.map((location) => {
+          {allowedLocations.map((location) => {
             const locationData = displayData.find((d) => d.location === location)
             if (!locationData) return null
 

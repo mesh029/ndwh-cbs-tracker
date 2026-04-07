@@ -12,6 +12,7 @@ import { Search, CheckCircle2, XCircle, Plus, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useFacilityData } from "@/hooks/use-facility-data"
 import { useToast } from "@/components/ui/use-toast"
+import { useAuth } from "@/components/auth-provider"
 import { ReportingInput } from "./reporting-input"
 import { CaseSensitivityDemo } from "./case-sensitivity-demo"
 import {
@@ -26,8 +27,13 @@ const SYSTEMS: SystemType[] = ["NDWH", "CBS"]
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
 export function Dashboard() {
+  const { access } = useAuth()
+  const allowedLocations = access?.locations === "all"
+    ? LOCATIONS
+    : LOCATIONS.filter((location) => access?.locations?.includes(location))
+  const canUseAllLocations = allowedLocations.length > 1
   const [selectedSystem, setSelectedSystem] = useState<SystemType>("NDWH")
-  const [selectedLocation, setSelectedLocation] = useState<Location | "all">("all")
+  const [selectedLocation, setSelectedLocation] = useState<Location | "all">(canUseAllLocations ? "all" : (allowedLocations[0] || "Nyamira"))
   const [searchQuery, setSearchQuery] = useState("")
   const { toast } = useToast()
   const [isLoadingStats, setIsLoadingStats] = useState(true)
@@ -38,6 +44,17 @@ export function Dashboard() {
     cbs: { total: 0, matched: 0, unmatched: 0 },
     ndwh: { total: 0, matched: 0, unmatched: 0 },
   })
+
+  useEffect(() => {
+    if (allowedLocations.length === 0) return
+    if (selectedLocation === "all" && !canUseAllLocations) {
+      setSelectedLocation(allowedLocations[0])
+      return
+    }
+    if (selectedLocation !== "all" && !allowedLocations.includes(selectedLocation)) {
+      setSelectedLocation(allowedLocations[0])
+    }
+  }, [allowedLocations, canUseAllLocations, selectedLocation])
 
   // Helper function to calculate "uploaded when" text
   const getUploadedWhen = (timestamp: Date | string | undefined): string => {
@@ -169,10 +186,11 @@ export function Dashboard() {
   }, [kakamegaData, vihigaData, nyamiraData, kisumuData])
 
   // Filter by location if selected
+  const scopedLocationData = locationData.filter((d) => allowedLocations.includes(d.location))
   const displayData =
     selectedLocation === "all"
-      ? locationData
-      : locationData.filter((d) => d.location === selectedLocation)
+      ? scopedLocationData
+      : scopedLocationData.filter((d) => d.location === selectedLocation)
 
   // Filter by search query
   // IMPORTANT: Ensure unmatched reported facilities are also included in search filtering
@@ -398,8 +416,8 @@ export function Dashboard() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Locations</SelectItem>
-            {LOCATIONS.map((location) => (
+            {canUseAllLocations && <SelectItem value="all">All Locations</SelectItem>}
+            {allowedLocations.map((location) => (
               <SelectItem key={location} value={location}>
                 {location}
               </SelectItem>

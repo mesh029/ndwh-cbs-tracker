@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
-import { AUTH_COOKIE_NAME, canAccessPath, isValidRole } from "@/lib/auth"
+import { AUTH_ACCESS_COOKIE, AUTH_COOKIE_NAME, canAccessPath, getDefaultRedirect, isValidRole, parseAccessCookie } from "@/lib/auth"
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
+  const publicPaths = new Set(["/", "/login", "/articles"])
 
   if (
     pathname.startsWith("/_next") ||
@@ -18,9 +19,13 @@ export function middleware(request: NextRequest) {
 
   const roleCookie = request.cookies.get(AUTH_COOKIE_NAME)?.value
   const role = isValidRole(roleCookie) ? roleCookie : null
+  const access = parseAccessCookie(request.cookies.get(AUTH_ACCESS_COOKIE)?.value)
 
   if (!role) {
-    if (pathname === "/login") return NextResponse.next()
+    if (publicPaths.has(pathname) || pathname.startsWith("/articles/")) return NextResponse.next()
+    if (pathname.startsWith("/api/articles") && request.method === "GET") {
+      return NextResponse.next()
+    }
     if (pathname.startsWith("/api")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
@@ -29,18 +34,24 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  if (!canAccessPath(role, pathname)) {
+  if (!canAccessPath(role, pathname, access)) {
     if (pathname.startsWith("/api")) {
       return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 })
     }
     const target = request.nextUrl.clone()
-    target.pathname = role === "guest" ? "/tickets" : "/nyamira"
+    const redirectTo = getDefaultRedirect(role, access)
+    const [redirectPath, redirectQuery] = redirectTo.split("?")
+    target.pathname = redirectPath || "/"
+    target.search = redirectQuery ? `?${redirectQuery}` : ""
     return NextResponse.redirect(target)
   }
 
   if (pathname === "/login") {
     const target = request.nextUrl.clone()
-    target.pathname = role === "guest" ? "/tickets" : "/nyamira"
+    const redirectTo = getDefaultRedirect(role, access)
+    const [redirectPath, redirectQuery] = redirectTo.split("?")
+    target.pathname = redirectPath || "/"
+    target.search = redirectQuery ? `?${redirectQuery}` : ""
     return NextResponse.redirect(target)
   }
 

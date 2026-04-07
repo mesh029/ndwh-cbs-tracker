@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getRoleFromRequest } from "@/lib/auth"
+import { canAccessLocation, getAccessFromRequest, getRoleFromRequest } from "@/lib/auth"
 import type { SystemType, Location } from "@/lib/storage"
 
 // Force dynamic rendering to prevent build-time static generation
@@ -27,6 +27,11 @@ function sanitizeInventoryType(value?: string | null): string | null {
  */
 export async function GET(request: NextRequest) {
   try {
+    const role = getRoleFromRequest(request)
+    if (!role) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    const access = getAccessFromRequest(request)
     const searchParams = request.nextUrl.searchParams
     const system = searchParams.get("system") as SystemType | null
     const location = searchParams.get("location") as Location | null
@@ -37,6 +42,9 @@ export async function GET(request: NextRequest) {
         { error: "System and location are required" },
         { status: 400 }
       )
+    }
+    if (!canAccessLocation(access, location)) {
+      return NextResponse.json({ error: "Forbidden: location out of scope" }, { status: 403 })
     }
 
     const where: any = {
