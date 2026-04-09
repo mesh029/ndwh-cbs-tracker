@@ -170,6 +170,7 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
   const [week, setWeek] = useState("")
   const [facilities, setFacilities] = useState<Array<{ name: string; subcounty: string | null }>>([])
   const [isLoadingFacilities, setIsLoadingFacilities] = useState(false)
+  const [isSavingTicket, setIsSavingTicket] = useState(false)
 
   // ── resolve dialog ──
   const [showResolveDialog, setShowResolveDialog] = useState(false)
@@ -363,7 +364,8 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
 
   // ─── Form helpers ──────────────────────────────────────────────────────────
 
-  const resetForm = () => {
+  /** Clear fields only — does not close the dialog (avoids close→open flicker with handleNewTicket). */
+  const clearTicketFormFields = () => {
     setEditingTicket(null)
     setFacilityName("")
     setSelectedChips([])
@@ -380,11 +382,15 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
     setStatus("open")
     setIssueType("server")
     setWeek("")
+  }
+
+  const resetForm = () => {
+    clearTicketFormFields()
     setShowForm(false)
   }
 
   const handleNewTicket = () => {
-    resetForm()
+    clearTicketFormFields()
     setShowForm(true)
     loadFacilities(selectedLocation)
     if (typeof window !== "undefined" && window.localStorage.getItem(TICKET_TOUR_STORAGE_KEY) !== "1") {
@@ -486,6 +492,9 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    e.stopPropagation()
+
+    if (isSavingTicket) return
 
     if (!facilityName.trim() || !serverCondition.trim() || !problem.trim() || !location || !subcounty.trim() || !reportedBy.trim() || !assignedTo.trim()) {
       toast({
@@ -496,6 +505,7 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
       return
     }
 
+    setIsSavingTicket(true)
     try {
       const url = editingTicket ? `/api/tickets/${editingTicket.id}` : "/api/tickets"
       const method = editingTicket ? "PATCH" : "POST"
@@ -534,6 +544,8 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
         description: error instanceof Error ? error.message : "Failed to save ticket",
         variant: "destructive",
       })
+    } finally {
+      setIsSavingTicket(false)
     }
   }
 
@@ -989,15 +1001,26 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
       ════════════════════════════════════════════════════ */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent
-          className="w-[95vw] sm:w-full max-w-2xl max-h-[92vh] overflow-y-auto p-4 sm:p-6"
+          className="w-[95vw] sm:w-full max-w-2xl max-h-[92vh] p-0 gap-0 flex flex-col overflow-hidden sm:p-0"
           onPointerDownOutside={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
         >
-          <DialogHeader>
-            <DialogTitle>{editingTicket ? "Edit Ticket" : "Create New Ticket"}</DialogTitle>
-            <DialogDescription>Log or update ticket details. To resolve, use the Resolve button on the card.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4 pb-20 sm:pb-0">
+          <div className="shrink-0 px-4 pt-4 pb-2 sm:px-6 sm:pt-6 sm:pb-3">
+            <DialogHeader>
+              <DialogTitle>{editingTicket ? "Edit Ticket" : "Create New Ticket"}</DialogTitle>
+              <DialogDescription>Log or update ticket details. To resolve, use the Resolve button on the card.</DialogDescription>
+            </DialogHeader>
+          </div>
+          <form
+            noValidate
+            className="flex flex-col flex-1 min-h-0"
+            onSubmit={(ev) => {
+              ev.preventDefault()
+              ev.stopPropagation()
+              void handleSubmit(ev)
+            }}
+          >
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-2 space-y-4 sm:px-6 sm:py-2 touch-pan-y">
 
             {/* Location + Subcounty */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1136,9 +1159,13 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
                     <button
                       key={name}
                       type="button"
-                      onClick={() => setAssignedTo(name)}
+                      onClick={(ev) => {
+                        ev.preventDefault()
+                        ev.stopPropagation()
+                        setAssignedTo(name)
+                      }}
                       className={cn(
-                        "px-3 py-1.5 rounded-full text-sm font-medium transition-all border",
+                        "px-3 py-1.5 rounded-full text-sm font-medium transition-all border touch-manipulation min-h-[44px] sm:min-h-0",
                         assignedTo === name
                           ? "bg-violet-600 text-white border-violet-600 shadow-sm"
                           : "bg-background text-muted-foreground border-border hover:border-violet-400 hover:text-violet-600"
@@ -1208,11 +1235,17 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
               </div>
             </div>
 
-            <DialogFooter className="fixed bottom-0 left-0 right-0 sm:static bg-background border-t sm:border-t-0 p-4 sm:p-0 flex-col sm:flex-row gap-2">
+            </div>
+            <DialogFooter className="shrink-0 border-t bg-background p-4 gap-2 flex-col sm:flex-row sm:justify-end mt-0 sm:space-x-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] sm:pb-4">
               <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={resetForm}><X className="mr-2 h-4 w-4" />Cancel</Button>
-              <Button data-tour="admin-submit" type="submit" className="w-full sm:w-auto" disabled={!assignedTo || selectedChips.length === 0}>
+              <Button
+                data-tour="admin-submit"
+                type="submit"
+                className="w-full sm:w-auto"
+                disabled={isSavingTicket || !assignedTo || selectedChips.length === 0}
+              >
                 <Plus className="mr-2 h-4 w-4" />
-                {editingTicket ? "Update Ticket" : "Create Ticket"}
+                {isSavingTicket ? "Saving…" : editingTicket ? "Update Ticket" : "Create Ticket"}
               </Button>
             </DialogFooter>
           </form>

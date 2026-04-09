@@ -367,6 +367,9 @@ export function GuestTicketsView() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    e.stopPropagation()
+
+    if (isSaving) return
 
     if (!facilityName.trim() || !serverCondition.trim() || !problem.trim() || !location || !subcounty.trim() || !reportedBy.trim() || !assignedTo.trim()) {
       toast({
@@ -589,21 +592,32 @@ export function GuestTicketsView() {
       {/* ── Create Ticket Dialog ─────────────────────────────────────────── */}
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) resetForm() }}>
         <DialogContent
-          className="w-[95vw] sm:w-full max-w-2xl max-h-[92vh] overflow-y-auto p-4 sm:p-6"
+          className="w-[95vw] sm:w-full max-w-2xl max-h-[92vh] p-0 gap-0 flex flex-col overflow-hidden sm:p-0"
           onPointerDownOutside={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
         >
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Plus className="h-5 w-5 text-blue-600" />
-              Log a New Ticket
-            </DialogTitle>
-            <DialogDescription>
-              Fill in the details below. Our team will be notified immediately.
-            </DialogDescription>
-          </DialogHeader>
+          <div className="shrink-0 px-4 pt-4 pb-2 sm:px-6 sm:pt-6 sm:pb-3">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Plus className="h-5 w-5 text-blue-600" />
+                Log a New Ticket
+              </DialogTitle>
+              <DialogDescription>
+                Fill in the details below. Our team will be notified immediately.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4 pb-20 sm:pb-0">
+          <form
+            noValidate
+            className="flex flex-col flex-1 min-h-0"
+            onSubmit={(ev) => {
+              ev.preventDefault()
+              ev.stopPropagation()
+              void handleSubmit(ev)
+            }}
+          >
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-2 space-y-4 sm:px-6 sm:py-2 touch-pan-y">
 
             {/* Location + Subcounty */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -725,9 +739,15 @@ export function GuestTicketsView() {
               <div data-tour="guest-assigned" className="flex flex-wrap gap-2 p-3 border rounded-md bg-muted/30">
                 {assigneeChips.map((name) => (
                   <button
-                    key={name} type="button" onClick={() => setAssignedTo(name)}
+                    key={name}
+                    type="button"
+                    onClick={(ev) => {
+                      ev.preventDefault()
+                      ev.stopPropagation()
+                      setAssignedTo(name)
+                    }}
                     className={cn(
-                      "px-3 py-1.5 rounded-full text-sm font-medium transition-all border",
+                      "px-3 py-1.5 rounded-full text-sm font-medium transition-all border touch-manipulation min-h-[44px] sm:min-h-0",
                       assignedTo === name
                         ? "bg-violet-600 text-white border-violet-600 shadow-sm"
                         : "bg-background text-muted-foreground border-border hover:border-violet-400 hover:text-violet-600"
@@ -756,7 +776,8 @@ export function GuestTicketsView() {
               </p>
             </div>
 
-            <DialogFooter className="fixed bottom-0 left-0 right-0 sm:static bg-background border-t sm:border-t-0 p-4 sm:p-0 flex-col sm:flex-row gap-2">
+            </div>
+            <DialogFooter className="shrink-0 border-t bg-background p-4 gap-2 flex-col sm:flex-row sm:justify-end mt-0 sm:space-x-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] sm:pb-4">
               <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={resetForm}>Cancel</Button>
               <Button
                 data-tour="guest-submit"
