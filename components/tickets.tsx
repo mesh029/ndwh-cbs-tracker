@@ -1250,10 +1250,11 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
       ════════════════════════════════════════════════════ */}
       <Dialog open={showResolveDialog} onOpenChange={(open) => { if (!open) closeResolveDialog() }}>
         <DialogContent
-          className="max-w-lg"
+          className="w-[95vw] sm:w-full max-w-lg max-h-[92vh] p-0 gap-0 flex flex-col overflow-hidden"
           onPointerDownOutside={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
         >
+          <div className="shrink-0 px-4 pt-4 pb-2 sm:px-6 sm:pt-6 sm:pb-3">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-emerald-600" />
@@ -1266,8 +1267,9 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
                 : " — enter resolution details to close this ticket."}
             </DialogDescription>
           </DialogHeader>
+          </div>
 
-          <div className="space-y-4">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-2 space-y-4 sm:px-6 sm:py-2 touch-pan-y">
             {/* Resolved By */}
             <div>
               <label className="text-sm font-medium mb-1.5 block">
@@ -1325,7 +1327,7 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
             </div>
           </div>
 
-          <DialogFooter className="mt-2">
+          <DialogFooter className="shrink-0 border-t bg-background p-4 gap-2 flex-col sm:flex-row sm:justify-end mt-0 sm:space-x-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] sm:pb-4">
             <Button type="button" variant="outline" onClick={closeResolveDialog}>Cancel</Button>
             <Button
               type="button"
@@ -1349,10 +1351,11 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
       ════════════════════════════════════════════════════ */}
       <Dialog open={showInProgressDialog} onOpenChange={(open) => { if (!open) closeInProgressDialog() }}>
         <DialogContent
-          className="max-w-sm"
+          className="w-[95vw] sm:w-full max-w-sm max-h-[92vh] p-0 gap-0 flex flex-col overflow-hidden"
           onPointerDownOutside={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
         >
+          <div className="shrink-0 px-4 pt-4 pb-2 sm:px-6 sm:pt-6 sm:pb-3">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Clock className="h-5 w-5 text-amber-600" />
@@ -1362,8 +1365,9 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
               <span className="font-medium">{inProgressTicket?.facilityName}</span> — who is currently handling this?
             </DialogDescription>
           </DialogHeader>
+          </div>
 
-          <div className="space-y-3 py-2">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-2 space-y-3 sm:px-6 sm:py-2 touch-pan-y">
             <label className="text-sm font-medium mb-1.5 block">Handling By <span className="text-red-500">*</span></label>
             <div className="flex flex-wrap gap-2">
               {assigneeChips.map((name) => (
@@ -1390,7 +1394,7 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
             />
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t bg-background p-4 gap-2 flex-col sm:flex-row sm:justify-end mt-0 sm:space-x-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] sm:pb-4">
             <Button type="button" variant="outline" onClick={closeInProgressDialog}>Cancel</Button>
             <Button
               type="button"
