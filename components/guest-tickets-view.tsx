@@ -365,10 +365,7 @@ export function GuestTicketsView() {
 
   // ── Submit ──
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-
+  const handleSubmit = async () => {
     if (isSaving) return
 
     if (!facilityName.trim() || !serverCondition.trim() || !problem.trim() || !location || !subcounty.trim() || !reportedBy.trim() || !assignedTo.trim()) {
@@ -614,7 +611,7 @@ export function GuestTicketsView() {
             onSubmit={(ev) => {
               ev.preventDefault()
               ev.stopPropagation()
-              void handleSubmit(ev)
+              void handleSubmit()
             }}
           >
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-2 space-y-4 sm:px-6 sm:py-2 touch-pan-y">
