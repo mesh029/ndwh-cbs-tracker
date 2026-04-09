@@ -1326,8 +1326,17 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
           </div>
 
           <DialogFooter className="mt-2">
-            <Button variant="outline" onClick={closeResolveDialog}>Cancel</Button>
-            <Button onClick={submitResolve} disabled={isResolving} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+            <Button type="button" variant="outline" onClick={closeResolveDialog}>Cancel</Button>
+            <Button
+              type="button"
+              onClick={(ev) => {
+                ev.preventDefault()
+                ev.stopPropagation()
+                void submitResolve()
+              }}
+              disabled={isResolving}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
               <CheckCircle2 className="mr-2 h-4 w-4" />
               {isResolving ? "Saving…" : resolvingTicket?.status === "resolved" ? "Update Resolution" : "Mark as Resolved"}
             </Button>
@@ -1382,8 +1391,17 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={closeInProgressDialog}>Cancel</Button>
-            <Button onClick={submitMarkInProgress} disabled={isMarkingInProgress} className="bg-amber-500 hover:bg-amber-600 text-white">
+            <Button type="button" variant="outline" onClick={closeInProgressDialog}>Cancel</Button>
+            <Button
+              type="button"
+              onClick={(ev) => {
+                ev.preventDefault()
+                ev.stopPropagation()
+                void submitMarkInProgress()
+              }}
+              disabled={isMarkingInProgress}
+              className="bg-amber-500 hover:bg-amber-600 text-white"
+            >
               <Clock className="mr-2 h-4 w-4" />
               {isMarkingInProgress ? "Saving…" : "Mark In Progress"}
             </Button>
