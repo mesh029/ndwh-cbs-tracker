@@ -1008,14 +1008,8 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
               <DialogDescription>Log or update ticket details. To resolve, use the Resolve button on the card.</DialogDescription>
             </DialogHeader>
           </div>
-          <form
-            noValidate
+          <div
             className="flex flex-col flex-1 min-h-0"
-            onSubmit={(ev) => {
-              ev.preventDefault()
-              ev.stopPropagation()
-              void handleSubmit()
-            }}
           >
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-2 space-y-4 sm:px-6 sm:py-2 touch-pan-y">
 
@@ -1237,7 +1231,8 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
               <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={resetForm}><X className="mr-2 h-4 w-4" />Cancel</Button>
               <Button
                 data-tour="admin-submit"
-                type="submit"
+                type="button"
+                onClick={() => void handleSubmit()}
                 className="w-full sm:w-auto"
                 disabled={isSavingTicket || !assignedTo || selectedChips.length === 0}
               >
@@ -1245,7 +1240,7 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
                 {isSavingTicket ? "Saving…" : editingTicket ? "Update Ticket" : "Create Ticket"}
               </Button>
             </DialogFooter>
-          </form>
+          </div>
         </DialogContent>
       </Dialog>
 

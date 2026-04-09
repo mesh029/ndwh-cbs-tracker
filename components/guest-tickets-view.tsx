@@ -605,14 +605,8 @@ export function GuestTicketsView() {
             </DialogHeader>
           </div>
 
-          <form
-            noValidate
+          <div
             className="flex flex-col flex-1 min-h-0"
-            onSubmit={(ev) => {
-              ev.preventDefault()
-              ev.stopPropagation()
-              void handleSubmit()
-            }}
           >
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-2 space-y-4 sm:px-6 sm:py-2 touch-pan-y">
 
@@ -778,7 +772,8 @@ export function GuestTicketsView() {
               <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={resetForm}>Cancel</Button>
               <Button
                 data-tour="guest-submit"
-                type="submit"
+                type="button"
+                onClick={() => void handleSubmit()}
                 disabled={isSaving || !assignedTo || selectedChips.length === 0}
                 className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white"
               >
@@ -789,7 +784,7 @@ export function GuestTicketsView() {
                 )}
               </Button>
             </DialogFooter>
-          </form>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
