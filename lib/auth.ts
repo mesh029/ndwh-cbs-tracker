@@ -179,6 +179,7 @@ export function canAccessPath(role: UserRole, pathname: string, access?: UserAcc
   if (pathname.startsWith("/reports")) return hasModule("reports")
   if (pathname.startsWith("/tickets") || pathname.startsWith("/api/tickets")) return hasModule("tickets")
   if (pathname.startsWith("/nyamira")) return hasModule("dashboard")
+  if (pathname.startsWith("/api/geography")) return hasModule("dashboard") || hasModule("reports") || hasModule("tickets")
   if (pathname.startsWith("/api/facilities") || pathname.startsWith("/api/settings")) return hasModule("tickets") || hasModule("facility") || hasModule("assets") || hasModule("reports")
   return role === "admin"
 }

@@ -50,7 +50,6 @@ function normalizeCountyName(name: string | null | undefined): string {
 function buildSubcountyKey(location: string, subcounty: string): string {
   const county = normalizeCountyName(location)
   let sub = normalizeSubcountyName(subcounty)
-  // Known naming mismatch in existing facility data.
   if (county === "nyamira" && sub === "nyamirasouth") sub = "nyamira"
   return `${county}::${sub}`
 }
@@ -64,11 +63,10 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
   const [isLoadingBoundaries, setIsLoadingBoundaries] = useState(true)
   const { resolvedTheme } = useTheme()
   const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+
   const countyMetricMap = useMemo(() => {
     const map = new Map<string, LocationMetric>()
-    metrics.forEach((item) => {
-      map.set(normalizeCountyName(item.location), item)
-    })
+    metrics.forEach((item) => map.set(normalizeCountyName(item.location), item))
     return map
   }, [metrics])
 
@@ -78,12 +76,13 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
       setIsLoadingBoundaries(true)
       setBoundaryError(null)
       try {
-        const res = await fetch("/data/ke_subcounty.geojson")
+        const res = await fetch(`/data/ke_subcounty.geojson?_ts=${Date.now()}`, {
+          cache: "no-store",
+          headers: { "cache-control": "no-cache" },
+        })
         if (!res.ok) throw new Error("Could not load subcounty boundaries")
         const data = await res.json()
-        if (!cancelled) {
-          setBoundaryGeoJson(data)
-        }
+        if (!cancelled) setBoundaryGeoJson(data)
       } catch (error) {
         if (!cancelled) {
           console.error("Failed to load subcounty boundaries:", error)
@@ -101,9 +100,7 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
 
   const metricsMap = useMemo(() => {
     const map = new Map<string, SubcountyMetric>()
-    subcountyMetrics.forEach((item) => {
-      map.set(buildSubcountyKey(item.location, item.subcounty), item)
-    })
+    subcountyMetrics.forEach((item) => map.set(buildSubcountyKey(item.location, item.subcounty), item))
     return map
   }, [subcountyMetrics])
 
@@ -111,9 +108,7 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
     const set = new Set<string>()
     subcountyMetrics.forEach((item) => {
       const value = mode === "servers" ? item.serverCount : item.ticketCount
-      if (value > 0) {
-        set.add(normalizeCountyName(item.location))
-      }
+      if (value > 0) set.add(normalizeCountyName(item.location))
     })
     return set
   }, [mode, subcountyMetrics])
@@ -122,6 +117,7 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
     if (!boundaryGeoJson?.features) {
       return { type: "FeatureCollection" as const, features: [] as any[] }
     }
+
     const selectedCountyKey = selectedLocation === "all" ? null : normalizeCountyName(selectedLocation)
     const features = boundaryGeoJson.features
       .filter((feature: any) => {
@@ -132,6 +128,7 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
         const county = feature?.properties?.county || ""
         const subcounty = feature?.properties?.subcounty || ""
         const subcountyDisplay = String(subcounty || feature?.properties?.shapeName || "").trim()
+
         const matched = metricsMap.get(buildSubcountyKey(county, subcounty))
         let serverCount = matched?.serverCount || 0
         let ticketCount = matched?.ticketCount || 0
@@ -139,12 +136,11 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
         const countyKey = normalizeCountyName(county)
         const countyTotals = countyMetricMap.get(countyKey)
         const hasSubcountyValues = countiesWithSubcountyData.has(countyKey)
-        // Fallback: if a county has no subcounty records for current mode,
-        // paint each subcounty polygon using county-level totals.
         if (!hasSubcountyValues && countyTotals) {
           serverCount = countyTotals.serverCount
           ticketCount = countyTotals.ticketCount
         }
+
         const value = mode === "servers" ? serverCount : ticketCount
         return {
           ...feature,
@@ -159,70 +155,23 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
           },
         }
       })
-    return {
-      type: "FeatureCollection" as const,
-      features,
-    }
+
+    return { type: "FeatureCollection" as const, features }
   }, [boundaryGeoJson, countyMetricMap, countiesWithSubcountyData, metricsMap, mode, selectedLocation])
 
-  const maxValue = Math.max(
-    1,
-    ...choroplethGeoJson.features.map((feature: any) => feature?.properties?.value || 0)
-  )
-
-  const rankedSubcounties = useMemo(() => {
-    return choroplethGeoJson.features
-      .map((feature: any) => ({
-        location: feature?.properties?.location || "",
-        subcounty: feature?.properties?.subcounty || "",
-        serverCount: feature?.properties?.serverCount || 0,
-        ticketCount: feature?.properties?.ticketCount || 0,
-        value: feature?.properties?.value || 0,
-      }))
-      .filter((item: any) => item.value > 0)
-      .sort((a: any, b: any) => b.value - a.value)
-      .slice(0, 9)
-  }, [choroplethGeoJson.features])
-
   const countyLabelGeoJson = useMemo(() => {
-    const filtered = selectedLocation === "all"
-      ? metrics
-      : metrics.filter((item) => item.location === selectedLocation)
-
+    const filtered = selectedLocation === "all" ? metrics : metrics.filter((item) => item.location === selectedLocation)
     return {
       type: "FeatureCollection" as const,
       features: filtered.map((item) => ({
         type: "Feature" as const,
-        properties: {
-          location: item.location,
-        },
-        geometry: {
-          type: "Point" as const,
-          coordinates: [item.longitude, item.latitude],
-        },
+        properties: { location: item.location },
+        geometry: { type: "Point" as const, coordinates: [item.longitude, item.latitude] },
       })),
     }
   }, [metrics, selectedLocation])
 
-  const subcountiesByCounty = useMemo(() => {
-    const grouped = new Map<string, Set<string>>()
-    choroplethGeoJson.features.forEach((feature: any) => {
-      const county = String(feature?.properties?.location || feature?.properties?.county || "").trim()
-      const subcounty = String(
-        feature?.properties?.subcountyDisplay || feature?.properties?.subcounty || ""
-      ).trim()
-      if (!county || !subcounty) return
-      if (!grouped.has(county)) grouped.set(county, new Set())
-      grouped.get(county)!.add(subcounty)
-    })
-
-    return Array.from(grouped.entries())
-      .map(([county, names]) => ({
-        county,
-        subcounties: Array.from(names).sort((a, b) => a.localeCompare(b)),
-      }))
-      .sort((a, b) => a.county.localeCompare(b.county))
-  }, [choroplethGeoJson.features])
+  const maxValue = Math.max(1, ...choroplethGeoJson.features.map((f: any) => f?.properties?.value || 0))
 
   useEffect(() => {
     const map = mapRef.current?.getMap?.()
@@ -260,20 +209,14 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
       extendBounds(feature?.geometry?.coordinates)
     })
 
-    if (!Number.isFinite(minLng) || !Number.isFinite(minLat) || !Number.isFinite(maxLng) || !Number.isFinite(maxLat)) {
-      return
-    }
+    if (!Number.isFinite(minLng) || !Number.isFinite(minLat) || !Number.isFinite(maxLng) || !Number.isFinite(maxLat)) return
 
     map.fitBounds(
       [
         [minLng, minLat],
         [maxLng, maxLat],
       ],
-      {
-        padding: { top: 40, bottom: 40, left: 40, right: 40 },
-        duration: 900,
-        maxZoom: 10.5,
-      }
+      { padding: { top: 40, bottom: 40, left: 40, right: 40 }, duration: 900, maxZoom: 10.5 }
     )
   }, [selectedLocation, choroplethGeoJson])
 
@@ -282,7 +225,7 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-lg font-semibold">County Infrastructure Heat Map</h3>
-          <p className="text-sm text-muted-foreground">Accurate subcounty polygon heat map using real boundaries and live counts.</p>
+          <p className="text-sm text-muted-foreground">Subcounty heat view for map only.</p>
         </div>
       </div>
 
@@ -295,14 +238,12 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
           Loading subcounty boundaries...
         </div>
       ) : boundaryError ? (
-        <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-          {boundaryError}
-        </div>
+        <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{boundaryError}</div>
       ) : (
         <div className="relative h-[430px] w-full overflow-hidden rounded-xl shadow-sm">
           <div className="absolute left-3 top-3 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-white/20 bg-black/50 p-2 backdrop-blur-sm">
             <Select value={selectedLocation} onValueChange={setSelectedLocation}>
-              <SelectTrigger className="w-[170px] h-8 bg-background/90">
+              <SelectTrigger className="h-8 w-[170px] bg-background/90">
                 <SelectValue placeholder="County" />
               </SelectTrigger>
               <SelectContent>
@@ -321,6 +262,7 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
               Tickets
             </Button>
           </div>
+
           <MapboxMap
             ref={mapRef}
             mapLib={mapboxgl}
@@ -367,20 +309,10 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
                   type="symbol"
                   layout={{
                     "text-field": ["coalesce", ["get", "subcountyDisplay"], ["get", "subcounty"]],
-                    "text-size": [
-                      "interpolate",
-                      ["linear"],
-                      ["zoom"],
-                      6,
-                      10,
-                      8,
-                      12,
-                      10,
-                      13,
-                    ],
+                    "text-size": ["interpolate", ["linear"], ["zoom"], 6, 11, 8, 13, 10, 14],
                     "text-font": ["Open Sans Semibold", "Arial Unicode MS Bold"],
-                    "text-allow-overlap": false,
-                    "text-ignore-placement": false,
+                    "text-allow-overlap": true,
+                    "text-ignore-placement": true,
                   }}
                   paint={{
                     "text-color": resolvedTheme === "dark" ? "#f8fafc" : "#111827",
@@ -398,17 +330,7 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
                   type="symbol"
                   layout={{
                     "text-field": ["get", "location"],
-                    "text-size": [
-                      "interpolate",
-                      ["linear"],
-                      ["zoom"],
-                      5,
-                      11,
-                      8,
-                      13,
-                      10,
-                      14,
-                    ],
+                    "text-size": ["interpolate", ["linear"], ["zoom"], 5, 11, 8, 13, 10, 14],
                     "text-font": ["Open Sans Semibold", "Arial Unicode MS Bold"],
                     "text-allow-overlap": true,
                     "text-ignore-placement": true,
@@ -425,51 +347,6 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
           </MapboxMap>
         </div>
       )}
-
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        {rankedSubcounties.map((item: any) => (
-          <div key={`${item.location}-${item.subcounty}`} className="rounded-md border px-3 py-2 text-sm">
-            <p className="font-medium">{item.subcounty}</p>
-            <p className="text-muted-foreground">{item.location}</p>
-            <p className="text-muted-foreground">Servers: {item.serverCount} · Tickets: {item.ticketCount}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="rounded-md border px-3 py-2 text-xs text-muted-foreground">
-        <p className="font-medium text-foreground mb-2">Dot Color Legend ({mode === "servers" ? "Servers" : "Tickets"})</p>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="inline-flex items-center gap-1">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#60a5fa]" />
-            Low density
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#f59e0b]" />
-            Medium density
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#ef4444]" />
-            High density
-          </span>
-          <span className="text-[11px]">
-            True polygon choropleth from subcounty boundaries.
-          </span>
-        </div>
-      </div>
-
-      <div className="rounded-md border px-3 py-3">
-        <p className="font-medium text-sm mb-2">Subcounties by County</p>
-        <div className="grid gap-3 md:grid-cols-2">
-          {subcountiesByCounty.map((item) => (
-            <div key={item.county} className="text-sm">
-              <p className="font-semibold">{item.county}</p>
-              <p className="text-muted-foreground">
-                {item.subcounties.join(", ")}
-              </p>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   )
 }

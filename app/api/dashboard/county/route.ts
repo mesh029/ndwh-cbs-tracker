@@ -124,12 +124,21 @@ export async function GET(request: NextRequest) {
       routerType: sanitizeInventoryType(facility.routerType),
     }))
 
-    return NextResponse.json({
-      facilities,
-      tickets,
-      cbsLatest: cbsRow ? parseComparisonRow(cbsRow) : null,
-      ndwhLatest: ndwhRow ? parseComparisonRow(ndwhRow) : null,
-    })
+    return NextResponse.json(
+      {
+        facilities,
+        tickets,
+        cbsLatest: cbsRow ? parseComparisonRow(cbsRow) : null,
+        ndwhLatest: ndwhRow ? parseComparisonRow(ndwhRow) : null,
+      },
+      {
+        headers: {
+          "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+          pragma: "no-cache",
+          expires: "0",
+        },
+      }
+    )
   } catch (error: any) {
     console.error("Error in GET /api/dashboard/county:", error)
     if (error?.code === "P1001" || error?.message?.includes("connect")) {

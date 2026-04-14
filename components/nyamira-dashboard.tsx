@@ -29,8 +29,6 @@ import {
   deriveSubcountyDistribution,
 } from "@/lib/nyamira-dashboard-derive"
 import {
-  readCountyDashboardCache,
-  writeCountyDashboardCache,
   fetchCountyDashboardBundle,
   fetchCountyDashboardLegacy,
   type CountyDashboardPayload,
@@ -230,7 +228,6 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
     setIsLoadingTickets(true)
     try {
       const payload = await fetchCountyDashboardBundle(location).catch(() => fetchCountyDashboardLegacy(location))
-      writeCountyDashboardCache(location, payload)
       applyCountyDashboardPayload(payload)
     } catch (error) {
       console.error("County dashboard refresh failed:", error)
@@ -244,50 +241,39 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
     }
   }, [location, applyCountyDashboardPayload, toast])
 
-  // One bundle request (+ sessionStorage instant paint), legacy fallback if bundle fails
+  // One bundle request; no session cache hydration to avoid stale UI states.
   useEffect(() => {
     const gen = ++loadGenRef.current
     const stale = () => gen !== loadGenRef.current
 
-    const cached = readCountyDashboardCache(location)
-    if (!cached) {
-      setIsLoadingData(true)
-      setIsLoadingTickets(true)
-      setHasLoadedTickets(false)
-      setHasLoadedServerDistribution(false)
-      setTickets([])
-      setServerDistribution([])
-      setComparisonStats({
-        cbs: { total: 0, matched: 0, unmatched: 0 },
-        ndwh: { total: 0, matched: 0, unmatched: 0 },
-      })
-      setTicketAnalytics({
-        byServerType: [],
-        byProblem: [],
-        correlation: [],
-        byIssueType: { server: 0, network: 0 },
-        bySSDIssues: [],
-        networkCorrelation: [],
-      } as any)
-      setComprehensiveAnalytics(null)
-    }
-
-    if (cached && !stale()) {
-      applyCountyDashboardPayload(cached)
-    }
+    setIsLoadingData(true)
+    setIsLoadingTickets(true)
+    setHasLoadedTickets(false)
+    setHasLoadedServerDistribution(false)
+    setTickets([])
+    setServerDistribution([])
+    setComparisonStats({
+      cbs: { total: 0, matched: 0, unmatched: 0 },
+      ndwh: { total: 0, matched: 0, unmatched: 0 },
+    })
+    setTicketAnalytics({
+      byServerType: [],
+      byProblem: [],
+      correlation: [],
+      byIssueType: { server: 0, network: 0 },
+      bySSDIssues: [],
+      networkCorrelation: [],
+    } as any)
+    setComprehensiveAnalytics(null)
 
     fetchCountyDashboardBundle(location)
       .then((payload) => {
         if (stale()) return
-        writeCountyDashboardCache(location, payload)
         applyCountyDashboardPayload(payload)
       })
       .catch((err) => {
         console.warn("[CountyDashboard] bundle failed:", err)
         if (stale()) return
-        if (cached) {
-          return
-        }
         fetchCountyDashboardLegacy(location)
           .then((payload) => {
             if (stale()) return

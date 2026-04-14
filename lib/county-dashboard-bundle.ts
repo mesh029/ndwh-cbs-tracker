@@ -63,7 +63,10 @@ export function writeCountyDashboardCache(location: Location, data: CountyDashbo
 }
 
 export async function fetchCountyDashboardBundle(location: Location): Promise<CountyDashboardPayload> {
-  const res = await fetch(`/api/dashboard/county?location=${encodeURIComponent(location)}`)
+  const res = await fetch(`/api/dashboard/county?location=${encodeURIComponent(location)}&_ts=${Date.now()}`, {
+    cache: "no-store",
+    headers: { "cache-control": "no-cache" },
+  })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error((err as { error?: string }).error || `HTTP ${res.status}`)
@@ -74,11 +77,13 @@ export async function fetchCountyDashboardBundle(location: Location): Promise<Co
 /** Same data as the bundle API, via the original separate endpoints (fallback if bundle fails). */
 export async function fetchCountyDashboardLegacy(location: Location): Promise<CountyDashboardPayload> {
   const q = encodeURIComponent(location)
+  const fetchNoStore = (url: string) =>
+    fetch(url, { cache: "no-store", headers: { "cache-control": "no-cache" } })
   const [ticketsRes, facRes, cbsRes, ndwhRes] = await Promise.all([
-    fetch(`/api/tickets?location=${q}`),
-    fetch(`/api/facilities?system=NDWH&location=${q}&isMaster=true`),
-    fetch(`/api/comparisons?system=CBS&location=${q}`),
-    fetch(`/api/comparisons?system=NDWH&location=${q}`),
+    fetchNoStore(`/api/tickets?location=${q}&_ts=${Date.now()}`),
+    fetchNoStore(`/api/facilities?system=NDWH&location=${q}&isMaster=true&_ts=${Date.now()}`),
+    fetchNoStore(`/api/comparisons?system=CBS&location=${q}&_ts=${Date.now()}`),
+    fetchNoStore(`/api/comparisons?system=NDWH&location=${q}&_ts=${Date.now()}`),
   ])
   if (!ticketsRes.ok || !facRes.ok || !cbsRes.ok || !ndwhRes.ok) {
     throw new Error("One or more legacy dashboard requests failed")
