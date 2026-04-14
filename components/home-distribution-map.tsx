@@ -44,7 +44,11 @@ function normalizeSubcountyName(name: string | null | undefined): string {
 }
 
 function normalizeCountyName(name: string | null | undefined): string {
-  return (name || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim()
+  return (name || "")
+    .toLowerCase()
+    .replace(/county/g, "")
+    .replace(/[^a-z0-9]/g, "")
+    .trim()
 }
 
 function buildSubcountyKey(location: string, subcounty: string): string {
@@ -127,7 +131,12 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
       return { type: "FeatureCollection" as const, features: [] as any[] }
     }
 
+    const selectedCountyKey = selectedLocation === "all" ? null : normalizeCountyName(selectedLocation)
     const features = boundaryGeoJson.features
+      .filter((feature: any) => {
+        const county = normalizeCountyName(feature?.properties?.county)
+        return !selectedCountyKey || county === selectedCountyKey
+      })
       .map((feature: any) => {
         const county = feature?.properties?.county || ""
         const subcounty = feature?.properties?.subcounty || ""
@@ -161,7 +170,7 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
       })
 
     return { type: "FeatureCollection" as const, features }
-  }, [boundaryGeoJson, countyMetricMap, countiesWithSubcountyData, metricsMap, mode])
+  }, [boundaryGeoJson, countyMetricMap, countiesWithSubcountyData, metricsMap, mode, selectedLocation])
 
   const countyLabelGeoJson = useMemo(() => {
     const filtered = selectedLocation === "all" ? metrics : metrics.filter((item) => item.location === selectedLocation)
@@ -175,31 +184,36 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
     }
   }, [metrics, selectedLocation])
 
-  const countyPointGeoJson = useMemo(() => {
-    const filtered = selectedLocation === "all" ? metrics : metrics.filter((item) => item.location === selectedLocation)
-    return {
-      type: "FeatureCollection" as const,
-      features: filtered.map((item) => ({
-        type: "Feature" as const,
-        properties: {
-          location: item.location,
-          value: mode === "servers" ? item.serverCount : item.ticketCount,
-        },
-        geometry: {
-          type: "Point" as const,
-          coordinates: [item.longitude, item.latitude],
-        },
-      })),
-    }
-  }, [metrics, mode, selectedLocation])
-
-  const maxCountyValue = Math.max(1, ...countyPointGeoJson.features.map((f: any) => f?.properties?.value || 0))
-
   const maxValue = Math.max(1, ...choroplethGeoJson.features.map((f: any) => f?.properties?.value || 0))
 
   useEffect(() => {
     const map = mapRef.current?.getMap?.()
-    if (!map || selectedLocation === "all" || !choroplethGeoJson.features.length) return
+    if (!map) return
+
+    if (selectedLocation === "all") {
+      map.flyTo({
+        center: [INITIAL_VIEW_STATE.longitude, INITIAL_VIEW_STATE.latitude],
+        zoom: INITIAL_VIEW_STATE.zoom,
+        duration: 900,
+      })
+      return
+    }
+
+    // Fallback: if boundary features are temporarily unavailable/mismatched,
+    // still zoom to the selected county centroid from metrics.
+    if (choroplethGeoJson.features.length === 0) {
+      const target = metrics.find(
+        (m) => normalizeCountyName(m.location) === normalizeCountyName(selectedLocation)
+      )
+      if (target) {
+        map.flyTo({
+          center: [target.longitude, target.latitude],
+          zoom: 8.2,
+          duration: 900,
+        })
+      }
+      return
+    }
 
     let minLng = Infinity
     let minLat = Infinity
@@ -233,7 +247,7 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
       ],
       { padding: { top: 40, bottom: 40, left: 40, right: 40 }, duration: 900, maxZoom: 10.5 }
     )
-  }, [selectedLocation, choroplethGeoJson])
+  }, [selectedLocation, choroplethGeoJson, metrics])
 
   return (
     <div className="space-y-3">
@@ -290,7 +304,7 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
             mapStyle={resolvedTheme === "dark" ? "mapbox://styles/mapbox/dark-v11" : "mapbox://styles/mapbox/light-v11"}
           >
             <NavigationControl position="top-right" />
-            {selectedLocation !== "all" && choroplethGeoJson.features.length > 0 && (
+            {choroplethGeoJson.features.length > 0 && (
               <Source id="county-distribution" type="geojson" data={choroplethGeoJson}>
                 <Layer
                   id="county-heat"
@@ -323,58 +337,25 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
                     "line-opacity": 0.45,
                   }}
                 />
-                <Layer
-                  id="subcounty-name-labels"
-                  type="symbol"
-                  layout={{
-                    "text-field": ["coalesce", ["get", "subcountyDisplay"], ["get", "subcounty"]],
-                    "text-size": ["interpolate", ["linear"], ["zoom"], 6, 11, 8, 13, 10, 14],
-                    "text-font": ["Open Sans Semibold", "Arial Unicode MS Bold"],
-                    "text-allow-overlap": true,
-                    "text-ignore-placement": true,
-                  }}
-                  paint={{
-                    "text-color": resolvedTheme === "dark" ? "#f8fafc" : "#111827",
-                    "text-halo-color": resolvedTheme === "dark" ? "#111827" : "#ffffff",
-                    "text-halo-width": 1.2,
-                    "text-halo-blur": 0.25,
-                  }}
-                />
-              </Source>
-            )}
-            {selectedLocation === "all" && (
-              <Source id="county-summary-points" type="geojson" data={countyPointGeoJson}>
-                <Layer
-                  id="county-summary-circles"
-                  type="circle"
-                  paint={{
-                    "circle-radius": [
-                      "interpolate",
-                      ["linear"],
-                      ["get", "value"],
-                      0,
-                      8,
-                      Math.max(1, maxCountyValue * 0.4),
-                      16,
-                      maxCountyValue,
-                      24,
-                    ],
-                    "circle-color": [
-                      "interpolate",
-                      ["linear"],
-                      ["get", "value"],
-                      0,
-                      "#60a5fa",
-                      Math.max(1, maxCountyValue * 0.45),
-                      "#f59e0b",
-                      maxCountyValue,
-                      "#ef4444",
-                    ],
-                    "circle-opacity": 0.8,
-                    "circle-stroke-color": resolvedTheme === "dark" ? "#0f172a" : "#ffffff",
-                    "circle-stroke-width": 1.2,
-                  }}
-                />
+                {selectedLocation !== "all" && (
+                  <Layer
+                    id="subcounty-name-labels"
+                    type="symbol"
+                    layout={{
+                      "text-field": ["coalesce", ["get", "subcountyDisplay"], ["get", "subcounty"]],
+                      "text-size": ["interpolate", ["linear"], ["zoom"], 6, 11, 8, 13, 10, 14],
+                      "text-font": ["Open Sans Semibold", "Arial Unicode MS Bold"],
+                      "text-allow-overlap": true,
+                      "text-ignore-placement": true,
+                    }}
+                    paint={{
+                      "text-color": resolvedTheme === "dark" ? "#f8fafc" : "#111827",
+                      "text-halo-color": resolvedTheme === "dark" ? "#111827" : "#ffffff",
+                      "text-halo-width": 1.2,
+                      "text-halo-blur": 0.25,
+                    }}
+                  />
+                )}
               </Source>
             )}
             {selectedLocation === "all" && (
