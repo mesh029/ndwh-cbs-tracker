@@ -20,6 +20,7 @@ import {
   Loader2
 } from "lucide-react"
 import { SectionUpload } from "./section-upload"
+import { CriticalServerIssuesPanel } from "./critical-server-issues-panel"
 import { useToast } from "@/components/ui/use-toast"
 import { useFacilityData } from "@/hooks/use-facility-data"
 import { facilitiesMatch, normalizeServerType } from "@/lib/utils"
@@ -1013,7 +1014,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
         </HoverCard>
       </div>
 
-
+      <CriticalServerIssuesPanel location={location} />
 
       {/* Server Distribution Section */}
       {isLoadingData && !hasLoadedServerDistribution ? (

@@ -31,6 +31,7 @@ model Facility {
   routers       RouterAsset[]
   simcards      SimcardAsset[]
   lanAssets     LanAsset[]
+  criticalIssues CriticalServerIssue[]
 
   @@index([system, location, isMaster])
   @@index([system, location])
@@ -39,6 +40,25 @@ model Facility {
   @@index([location, facilityGroup])
   @@index([location, hasLAN])
   @@map("facilities")
+}
+
+model CriticalServerIssue {
+  id           String   @id @default(cuid())
+  facilityId   String
+  facility     Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  location     String   @db.VarChar(50)
+  label        String   @db.VarChar(100)
+  chip         String   @db.VarChar(50)
+  problem      String   @db.Text
+  solution     String?  @db.Text
+  comment      String?  @db.Text
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([location, isActive])
+  @@index([facilityId])
+  @@map("critical_server_issues")
 }
 
 model ServerAsset {
