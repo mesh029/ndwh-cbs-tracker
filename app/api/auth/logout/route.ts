@@ -6,13 +6,18 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 export const revalidate = 0
 
+function shouldUseSecureCookies(request: NextRequest): boolean {
+  const proto = request.headers.get("x-forwarded-proto")
+  if (proto) return proto === "https"
+  return process.env.NODE_ENV === "production"
+}
 
-export async function POST(_request: NextRequest) {
+export async function POST(request: NextRequest) {
   const response = NextResponse.json({ success: true })
   const clearCookie = {
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookies(request),
     path: "/",
     maxAge: 0,
   }

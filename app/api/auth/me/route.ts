@@ -10,7 +10,8 @@ export const revalidate = 0
 export async function GET(request: NextRequest) {
   const role = getRoleFromRequest(request)
   if (!role) {
-    return NextResponse.json({ authenticated: false }, { status: 401 })
+    // Return 200 for unauthenticated checks to avoid noisy 401 fetch errors in clients polling session state.
+    return NextResponse.json({ authenticated: false, role: null, username: null, email: null, access: null })
   }
   const username = request.cookies.get(AUTH_USERNAME_COOKIE)?.value || role
   const email = request.cookies.get(AUTH_EMAIL_COOKIE)?.value || null

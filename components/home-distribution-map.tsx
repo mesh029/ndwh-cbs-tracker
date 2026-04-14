@@ -60,7 +60,7 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
   const [selectedLocation, setSelectedLocation] = useState<string>("all")
   const [boundaryGeoJson, setBoundaryGeoJson] = useState<any | null>(null)
   const [boundaryError, setBoundaryError] = useState<string | null>(null)
-  const [isLoadingBoundaries, setIsLoadingBoundaries] = useState(true)
+  const [isLoadingBoundaries, setIsLoadingBoundaries] = useState(false)
   const { resolvedTheme } = useTheme()
   const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
 
@@ -70,41 +70,26 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
     return map
   }, [metrics])
 
-  const countiesInSystem = useMemo(() => {
-    return Array.from(new Set(metrics.map((item) => item.location).filter(Boolean))).sort((a, b) =>
-      a.localeCompare(b)
-    )
-  }, [metrics])
-
   useEffect(() => {
     let cancelled = false
     const loadBoundaries = async () => {
       setIsLoadingBoundaries(true)
       setBoundaryError(null)
       try {
-        const countyParam = encodeURIComponent(countiesInSystem.join(","))
-        const res = await fetch(`/api/geography/subcounties?counties=${countyParam}`, {
-          cache: "force-cache",
-        })
-
-        let data: any
-        if (res.ok) {
-          data = await res.json()
+        // Pre-bundled subset for supported counties only (Nyamira, Kisumu, Kakamega, Vihiga).
+        // This avoids per-selection API fetches and keeps load predictable on deployment.
+        let data: any = null
+        const bundledRes = await fetch("/data/ke_subcounty_supported.geojson?v=20260414", { cache: "force-cache" })
+        if (bundledRes.ok) {
+          data = await bundledRes.json()
         } else {
-          // Safety fallback in case API endpoint is unavailable.
-          const rawRes = await fetch("/data/ke_subcounty.geojson", { cache: "force-cache" })
-          if (!rawRes.ok) throw new Error("Could not load subcounty boundaries")
-          const raw = await rawRes.json()
-          const countyKeys = new Set(countiesInSystem.map((c) => normalizeCountyName(c)))
-          data = {
-            type: "FeatureCollection",
-            features: Array.isArray(raw?.features)
-              ? raw.features.filter((feature: any) => {
-                  const county = normalizeCountyName(feature?.properties?.county)
-                  return countyKeys.has(county)
-                })
-              : [],
-          }
+          // Fallback in case an older deploy serves stale static assets.
+          const apiRes = await fetch(
+            "/api/geography/subcounties?counties=Nyamira,Kisumu,Kakamega,Vihiga",
+            { cache: "force-cache" }
+          )
+          if (!apiRes.ok) throw new Error("Could not load supported subcounty boundaries")
+          data = await apiRes.json()
         }
         if (!cancelled) setBoundaryGeoJson(data)
       } catch (error) {
@@ -120,7 +105,7 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
     return () => {
       cancelled = true
     }
-  }, [countiesInSystem])
+  }, [])
 
   const metricsMap = useMemo(() => {
     const map = new Map<string, SubcountyMetric>()
@@ -142,12 +127,7 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
       return { type: "FeatureCollection" as const, features: [] as any[] }
     }
 
-    const selectedCountyKey = selectedLocation === "all" ? null : normalizeCountyName(selectedLocation)
     const features = boundaryGeoJson.features
-      .filter((feature: any) => {
-        const county = normalizeCountyName(feature?.properties?.county)
-        return !selectedCountyKey || county === selectedCountyKey
-      })
       .map((feature: any) => {
         const county = feature?.properties?.county || ""
         const subcounty = feature?.properties?.subcounty || ""
@@ -181,7 +161,7 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
       })
 
     return { type: "FeatureCollection" as const, features }
-  }, [boundaryGeoJson, countyMetricMap, countiesWithSubcountyData, metricsMap, mode, selectedLocation])
+  }, [boundaryGeoJson, countyMetricMap, countiesWithSubcountyData, metricsMap, mode])
 
   const countyLabelGeoJson = useMemo(() => {
     const filtered = selectedLocation === "all" ? metrics : metrics.filter((item) => item.location === selectedLocation)
@@ -195,20 +175,31 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
     }
   }, [metrics, selectedLocation])
 
+  const countyPointGeoJson = useMemo(() => {
+    const filtered = selectedLocation === "all" ? metrics : metrics.filter((item) => item.location === selectedLocation)
+    return {
+      type: "FeatureCollection" as const,
+      features: filtered.map((item) => ({
+        type: "Feature" as const,
+        properties: {
+          location: item.location,
+          value: mode === "servers" ? item.serverCount : item.ticketCount,
+        },
+        geometry: {
+          type: "Point" as const,
+          coordinates: [item.longitude, item.latitude],
+        },
+      })),
+    }
+  }, [metrics, mode, selectedLocation])
+
+  const maxCountyValue = Math.max(1, ...countyPointGeoJson.features.map((f: any) => f?.properties?.value || 0))
+
   const maxValue = Math.max(1, ...choroplethGeoJson.features.map((f: any) => f?.properties?.value || 0))
 
   useEffect(() => {
     const map = mapRef.current?.getMap?.()
-    if (!map || !choroplethGeoJson.features.length) return
-
-    if (selectedLocation === "all") {
-      map.flyTo({
-        center: [INITIAL_VIEW_STATE.longitude, INITIAL_VIEW_STATE.latitude],
-        zoom: INITIAL_VIEW_STATE.zoom,
-        duration: 900,
-      })
-      return
-    }
+    if (!map || selectedLocation === "all" || !choroplethGeoJson.features.length) return
 
     let minLng = Infinity
     let minLat = Infinity
@@ -257,14 +248,18 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
         <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
           Missing `NEXT_PUBLIC_MAPBOX_TOKEN` in environment.
         </div>
-      ) : isLoadingBoundaries ? (
-        <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-          Loading subcounty boundaries...
-        </div>
-      ) : boundaryError ? (
-        <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{boundaryError}</div>
       ) : (
         <div className="relative h-[430px] w-full overflow-hidden rounded-xl shadow-sm">
+          {selectedLocation !== "all" && isLoadingBoundaries && (
+            <div className="absolute right-3 top-3 z-10 rounded-md border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground">
+              Loading subcounty boundaries...
+            </div>
+          )}
+          {selectedLocation !== "all" && boundaryError && (
+            <div className="absolute right-3 top-3 z-10 rounded-md border bg-background/90 px-3 py-1.5 text-xs text-red-600">
+              {boundaryError}
+            </div>
+          )}
           <div className="absolute left-3 top-3 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-white/20 bg-black/50 p-2 backdrop-blur-sm">
             <Select value={selectedLocation} onValueChange={setSelectedLocation}>
               <SelectTrigger className="h-8 w-[170px] bg-background/90">
@@ -295,39 +290,39 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
             mapStyle={resolvedTheme === "dark" ? "mapbox://styles/mapbox/dark-v11" : "mapbox://styles/mapbox/light-v11"}
           >
             <NavigationControl position="top-right" />
-            <Source id="county-distribution" type="geojson" data={choroplethGeoJson}>
-              <Layer
-                id="county-heat"
-                type="fill"
-                paint={{
-                  "fill-color": [
-                    "interpolate",
-                    ["linear"],
-                    ["get", "value"],
-                    0,
-                    "#e5e7eb",
-                    Math.max(1, maxValue * 0.2),
-                    "#60a5fa",
-                    Math.max(1, maxValue * 0.45),
-                    "#f59e0b",
-                    Math.max(1, maxValue * 0.7),
-                    "#f97316",
-                    maxValue,
-                    "#ef4444",
-                  ],
-                  "fill-opacity": 0.72,
-                }}
-              />
-              <Layer
-                id="county-borders"
-                type="line"
-                paint={{
-                  "line-color": "#111827",
-                  "line-width": 0.8,
-                  "line-opacity": 0.45,
-                }}
-              />
-              {selectedLocation !== "all" && (
+            {selectedLocation !== "all" && choroplethGeoJson.features.length > 0 && (
+              <Source id="county-distribution" type="geojson" data={choroplethGeoJson}>
+                <Layer
+                  id="county-heat"
+                  type="fill"
+                  paint={{
+                    "fill-color": [
+                      "interpolate",
+                      ["linear"],
+                      ["get", "value"],
+                      0,
+                      "#e5e7eb",
+                      Math.max(1, maxValue * 0.2),
+                      "#60a5fa",
+                      Math.max(1, maxValue * 0.45),
+                      "#f59e0b",
+                      Math.max(1, maxValue * 0.7),
+                      "#f97316",
+                      maxValue,
+                      "#ef4444",
+                    ],
+                    "fill-opacity": 0.72,
+                  }}
+                />
+                <Layer
+                  id="county-borders"
+                  type="line"
+                  paint={{
+                    "line-color": "#111827",
+                    "line-width": 0.8,
+                    "line-opacity": 0.45,
+                  }}
+                />
                 <Layer
                   id="subcounty-name-labels"
                   type="symbol"
@@ -345,8 +340,43 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
                     "text-halo-blur": 0.25,
                   }}
                 />
-              )}
-            </Source>
+              </Source>
+            )}
+            {selectedLocation === "all" && (
+              <Source id="county-summary-points" type="geojson" data={countyPointGeoJson}>
+                <Layer
+                  id="county-summary-circles"
+                  type="circle"
+                  paint={{
+                    "circle-radius": [
+                      "interpolate",
+                      ["linear"],
+                      ["get", "value"],
+                      0,
+                      8,
+                      Math.max(1, maxCountyValue * 0.4),
+                      16,
+                      maxCountyValue,
+                      24,
+                    ],
+                    "circle-color": [
+                      "interpolate",
+                      ["linear"],
+                      ["get", "value"],
+                      0,
+                      "#60a5fa",
+                      Math.max(1, maxCountyValue * 0.45),
+                      "#f59e0b",
+                      maxCountyValue,
+                      "#ef4444",
+                    ],
+                    "circle-opacity": 0.8,
+                    "circle-stroke-color": resolvedTheme === "dark" ? "#0f172a" : "#ffffff",
+                    "circle-stroke-width": 1.2,
+                  }}
+                />
+              </Source>
+            )}
             {selectedLocation === "all" && (
               <Source id="county-label-points" type="geojson" data={countyLabelGeoJson}>
                 <Layer

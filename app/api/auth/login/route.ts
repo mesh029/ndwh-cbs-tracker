@@ -6,6 +6,11 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 export const revalidate = 0
 
+function shouldUseSecureCookies(request: NextRequest): boolean {
+  const proto = request.headers.get("x-forwarded-proto")
+  if (proto) return proto === "https"
+  return process.env.NODE_ENV === "production"
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,7 +37,7 @@ export async function POST(request: NextRequest) {
     const cookieOptions = {
       httpOnly: true,
       sameSite: "lax" as const,
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureCookies(request),
       path: "/",
       maxAge: 60 * 60 * 12, // 12 hours
     }
