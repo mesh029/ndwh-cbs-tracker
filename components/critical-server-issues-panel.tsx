@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangle, CheckCircle2, Loader2, Plus, Trash2 } from "lucide-react"
+import { CheckCircle2, Loader2, Plus, Trash2 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -41,7 +41,7 @@ interface CriticalServerIssuesPanelProps {
 }
 
 const CHIP_PRESETS = [
-  { value: "Critical", className: "bg-red-600 text-white hover:bg-red-700" },
+  { value: "Critical", className: "bg-rose-600 text-white hover:bg-rose-700" },
   { value: "High", className: "bg-orange-500 text-white hover:bg-orange-600" },
   { value: "Medium", className: "bg-amber-500 text-black hover:bg-amber-600" },
   { value: "Low", className: "bg-emerald-600 text-white hover:bg-emerald-700" },
@@ -223,13 +223,14 @@ export function CriticalServerIssuesPanel({ location }: CriticalServerIssuesPane
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
           <div>
-            <CardTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-red-500" />
-              Critical Server Issues
-            </CardTitle>
+            <CardTitle>Critical Server Issues</CardTitle>
             <CardDescription>
               Track high-priority server problems and quick remediation notes for {location}
             </CardDescription>
+            <div className="mt-2 flex items-center gap-2">
+              <Badge variant="secondary">{activeIssues.length} active</Badge>
+              {resolvedIssues.length > 0 && <Badge variant="outline">{resolvedIssues.length} resolved</Badge>}
+            </div>
           </div>
           {canEdit && (
             <Button onClick={() => setShowAddDialog(true)} size="sm">
@@ -252,15 +253,15 @@ export function CriticalServerIssuesPanel({ location }: CriticalServerIssuesPane
             {activeIssues.length > 0 && (
               <div className="space-y-3">
                 {activeIssues.map((issue) => (
-                  <div key={issue.id} className="rounded-md border border-red-200 bg-red-50/40 p-3 space-y-2">
+                  <div key={issue.id} className="border-b pb-3 last:border-b-0 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-semibold text-sm">{issue.facility.name}</span>
+                      <span className="font-semibold text-sm tracking-tight">{issue.facility.name}</span>
                       {issue.facility.subcounty && <Badge variant="outline">{issue.facility.subcounty}</Badge>}
                       <Badge className={getChipClass(issue.chip)}>{issue.chip}</Badge>
                       <Badge variant="secondary">{issue.label}</Badge>
                     </div>
-                    <p className="text-sm"><span className="font-medium">Problem:</span> {issue.problem}</p>
-                    {issue.solution && <p className="text-sm"><span className="font-medium">Possible solution:</span> {issue.solution}</p>}
+                    <p className="text-sm leading-relaxed"><span className="font-medium text-foreground/90">Problem:</span> {issue.problem}</p>
+                    {issue.solution && <p className="text-sm leading-relaxed"><span className="font-medium text-foreground/90">Suggested fix:</span> {issue.solution}</p>}
                     {issue.comment && <p className="text-xs text-muted-foreground">{issue.comment}</p>}
                     {canEdit && (
                       <div className="flex gap-2 pt-1">
@@ -283,7 +284,7 @@ export function CriticalServerIssuesPanel({ location }: CriticalServerIssuesPane
               <div className="space-y-2">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Resolved</p>
                 {resolvedIssues.map((issue) => (
-                  <div key={issue.id} className="rounded-md border p-2 text-sm flex items-center justify-between gap-2">
+                  <div key={issue.id} className="border-b pb-2 last:border-b-0 text-sm flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <span className="font-medium">{issue.facility.name}</span>
                       <span className="text-muted-foreground"> - {issue.label}</span>
