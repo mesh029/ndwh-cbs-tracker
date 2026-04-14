@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,10 +22,19 @@ import {
 import { SectionUpload } from "./section-upload"
 import { CriticalServerIssuesPanel } from "./critical-server-issues-panel"
 import { useToast } from "@/components/ui/use-toast"
-import { useFacilityData } from "@/hooks/use-facility-data"
-import { facilitiesMatch, normalizeServerType } from "@/lib/utils"
-import { determineIssueType } from "@/lib/date-utils"
-import { cachedFetch } from "@/lib/cache"
+import { computeNyamiraTicketAnalytics } from "@/lib/nyamira-ticket-analytics"
+import {
+  computeServerDistributionFromFacilities,
+  deriveSimcardAndFacilitiesData,
+  deriveSubcountyDistribution,
+} from "@/lib/nyamira-dashboard-derive"
+import {
+  readCountyDashboardCache,
+  writeCountyDashboardCache,
+  fetchCountyDashboardBundle,
+  fetchCountyDashboardLegacy,
+  type CountyDashboardPayload,
+} from "@/lib/county-dashboard-bundle"
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, AreaChart, Area, LineChart, Line, ResponsiveContainer, Legend, RadialBarChart, RadialBar, ComposedChart } from "recharts"
 import {
   ChartContainer,
@@ -118,9 +127,8 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
     }
   }, [allowedLocations, selectedLocation])
 
-  // Get facility data for both systems
-  const ndwhData = useFacilityData("NDWH", location)
-  const cbsData = useFacilityData("CBS", location)
+  /** NDWH master count from county bundle (same source as charts; avoids race with a second fetch). */
+  const ndwhMasterTotal = comparisonStats.ndwh.total
 
   // Helper function to calculate "uploaded when" text
   const getUploadedWhen = useCallback((timestamp: Date | string | undefined, weekDate: Date | string | undefined): string => {
@@ -149,91 +157,24 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
     }
   }, [])
 
-  const loadComparisonStats = useCallback(async () => {
-    try {
-      console.log("🔄 Loading comparison stats...")
-      
-      // Get the total master facilities count (use NDWH master list for both CBS and NDWH)
-      const masterFacilitiesData = await cachedFetch<any>(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
-      const totalMasterFacilities = masterFacilitiesData.facilities?.length || 0
-      
-      const [cbsData, ndwhData] = await Promise.all([
-        cachedFetch<any>(`/api/comparisons?system=CBS&location=${location}`),
-        cachedFetch<any>(`/api/comparisons?system=NDWH&location=${location}`),
-      ])
+  const loadGenRef = useRef(0)
 
-      const cbsLatest = cbsData.comparisons?.[0]
-      const ndwhLatest = ndwhData.comparisons?.[0]
+  const applyCountyDashboardPayload = useCallback(
+    (payload: CountyDashboardPayload) => {
+      const facilities = payload.facilities || []
+      const locationTickets = payload.tickets || []
 
-      console.log("📊 Comparison stats:", {
-        totalMasterFacilities,
-        cbs: cbsLatest ? { 
-          matched: cbsLatest.matchedCount, 
-          total: totalMasterFacilities, 
-          week: cbsLatest.week,
-          timestamp: cbsLatest.timestamp,
-          weekDate: cbsLatest.weekDate
-        } : "No data",
-        ndwh: ndwhLatest ? { 
-          matched: ndwhLatest.matchedCount, 
-          total: totalMasterFacilities, 
-          week: ndwhLatest.week,
-          timestamp: ndwhLatest.timestamp,
-          weekDate: ndwhLatest.weekDate
-        } : "No data",
-      })
+      setServerDistribution(computeServerDistributionFromFacilities(facilities))
+      setHasLoadedServerDistribution(true)
 
-      setComparisonStats({
-        cbs: {
-          total: totalMasterFacilities, // Use NDWH master count for both
-          matched: cbsLatest?.matchedCount || 0,
-          unmatched: cbsLatest?.unmatchedCount || 0,
-          week: cbsLatest?.week || undefined,
-          weekDate: cbsLatest?.weekDate ? new Date(cbsLatest.weekDate) : undefined,
-          timestamp: cbsLatest?.timestamp ? new Date(cbsLatest.timestamp) : undefined,
-          uploadedWhen: getUploadedWhen(cbsLatest?.timestamp, cbsLatest?.weekDate),
-        },
-        ndwh: {
-          total: totalMasterFacilities, // Use NDWH master count for both
-          matched: ndwhLatest?.matchedCount || 0,
-          unmatched: ndwhLatest?.unmatchedCount || 0,
-          week: ndwhLatest?.week || undefined,
-          weekDate: ndwhLatest?.weekDate ? new Date(ndwhLatest.weekDate) : undefined,
-          timestamp: ndwhLatest?.timestamp ? new Date(ndwhLatest.timestamp) : undefined,
-          uploadedWhen: getUploadedWhen(ndwhLatest?.timestamp, ndwhLatest?.weekDate),
-        },
-      })
-    } catch (error) {
-      console.error("❌ Error loading comparison stats:", error)
-    }
-  }, [location, getUploadedWhen])
+      const { simcardDistribution: simDist, facilitiesData: facData } = deriveSimcardAndFacilitiesData(facilities)
+      setSimcardDistribution(simDist)
+      setFacilitiesData(facData)
+      setSubcountyDistribution(deriveSubcountyDistribution(facilities))
 
-  const loadTicketsAndAnalytics = useCallback(async (showLoading: boolean = true) => {
-    try {
-      if (showLoading) {
-        setIsLoadingTickets(true)
-      }
-      console.log(`🔄 Loading tickets for ${location}...`)
-      
-      // Load tickets and facilities in parallel
-      const [ticketsData, facilitiesData] = await Promise.all([
-        cachedFetch<any>(`/api/tickets?location=${location}`),
-        cachedFetch<any>(`/api/facilities?system=NDWH&location=${location}&isMaster=true`),
-      ])
-      const locationTickets = ticketsData.tickets || []
-      console.log(`✅ Loaded ${locationTickets.length} tickets for ${location}`)
-      
-      // ALWAYS set tickets state first
       setTickets(locationTickets)
-      
-      // Load facilities
-      let facilities: any[] = []
-      facilities = facilitiesData.facilities || []
-      console.log(`✅ Loaded ${facilities.length} facilities for ticket matching`)
-      
-      // Always set analytics, even if no tickets (to prevent loading state)
+
       if (locationTickets.length === 0) {
-        console.warn(`⚠️ No tickets found for ${location}`)
         setTicketAnalytics({
           byServerType: [],
           byProblem: [],
@@ -242,363 +183,84 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
           bySSDIssues: [],
           networkCorrelation: [],
         } as any)
-        setIsLoadingTickets(false)
-        return
+      } else {
+        const serverDist = computeServerDistributionFromFacilities(facilities)
+        const { comprehensiveAnalytics: comp, ticketAnalytics: ta } = computeNyamiraTicketAnalytics(
+          locationTickets,
+          facilities,
+          serverDist
+        )
+        setComprehensiveAnalytics(comp)
+        setTicketAnalytics(ta as any)
+        setHasLoadedTickets(true)
       }
 
+      const totalMasterFacilities = facilities.length
+      const cbsLatest = payload.cbsLatest as Record<string, any> | null
+      const ndwhLatest = payload.ndwhLatest as Record<string, any> | null
 
-      // Comprehensive analytics: correlate tickets with facilities, server types, simcards, and LAN
-      const byCategory: Record<string, { count: number; facilities: string[]; serverTypes: Set<string>; withSimcards: number; withLAN: number }> = {}
-      const byServerTypeComprehensive: Record<string, { tickets: number; facilities: number; simcards: number; lanFacilities: number }> = {}
-      const byNetworkType: Record<string, { tickets: number; facilities: number }> = {}
-
-      locationTickets.forEach((ticket: any) => {
-        // Get categories from serverCondition (split by comma)
-        const categories = (ticket.serverCondition || "Unknown")
-          .split(',')
-          .map((cat: string) => cat.trim())
-          .filter((cat: string) => cat.length > 0)
-        
-        // If no valid categories, use "Unknown"
-        const ticketCategories = categories.length > 0 ? categories : ["Unknown"]
-        
-        // Find matching facility
-        let matchedFacility = null
-        for (const facility of facilities) {
-          if (facilitiesMatch(facility.name, ticket.facilityName)) {
-            matchedFacility = facility
-            break
-          }
-        }
-
-        // Group by each category (a ticket can belong to multiple categories)
-        ticketCategories.forEach((category: string) => {
-          if (!byCategory[category]) {
-            byCategory[category] = {
-              count: 0,
-              facilities: [],
-              serverTypes: new Set(),
-              withSimcards: 0,
-              withLAN: 0,
-            }
-          }
-          byCategory[category].count++
-          if (matchedFacility) {
-            if (!byCategory[category].facilities.includes(matchedFacility.name)) {
-              byCategory[category].facilities.push(matchedFacility.name)
-            }
-            if (matchedFacility.serverType) {
-              byCategory[category].serverTypes.add(matchedFacility.serverType)
-            }
-            if (matchedFacility.simcardCount && matchedFacility.simcardCount > 0) {
-              byCategory[category].withSimcards++
-            }
-            if (matchedFacility.hasLAN) {
-              byCategory[category].withLAN++
-            }
-          }
-        })
-
-        // Group by server type (EXCLUDE "Tickets" - it's not a server type)
-        // Normalize server type to ensure consistency
-        const rawServerType = matchedFacility?.serverType || ticket.serverType || "Unknown"
-        const serverType = normalizeServerType(rawServerType)
-        
-        // Skip if server type is "Tickets" or "Unknown"
-        if (serverType.toLowerCase() === "tickets" || serverType === "Unknown") {
-          return
-        }
-        
-        if (!byServerTypeComprehensive[serverType]) {
-          byServerTypeComprehensive[serverType] = {
-            tickets: 0,
-            facilities: 0,
-            simcards: 0,
-            lanFacilities: 0,
-          }
-        }
-        byServerTypeComprehensive[serverType].tickets++
-        
-        // Count facilities, simcards, and LAN for this server type (excluding Tickets)
-        // Use normalized server type for matching
-        const facilitiesWithServerType = facilities.filter((f: any) => {
-          const normalizedFacilityType = normalizeServerType(f.serverType)
-          return normalizedFacilityType === serverType && normalizedFacilityType.toLowerCase() !== "tickets"
-        })
-        byServerTypeComprehensive[serverType].facilities = facilitiesWithServerType.length
-        byServerTypeComprehensive[serverType].simcards = facilitiesWithServerType.reduce((sum: number, f: any) => sum + (f.simcardCount || 0), 0)
-        byServerTypeComprehensive[serverType].lanFacilities = facilitiesWithServerType.filter((f: any) => f.hasLAN).length
-
-        // Group by network type (only if not Tickets server type)
-        if (matchedFacility?.serverType?.toLowerCase() !== "tickets") {
-          const networkKey = `${matchedFacility?.simcardCount && matchedFacility.simcardCount > 0 ? 'hasSimcard' : 'noSimcard'}_${matchedFacility?.hasLAN ? 'hasLAN' : 'noLAN'}`
-          if (!byNetworkType[networkKey]) {
-            byNetworkType[networkKey] = { tickets: 0, facilities: 0 }
-          }
-          byNetworkType[networkKey].tickets++
-          if (matchedFacility) {
-            byNetworkType[networkKey].facilities++
-          }
-        }
-      })
-
-      // Convert to arrays
-      const categoryArray = Object.entries(byCategory)
-        .map(([category, data]) => ({
-          category,
-          count: data.count,
-          facilities: data.facilities,
-          serverTypes: Array.from(data.serverTypes),
-          withSimcards: data.withSimcards,
-          withLAN: data.withLAN,
-        }))
-        .sort((a, b) => b.count - a.count)
-
-      const serverTypeArray = Object.entries(byServerTypeComprehensive)
-        .map(([serverType, data]) => ({
-          serverType,
-          ...data,
-        }))
-        .sort((a, b) => b.tickets - a.tickets)
-
-      const networkTypeArray = Object.entries(byNetworkType)
-        .map(([key, data]) => {
-          const [simcard, lan] = key.split('_')
-          return {
-            hasSimcard: simcard === 'hasSimcard',
-            hasLAN: lan === 'hasLAN',
-            tickets: data.tickets,
-            facilities: data.facilities,
-          }
-        })
-
-      setComprehensiveAnalytics({
-        byCategory: categoryArray,
-        byServerType: serverTypeArray,
-        byNetworkType: networkTypeArray,
-      })
-
-      // Analyze tickets by server type and issue type
-      const byServerType: Record<string, { count: number; problems: string[]; serverIssues: number; networkIssues: number; ssdIssues: number }> = {}
-      const byIssueType: Record<string, number> = { server: 0, network: 0 }
-      const byProblem: Record<string, { count: number; serverTypes: Set<string> }> = {}
-      const networkCorrelation: Record<string, { networkIssues: number; facilities: number }> = {}
-
-      // Process each ticket
-      locationTickets.forEach((ticket: any) => {
-        // Get issue type - use ticket.issueType if available, otherwise determine from serverCondition
-        let issueType: string = ticket.issueType || "server"
-        if (!ticket.issueType && ticket.serverCondition) {
-          issueType = determineIssueType(ticket.serverCondition)
-        }
-        
-        // Count by issue type
-        byIssueType[issueType] = (byIssueType[issueType] || 0) + 1
-
-        // Check if ticket has SSD-related issues
-        const hasSSD = (ticket.serverCondition?.toLowerCase().includes("ssd") || ticket.problem?.toLowerCase().includes("ssd")) ?? false
-
-        // Get server type - try ticket first, then match with facility
-        let serverType = normalizeServerType(ticket.serverType)
-        let matchedFacility = null
-        
-        // Find matching facility
-        for (const facility of facilities) {
-          if (facilitiesMatch(facility.name, ticket.facilityName)) {
-            matchedFacility = facility
-            if (!serverType) {
-              serverType = normalizeServerType(facility.serverType)
-            }
-            break
-          }
-        }
-        
-        // Use "Unknown" if no server type found, but still process the ticket
-        if (!serverType || serverType.toLowerCase() === "tickets") {
-          serverType = "Unknown"
-        }
-        
-        // Group by server type
-        if (!byServerType[serverType]) {
-          byServerType[serverType] = { count: 0, problems: [], serverIssues: 0, networkIssues: 0, ssdIssues: 0 }
-        }
-        byServerType[serverType].count++
-        byServerType[serverType].problems.push(ticket.problem)
-        if (issueType === "server") {
-          byServerType[serverType].serverIssues++
-          if (hasSSD) {
-            byServerType[serverType].ssdIssues++
-          }
-        } else {
-          byServerType[serverType].networkIssues++
-        }
-        
-        // Network correlation: group by simcard/LAN availability
-        if (issueType === "network" && matchedFacility) {
-          const hasSimcard = matchedFacility.simcardCount && matchedFacility.simcardCount > 0
-          const hasLAN = matchedFacility.hasLAN
-          const networkKey = `${hasSimcard ? 'hasSimcard' : 'noSimcard'}_${hasLAN ? 'hasLAN' : 'noLAN'}`
-          
-          if (!networkCorrelation[networkKey]) {
-            networkCorrelation[networkKey] = { networkIssues: 0, facilities: 0 }
-          }
-          networkCorrelation[networkKey].networkIssues++
-          // Count unique facilities
-          if (!networkCorrelation[networkKey].facilities) {
-            networkCorrelation[networkKey].facilities = 0
-          }
-        }
-        
-        // Group by problem type (extract key words from problem)
-        const problemKey = ticket.problem.toLowerCase().substring(0, 50) // Use first 50 chars as key
-        if (!byProblem[problemKey]) {
-          byProblem[problemKey] = { count: 0, serverTypes: new Set() }
-        }
-        byProblem[problemKey].count++
-        byProblem[problemKey].serverTypes.add(serverType)
-      })
-
-      // Count facilities for network correlation
-      facilities.forEach((facility: any) => {
-        const hasSimcard = facility.simcardCount && facility.simcardCount > 0
-        const hasLAN = facility.hasLAN
-        const networkKey = `${hasSimcard ? 'hasSimcard' : 'noSimcard'}_${hasLAN ? 'hasLAN' : 'noLAN'}`
-        
-        if (!networkCorrelation[networkKey]) {
-          networkCorrelation[networkKey] = { networkIssues: 0, facilities: 0 }
-        }
-        networkCorrelation[networkKey].facilities++
-      })
-
-      // Calculate correlation: issues per server type vs total facilities with that server type
-      // IMPORTANT: Both byServerType and serverDistribution now use normalized server types
-      let correlation: Array<{ serverType: string; issueRate: number; totalIssues: number; totalFacilities: number }> = []
-      
-      // Build a map of normalized server types to facility counts from serverDistribution
-      const serverDistMap = new Map<string, number>()
-      if (serverDistribution.length > 0) {
-        serverDistribution.forEach(s => {
-          const normalized = normalizeServerType(s.serverType)
-          if (normalized && normalized !== "Unknown" && normalized.toLowerCase() !== "tickets") {
-            // Use the maximum count if there are duplicates (shouldn't happen, but just in case)
-            const existing = serverDistMap.get(normalized) || 0
-            serverDistMap.set(normalized, Math.max(existing, s.count))
-          }
-        })
-        console.log("📊 Server distribution map:", Array.from(serverDistMap.entries()))
-      }
-      
-      // Always calculate correlation, even if serverDistribution isn't ready
-      correlation = Object.entries(byServerType)
-        .filter(([serverType]) => serverType !== "Unknown" && serverType.toLowerCase() !== "tickets") // Exclude unknown and Tickets from correlation
-        .map(([serverType, data]) => {
-          // Find matching server type in distribution map
-          let totalFacilities = serverDistMap.get(serverType) || 0
-          let issueRate = 0
-          
-          if (totalFacilities > 0) {
-            issueRate = (data.count / totalFacilities) * 100 // Issues per 100 facilities
-            console.log(`📊 Correlation for ${serverType}: ${data.count} issues / ${totalFacilities} facilities = ${issueRate.toFixed(1)}%`)
-          } else {
-            console.log(`⚠️ No facilities found for server type "${serverType}" in distribution. Available types:`, Array.from(serverDistMap.keys()))
-          }
-          
-          return {
-            serverType,
-            issueRate: isNaN(issueRate) ? 0 : issueRate,
-            totalIssues: data.count,
-            totalFacilities,
-          }
-        })
-        .sort((a, b) => {
-          // Sort by issue rate first (highest first), then by total issues if rates are equal
-          if (a.totalFacilities > 0 && b.totalFacilities > 0) {
-            if (Math.abs(a.issueRate - b.issueRate) < 0.01) {
-              return b.totalIssues - a.totalIssues
-            }
-            return b.issueRate - a.issueRate
-          } else if (a.totalFacilities > 0) {
-            return -1 // Prioritize entries with facility data
-          } else if (b.totalFacilities > 0) {
-            return 1
-          } else {
-            // If no server distribution, sort by total issues
-            return b.totalIssues - a.totalIssues
-          }
-        })
-
-      const analyticsData = {
-        byServerType: Object.entries(byServerType)
-          .filter(([serverType]) => serverType.toLowerCase() !== "tickets" && serverType !== "Unknown") // Exclude Tickets and Unknown from ticket analytics
-          .map(([serverType, data]) => ({
-            serverType,
-            count: data.count,
-            problems: data.problems,
-            serverIssues: data.serverIssues,
-            networkIssues: data.networkIssues,
-          }))
-          .sort((a, b) => b.count - a.count), // Sort by total count (most tickets first)
-        byProblem: Object.entries(byProblem)
-          .map(([problem, data]) => ({
-            problem: problem.substring(0, 50),
-            count: data.count,
-            serverTypes: Array.from(data.serverTypes),
-          }))
-          .sort((a, b) => b.count - a.count)
-          .slice(0, 10), // Top 10 problems
-        correlation,
-        byIssueType: {
-          server: byIssueType.server || 0,
-          network: byIssueType.network || 0,
+      setComparisonStats({
+        cbs: {
+          total: totalMasterFacilities,
+          matched: cbsLatest?.matchedCount || 0,
+          unmatched: cbsLatest?.unmatchedCount || 0,
+          week: cbsLatest?.week || undefined,
+          weekDate: cbsLatest?.weekDate ? new Date(cbsLatest.weekDate) : undefined,
+          timestamp: cbsLatest?.timestamp ? new Date(cbsLatest.timestamp) : undefined,
+          uploadedWhen: getUploadedWhen(cbsLatest?.timestamp, cbsLatest?.weekDate),
         },
-        bySSDIssues: Object.entries(byServerType)
-          .filter(([serverType]) => serverType.toLowerCase() !== "tickets" && serverType !== "Unknown")
-          .map(([serverType, data]) => ({
-            serverType,
-            ssdIssues: data.ssdIssues,
-            serverIssues: data.serverIssues,
-            totalIssues: data.count,
-          }))
-          .filter(item => item.ssdIssues > 0 || item.serverIssues > 0)
-          .sort((a, b) => b.totalIssues - a.totalIssues),
-        networkCorrelation: Object.entries(networkCorrelation)
-          .map(([key, data]) => {
-            const [simcardPart, lanPart] = key.split('_')
-            return {
-              hasSimcard: simcardPart === 'hasSimcard',
-              hasLAN: lanPart === 'hasLAN',
-              networkIssues: data.networkIssues,
-              facilities: data.facilities,
-            }
-          })
-          .filter(item => item.networkIssues > 0 || item.facilities > 0),
-      } as any
-
-      // Log detailed analytics before setting
-      console.log("📊 Ticket Analytics Summary:", {
-        totalTickets: locationTickets.length,
-        byIssueType: {
-          server: byIssueType.server,
-          network: byIssueType.network,
+        ndwh: {
+          total: totalMasterFacilities,
+          matched: ndwhLatest?.matchedCount || 0,
+          unmatched: ndwhLatest?.unmatchedCount || 0,
+          week: ndwhLatest?.week || undefined,
+          weekDate: ndwhLatest?.weekDate ? new Date(ndwhLatest.weekDate) : undefined,
+          timestamp: ndwhLatest?.timestamp ? new Date(ndwhLatest.timestamp) : undefined,
+          uploadedWhen: getUploadedWhen(ndwhLatest?.timestamp, ndwhLatest?.weekDate),
         },
-        byServerTypeKeys: Object.keys(byServerType),
-        byServerTypeCounts: Object.entries(byServerType).map(([k, v]) => ({ [k]: v.count })),
-        correlationCount: correlation.length,
-        serverDistributionLoaded: serverDistribution.length > 0,
       })
-      
-      // Always set analytics - this is critical
-      setTicketAnalytics(analyticsData)
-      setHasLoadedTickets(true)
-      
-      console.log("✅ Ticket analytics SET:", {
-        byServerTypeLength: analyticsData.byServerType.length,
-        byIssueType: analyticsData.byIssueType,
-        correlationLength: analyticsData.correlation.length,
-      })
+
+      setIsLoadingData(false)
+      setIsLoadingTickets(false)
+    },
+    [getUploadedWhen]
+  )
+
+  const refreshCountyDashboard = useCallback(async () => {
+    setIsLoadingTickets(true)
+    try {
+      const payload = await fetchCountyDashboardBundle(location).catch(() => fetchCountyDashboardLegacy(location))
+      writeCountyDashboardCache(location, payload)
+      applyCountyDashboardPayload(payload)
     } catch (error) {
-      console.error("❌ Error loading tickets:", error)
-      // Set empty analytics on error so UI doesn't show "no data" when there's actually an error
+      console.error("County dashboard refresh failed:", error)
+      toast({
+        title: "Could not refresh dashboard",
+        description: "Try again or check your connection.",
+        variant: "destructive",
+      })
+      setIsLoadingData(false)
+      setIsLoadingTickets(false)
+    }
+  }, [location, applyCountyDashboardPayload, toast])
+
+  // One bundle request (+ sessionStorage instant paint), legacy fallback if bundle fails
+  useEffect(() => {
+    const gen = ++loadGenRef.current
+    const stale = () => gen !== loadGenRef.current
+
+    const cached = readCountyDashboardCache(location)
+    if (!cached) {
+      setIsLoadingData(true)
+      setIsLoadingTickets(true)
+      setHasLoadedTickets(false)
+      setHasLoadedServerDistribution(false)
+      setTickets([])
+      setServerDistribution([])
+      setComparisonStats({
+        cbs: { total: 0, matched: 0, unmatched: 0 },
+        ndwh: { total: 0, matched: 0, unmatched: 0 },
+      })
       setTicketAnalytics({
         byServerType: [],
         byProblem: [],
@@ -607,199 +269,39 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
         bySSDIssues: [],
         networkCorrelation: [],
       } as any)
-    } finally {
-      if (showLoading) {
-        setIsLoadingTickets(false)
-      }
+      setComprehensiveAnalytics(null)
     }
-  }, [location])
 
-  const loadServerDistribution = useCallback(async () => {
-    try {
-      const data = await cachedFetch<any>(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
-      const facilities = data.facilities || []
-      
-      console.log("Facilities loaded for server distribution:", facilities.length)
-      
-      // Group facilities by server type (EXCLUDE "Tickets" - that's not a server type)
-      const distribution: Record<string, { count: number; facilities: string[] }> = {}
-      
-      facilities.forEach((facility: any) => {
-        const rawServerType = facility.serverType || "No Server Type"
-        // Filter out "Tickets" - it's not a server type, it's a separate system
-        if (rawServerType.toLowerCase() === "tickets") {
+    if (cached && !stale()) {
+      applyCountyDashboardPayload(cached)
+    }
+
+    fetchCountyDashboardBundle(location)
+      .then((payload) => {
+        if (stale()) return
+        writeCountyDashboardCache(location, payload)
+        applyCountyDashboardPayload(payload)
+      })
+      .catch((err) => {
+        console.warn("[CountyDashboard] bundle failed:", err)
+        if (stale()) return
+        if (cached) {
           return
         }
-        // Normalize server type to match the format used in ticket analytics
-        const serverType = normalizeServerType(rawServerType)
-        if (serverType === "Unknown" || serverType.toLowerCase() === "tickets") {
-          return
-        }
-        if (!distribution[serverType]) {
-          distribution[serverType] = { count: 0, facilities: [] }
-        }
-        distribution[serverType].count++
-        distribution[serverType].facilities.push(facility.name)
+        fetchCountyDashboardLegacy(location)
+          .then((payload) => {
+            if (stale()) return
+            applyCountyDashboardPayload(payload)
+          })
+          .catch((e) => {
+            console.error("[CountyDashboard] legacy load failed:", e)
+            if (!stale()) {
+              setIsLoadingData(false)
+              setIsLoadingTickets(false)
+            }
+          })
       })
-      
-      // Convert to array and sort by count
-      const distributionArray = Object.entries(distribution)
-        .map(([serverType, data]) => ({
-          serverType,
-          count: data.count,
-          facilities: data.facilities,
-        }))
-        .sort((a, b) => b.count - a.count)
-      
-      console.log("Server distribution calculated:", distributionArray.length, "server types")
-      setServerDistribution(distributionArray)
-      setHasLoadedServerDistribution(true)
-    } catch (error) {
-      console.error("Error loading server distribution:", error)
-    } finally {
-      // Ensure overall data loading state is cleared once server distribution has been processed,
-      // so we don't get stuck in a perpetual "Loading..." state for this section even if one of
-      // the other loaders (e.g. ticket analytics) is still finishing.
-      setIsLoadingData(false)
-    }
-  }, [location])
-
-  const loadSimcardDistribution = useCallback(async () => {
-    try {
-      const data = await cachedFetch<any>(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
-      const facilities = data.facilities || []
-      
-      console.log("Facilities loaded for simcard distribution:", facilities.length)
-      if (facilities.length > 0) {
-        console.log("Sample facility:", {
-          name: facilities[0].name,
-          simcardCount: facilities[0].simcardCount,
-          hasLAN: facilities[0].hasLAN,
-        })
-      }
-      
-      // Store facilities data for tooltips
-      setFacilitiesData(facilities.map((f: any) => ({
-        name: f.name,
-        simcardCount: f.simcardCount || 0,
-        hasLAN: f.hasLAN || false,
-      })))
-      
-      let totalSimcards = 0
-      let facilitiesWithSimcards = 0
-      let facilitiesWithLAN = 0
-      
-      facilities.forEach((facility: any) => {
-        // Count simcards - only if simcardCount is a valid number > 0
-        const simcardCount = facility.simcardCount
-        if (simcardCount !== null && simcardCount !== undefined && simcardCount !== "") {
-          const count = typeof simcardCount === 'number' ? simcardCount : Number(simcardCount)
-          if (!isNaN(count) && count > 0) {
-            totalSimcards += count
-            facilitiesWithSimcards++
-          }
-        }
-        // Count LAN facilities - check for boolean true
-        if (facility.hasLAN === true || facility.hasLAN === 1 || facility.hasLAN === "true") {
-          facilitiesWithLAN++
-        }
-      })
-      
-      console.log("Simcard distribution calculated:", { totalSimcards, facilitiesWithSimcards, facilitiesWithLAN })
-      
-      setSimcardDistribution({
-        totalSimcards,
-        facilitiesWithSimcards,
-        facilitiesWithLAN,
-      })
-    } catch (error) {
-      console.error("Error loading simcard distribution:", error)
-      // Set zeros on error to prevent undefined state
-      setSimcardDistribution({
-        totalSimcards: 0,
-        facilitiesWithSimcards: 0,
-        facilitiesWithLAN: 0,
-      })
-    }
-  }, [location])
-
-  const loadSubcountyDistribution = useCallback(async () => {
-    try {
-      console.log("🔄 Loading subcounty distribution...")
-      const data = await cachedFetch<any>(`/api/facilities?system=NDWH&location=${location}&isMaster=true`)
-      const facilities = data.facilities || []
-      
-      // Group by subcounty, then by server type
-      const subcountyMap: Record<string, Record<string, { count: number; facilities: string[] }>> = {}
-      
-      facilities.forEach((facility: any) => {
-        const subcounty = facility.subcounty || "Unknown Subcounty"
-        const serverType = normalizeServerType(facility.serverType) || "Unknown"
-        
-        // Skip "Tickets" as it's not a server type
-        if (serverType.toLowerCase() === "tickets") {
-          return
-        }
-        
-        if (!subcountyMap[subcounty]) {
-          subcountyMap[subcounty] = {}
-        }
-        
-        if (!subcountyMap[subcounty][serverType]) {
-          subcountyMap[subcounty][serverType] = { count: 0, facilities: [] }
-        }
-        
-        subcountyMap[subcounty][serverType].count++
-        subcountyMap[subcounty][serverType].facilities.push(facility.name)
-      })
-      
-      // Convert to array format
-      const distributionArray = Object.entries(subcountyMap)
-        .map(([subcounty, serverTypes]) => ({
-          subcounty,
-          serverTypes: Object.entries(serverTypes)
-            .map(([serverType, data]) => ({
-              serverType,
-              count: data.count,
-              facilities: data.facilities,
-            }))
-            .sort((a, b) => b.count - a.count),
-          totalFacilities: Object.values(serverTypes).reduce((sum, data) => sum + data.count, 0),
-        }))
-        .sort((a, b) => b.totalFacilities - a.totalFacilities)
-      
-      console.log(`✅ Loaded subcounty distribution: ${distributionArray.length} subcounties`)
-      setSubcountyDistribution(distributionArray)
-    } catch (error) {
-      console.error("Error loading subcounty distribution:", error)
-    }
-  }, [location])
-
-  // Load all data on mount and when location changes
-  useEffect(() => {
-    setIsLoadingData(true)
-    setIsLoadingTickets(true)
-    setHasLoadedTickets(false)
-    setHasLoadedServerDistribution(false)
-    
-    // Load all data in parallel
-    Promise.all([
-      loadComparisonStats(),
-      loadServerDistribution(),
-      loadSimcardDistribution(),
-      loadSubcountyDistribution(),
-      loadTicketsAndAnalytics(true),
-    ]).then(() => {
-      // All data loaded successfully
-      // Note: loadComparisonStats and loadTicketsAndAnalytics already set their loading states to false
-      // But we ensure it's set here as a fallback
-      setIsLoadingData(false)
-    }).catch((error) => {
-      console.error("Error loading initial data:", error)
-      setIsLoadingData(false)
-      setIsLoadingTickets(false)
-    })
-  }, [location, loadComparisonStats, loadServerDistribution, loadSimcardDistribution, loadSubcountyDistribution, loadTicketsAndAnalytics])
+  }, [location, applyCountyDashboardPayload])
 
   // Server type distribution data for charts
   const serverTypeChartData = useMemo(() => {
@@ -899,7 +401,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
             ) : (
               <>
                 <div className="text-2xl font-bold">
-                  {ndwhData.masterFacilities.length}
+                  {ndwhMasterTotal}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
                   <Building2 className="inline h-3 w-3 mr-1" />
@@ -933,7 +435,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
                     </p>
                     <div className="mt-4 pt-4 border-t">
                       <SectionUpload section="ticket" location={location} onUploadComplete={() => {
-                        loadTicketsAndAnalytics()
+                        refreshCountyDashboard()
                       }} />
                     </div>
                   </>
@@ -1049,8 +551,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
               </div>
               <div className="flex-shrink-0">
                 <SectionUpload section="server" location={location} onUploadComplete={() => {
-                  loadServerDistribution()
-                  loadTicketsAndAnalytics()
+                  refreshCountyDashboard()
                 }} />
               </div>
             </div>
@@ -1098,7 +599,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <div className="text-center">
                       <div className="text-3xl font-bold">
-                        {ndwhData.masterFacilities.length || serverDistribution.reduce((sum, item) => sum + item.count, 0)}
+                        {ndwhMasterTotal || serverDistribution.reduce((sum, item) => sum + item.count, 0)}
                       </div>
                       <div className="text-xs text-muted-foreground">Total Facilities</div>
                       <div className="text-xs text-muted-foreground mt-1">
@@ -1406,10 +907,10 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
             </div>
             <div className="flex flex-col gap-2 w-full sm:w-auto sm:min-w-[280px] flex-shrink-0">
               <SectionUpload section="simcard" location={location} onUploadComplete={() => {
-                loadSimcardDistribution()
+                refreshCountyDashboard()
               }} buttonLayout="column" />
               <SectionUpload section="lan" location={location} onUploadComplete={() => {
-                loadSimcardDistribution()
+                refreshCountyDashboard()
               }} buttonLayout="column" />
             </div>
           </div>
@@ -1468,8 +969,8 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
                       {simcardDistribution?.facilitiesWithSimcards || 0}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {ndwhData.masterFacilities.length > 0 
-                        ? (((simcardDistribution?.facilitiesWithSimcards || 0) / ndwhData.masterFacilities.length) * 100).toFixed(1) 
+                      {ndwhMasterTotal > 0 
+                        ? (((simcardDistribution?.facilitiesWithSimcards || 0) / ndwhMasterTotal) * 100).toFixed(1) 
                         : 0}% of total facilities
                     </p>
                   </CardContent>
@@ -1510,8 +1011,8 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
                       {simcardDistribution?.facilitiesWithLAN || 0}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {ndwhData.masterFacilities.length > 0 
-                        ? (((simcardDistribution?.facilitiesWithLAN || 0) / ndwhData.masterFacilities.length) * 100).toFixed(1) 
+                      {ndwhMasterTotal > 0 
+                        ? (((simcardDistribution?.facilitiesWithLAN || 0) / ndwhMasterTotal) * 100).toFixed(1) 
                         : 0}% of total facilities
                     </p>
                   </CardContent>
