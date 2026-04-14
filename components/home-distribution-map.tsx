@@ -70,18 +70,42 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
     return map
   }, [metrics])
 
+  const countiesInSystem = useMemo(() => {
+    return Array.from(new Set(metrics.map((item) => item.location).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b)
+    )
+  }, [metrics])
+
   useEffect(() => {
     let cancelled = false
     const loadBoundaries = async () => {
       setIsLoadingBoundaries(true)
       setBoundaryError(null)
       try {
-        const res = await fetch(`/data/ke_subcounty.geojson?_ts=${Date.now()}`, {
-          cache: "no-store",
-          headers: { "cache-control": "no-cache" },
+        const countyParam = encodeURIComponent(countiesInSystem.join(","))
+        const res = await fetch(`/api/geography/subcounties?counties=${countyParam}`, {
+          cache: "force-cache",
         })
-        if (!res.ok) throw new Error("Could not load subcounty boundaries")
-        const data = await res.json()
+
+        let data: any
+        if (res.ok) {
+          data = await res.json()
+        } else {
+          // Safety fallback in case API endpoint is unavailable.
+          const rawRes = await fetch("/data/ke_subcounty.geojson", { cache: "force-cache" })
+          if (!rawRes.ok) throw new Error("Could not load subcounty boundaries")
+          const raw = await rawRes.json()
+          const countyKeys = new Set(countiesInSystem.map((c) => normalizeCountyName(c)))
+          data = {
+            type: "FeatureCollection",
+            features: Array.isArray(raw?.features)
+              ? raw.features.filter((feature: any) => {
+                  const county = normalizeCountyName(feature?.properties?.county)
+                  return countyKeys.has(county)
+                })
+              : [],
+          }
+        }
         if (!cancelled) setBoundaryGeoJson(data)
       } catch (error) {
         if (!cancelled) {
@@ -96,7 +120,7 @@ export function HomeDistributionMap({ metrics, subcountyMetrics }: Props) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [countiesInSystem])
 
   const metricsMap = useMemo(() => {
     const map = new Map<string, SubcountyMetric>()

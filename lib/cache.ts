@@ -101,41 +101,22 @@ export function getCacheKey(url: string, options?: Record<string, any>): string 
 export async function cachedFetch<T>(
   url: string,
   options?: RequestInit,
-  ttl?: number
+  _ttl?: number
 ): Promise<T> {
-  // In development, always bypass the custom cache to avoid confusion with stale data
-  // while actively iterating on the UI. Next.js and the browser already handle caching
-  // appropriately, and disabling this layer in dev fixes "cache issues" when switching
-  // locations on dashboards.
-  if (process.env.NODE_ENV !== "production") {
-    const response = await fetch(url, options)
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-    }
-    return await response.json() as T
-  }
+  // Force fresh reads to eliminate stale UI states across dashboards.
+  // Keep the helper signature for compatibility with existing callers.
+  const response = await fetch(url, {
+    ...options,
+    cache: "no-store",
+    headers: {
+      ...(options?.headers || {}),
+      "cache-control": "no-cache",
+    },
+  })
 
-  const cacheKey = getCacheKey(url, options as any)
-  
-  // Check cache first
-  const cached = cache.get<T>(cacheKey)
-  if (cached !== null) {
-    console.log(`[Cache HIT] ${cacheKey}`)
-    return cached
-  }
-
-  // Fetch from API
-  console.log(`[Cache MISS] ${cacheKey}`)
-  const response = await fetch(url, options)
-  
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`)
   }
 
-  const data = await response.json() as T
-  
-  // Cache the response
-  cache.set(cacheKey, data, ttl)
-  
-  return data
+  return (await response.json()) as T
 }
