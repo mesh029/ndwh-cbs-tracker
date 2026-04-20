@@ -154,6 +154,7 @@ export function AssetManager() {
           const existing = merged.get(key)!
           merged.set(key, {
             ...existing,
+            subcounty: existing.subcounty || facility.subcounty || null,
             serverType: existing.serverType || facility.serverType || null,
             routerType: existing.routerType || facility.routerType || null,
             simcardCount: existing.simcardCount ?? facility.simcardCount ?? null,

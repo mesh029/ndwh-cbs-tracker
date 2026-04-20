@@ -224,7 +224,7 @@ export async function GET(request: NextRequest) {
       id: asset.id,
       facilityName: asset.facility.name,
       location: asset.location,
-      subcounty: asset.subcounty,
+      subcounty: asset.subcounty || asset.facility.subcounty || null,
       hasLAN: asset.hasLAN,
       lanType: asset.lanType,
       notes: asset.notes,

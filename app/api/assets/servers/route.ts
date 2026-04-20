@@ -311,7 +311,7 @@ export async function GET(request: NextRequest) {
       id: asset.id,
       facilityName: asset.facility.name,
       location: asset.location,
-      subcounty: asset.subcounty,
+      subcounty: asset.subcounty || asset.facility.subcounty || null,
       serverType: asset.serverType,
       assetTag: asset.assetTag,
       serialNumber: asset.serialNumber,
