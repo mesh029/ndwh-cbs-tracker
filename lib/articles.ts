@@ -143,7 +143,13 @@ function normalizeArticle(input: Partial<Article>): Article {
 }
 
 export async function getArticles(): Promise<Article[]> {
-  const setting = await prisma.appSetting.findUnique({ where: { key: ARTICLES_SETTING_KEY } })
+  let setting: { value: string } | null = null
+  try {
+    setting = await prisma.appSetting.findUnique({ where: { key: ARTICLES_SETTING_KEY } })
+  } catch (error) {
+    console.error("getArticles: database unavailable, using sample articles:", error)
+    return SAMPLE_ARTICLES
+  }
   if (!setting?.value) {
     return SAMPLE_ARTICLES
   }

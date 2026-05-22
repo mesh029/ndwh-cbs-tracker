@@ -51,6 +51,7 @@ const navigationSections: NavSection[] = [
     items: [
       { name: "Facility Manager", href: "/facility-manager", icon: Building2, roles: ["superadmin", "admin"] },
       { name: "Assets",           href: "/asset-manager",    icon: Building2, roles: ["superadmin", "admin"], module: "assets" },
+      { name: "Asset Types",      href: "/asset-types",      icon: Database,  roles: ["superadmin"] },
       { name: "EMR Tickets",      href: "/tickets",          icon: Ticket,    roles: ["superadmin", "admin", "guest"], module: "tickets" },
       { name: "County Dashboard", href: "/nyamira",          icon: MapPin,    roles: ["superadmin", "admin"], module: "dashboard" },
       { name: "Users",            href: "/users",            icon: UserCheck, roles: ["superadmin"], module: "users" },

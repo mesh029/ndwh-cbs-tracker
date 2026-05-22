@@ -22,6 +22,9 @@ interface ExistingAsset {
   serialNumber?: string
   phoneNumber?: string
   provider?: string
+  tabletType?: string
+  phoneModel?: string
+  imei?: string
   notes?: string
 }
 
@@ -315,6 +318,92 @@ export function generateLANTemplate(location: Location, facilities: Facility[] =
   XLSX.utils.book_append_sheet(wb, ws, "LAN")
   
   const fileName = `LAN_Template_${location}_${new Date().toISOString().split("T")[0]}.xlsx`
+  XLSX.writeFile(wb, fileName)
+}
+
+export function generateTabletTemplate(
+  location: Location,
+  facilities: Facility[] = [],
+  existingAssets: ExistingAsset[] = []
+): void {
+  const data =
+    facilities.length > 0
+      ? facilities.map((facility) => {
+          const existing = existingAssets.filter(
+            (a) => a.facilityName === facility.name || a.facilityId === facility.id
+          )
+          const prefillAsset = existing.length > 0 ? existing[0] : null
+          return {
+            "Facility Name": facility.name,
+            Subcounty: facility.subcounty || "",
+            "Tablet Type": prefillAsset?.tabletType || "",
+            "Asset Tag": prefillAsset?.assetTag || "",
+            "Serial Number": prefillAsset?.serialNumber || "",
+            Notes: prefillAsset?.notes || "",
+          }
+        })
+      : [
+          {
+            "Facility Name": "Example Facility Name",
+            Subcounty: "Example Subcounty",
+            "Tablet Type": "Samsung Galaxy Tab A8",
+            "Asset Tag": "TAB-001",
+            "Serial Number": "SN-TAB-123",
+            Notes: "Optional notes",
+          },
+        ]
+
+  const wb = XLSX.utils.book_new()
+  const ws = XLSX.utils.json_to_sheet(data)
+  ws["!cols"] = [{ wch: 40 }, { wch: 20 }, { wch: 28 }, { wch: 15 }, { wch: 20 }, { wch: 30 }]
+  XLSX.utils.book_append_sheet(wb, ws, "Tablets")
+  const fileName = `Tablet_Template_${location}_${new Date().toISOString().split("T")[0]}.xlsx`
+  XLSX.writeFile(wb, fileName)
+}
+
+export function generateMobilePhoneTemplate(
+  location: Location,
+  facilities: Facility[] = [],
+  existingAssets: ExistingAsset[] = []
+): void {
+  const data =
+    facilities.length > 0
+      ? facilities.map((facility) => {
+          const existing = existingAssets.filter(
+            (a) => a.facilityName === facility.name || a.facilityId === facility.id
+          )
+          const prefillAsset = existing.length > 0 ? existing[0] : null
+          return {
+            "Facility Name": facility.name,
+            Subcounty: facility.subcounty || "",
+            "Phone Model": prefillAsset?.phoneModel || "",
+            "Phone Number": prefillAsset?.phoneNumber || "",
+            IMEI: prefillAsset?.imei || "",
+            Provider: prefillAsset?.provider || "",
+            "Asset Tag": prefillAsset?.assetTag || "",
+            "Serial Number": prefillAsset?.serialNumber || "",
+            Notes: prefillAsset?.notes || "",
+          }
+        })
+      : [
+          {
+            "Facility Name": "Example Facility Name",
+            Subcounty: "Example Subcounty",
+            "Phone Model": "Samsung Galaxy A14",
+            "Phone Number": "+254712345678",
+            IMEI: "350123456789012",
+            Provider: "Safaricom",
+            "Asset Tag": "PHN-001",
+            "Serial Number": "SN-PHN-123",
+            Notes: "Optional notes",
+          },
+        ]
+
+  const wb = XLSX.utils.book_new()
+  const ws = XLSX.utils.json_to_sheet(data)
+  ws["!cols"] = [{ wch: 40 }, { wch: 20 }, { wch: 22 }, { wch: 18 }, { wch: 18 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 30 }]
+  XLSX.utils.book_append_sheet(wb, ws, "Mobile Phones")
+  const fileName = `MobilePhone_Template_${location}_${new Date().toISOString().split("T")[0]}.xlsx`
   XLSX.writeFile(wb, fileName)
 }
 

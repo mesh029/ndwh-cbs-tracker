@@ -30,8 +30,11 @@ model Facility {
   servers       ServerAsset[]
   routers       RouterAsset[]
   simcards      SimcardAsset[]
-  lanAssets     LanAsset[]
-  criticalIssues CriticalServerIssue[]
+  tablets       TabletAsset[]
+  mobilePhones  MobilePhoneAsset[]
+  lanAssets        LanAsset[]
+  inventoryAssets  InventoryAsset[]
+  criticalIssues   CriticalServerIssue[]
 
   @@index([system, location, isMaster])
   @@index([system, location])
@@ -126,6 +129,52 @@ model SimcardAsset {
   @@map("simcard_assets")
 }
 
+model TabletAsset {
+  id           String   @id @default(cuid())
+  facilityId   String
+  facility     Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  tabletType   String   @db.VarChar(50) // e.g., "Samsung Galaxy Tab A", "Lenovo Tab M10"
+  assetTag     String?  @db.VarChar(100)
+  serialNumber String?  @db.VarChar(100)
+  location     String   @db.VarChar(50)
+  subcounty    String?  @db.VarChar(100)
+  sublocation  String?  @db.VarChar(100)
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([facilityId])
+  @@index([location])
+  @@index([assetTag])
+  @@index([serialNumber])
+  @@map("tablet_assets")
+}
+
+model MobilePhoneAsset {
+  id           String   @id @default(cuid())
+  facilityId   String
+  facility     Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  phoneModel   String   @db.VarChar(50) // e.g., "Samsung A14", "Tecno Spark"
+  phoneNumber  String?  @db.VarChar(20)
+  assetTag     String?  @db.VarChar(100)
+  serialNumber String?  @db.VarChar(100)
+  imei         String?  @db.VarChar(30)
+  provider     String?  @db.VarChar(50)
+  location     String   @db.VarChar(50)
+  subcounty    String?  @db.VarChar(100)
+  sublocation  String?  @db.VarChar(100)
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([facilityId])
+  @@index([location])
+  @@index([assetTag])
+  @@index([serialNumber])
+  @@index([phoneNumber])
+  @@map("mobile_phone_assets")
+}
+
 model LanAsset {
   id          String   @id @default(cuid())
   facilityId  String
@@ -174,6 +223,64 @@ model Ticket {
   @@index([serverType])
   @@index([issueType])
   @@map("tickets")
+}
+
+model AssetTypeDefinition {
+  id          String   @id @default(cuid())
+  slug        String   @unique @db.VarChar(50)
+  label       String   @db.VarChar(100)
+  pluralLabel String?  @db.VarChar(100)
+  description String?  @db.Text
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  fields AssetTypeField[]
+  assets InventoryAsset[]
+
+  @@index([isActive, sortOrder])
+  @@map("asset_type_definitions")
+}
+
+model AssetTypeField {
+  id            String              @id @default(cuid())
+  assetTypeId   String
+  assetType     AssetTypeDefinition @relation(fields: [assetTypeId], references: [id], onDelete: Cascade)
+  key           String              @db.VarChar(50)
+  label         String              @db.VarChar(100)
+  fieldType     String              @db.VarChar(20) // text, number, boolean, select
+  required      Boolean             @default(false)
+  filterable    Boolean             @default(true)
+  sortOrder     Int                 @default(0)
+  selectOptions String?             @db.Text // JSON array of strings
+
+  @@unique([assetTypeId, key])
+  @@index([assetTypeId])
+  @@map("asset_type_fields")
+}
+
+model InventoryAsset {
+  id           String              @id @default(cuid())
+  assetTypeId  String
+  assetType    AssetTypeDefinition @relation(fields: [assetTypeId], references: [id], onDelete: Cascade)
+  facilityId   String
+  facility     Facility            @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  location     String              @db.VarChar(50)
+  subcounty    String?             @db.VarChar(100)
+  assetTag     String?             @db.VarChar(100)
+  serialNumber String?             @db.VarChar(100)
+  notes        String?             @db.Text
+  attributes   Json                @default("{}")
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@index([assetTypeId, location])
+  @@index([facilityId])
+  @@index([location])
+  @@index([assetTag])
+  @@index([serialNumber])
+  @@map("inventory_assets")
 }
 
 model AppSetting {

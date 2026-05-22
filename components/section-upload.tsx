@@ -21,6 +21,8 @@ import {
   generateRouterTemplate,
   generateSimcardTemplate,
   generateLANTemplate,
+  generateTabletTemplate,
+  generateMobilePhoneTemplate,
   generateTicketTemplate,
 } from "@/lib/template-generators"
 import { facilitiesMatch } from "@/lib/utils"
@@ -30,7 +32,7 @@ import { canDownloadTemplates, canUploadData } from "@/lib/auth"
 import { useAuth } from "@/components/auth-provider"
 
 interface SectionUploadProps {
-  section: "server" | "router" | "simcard" | "lan" | "ticket"
+  section: "server" | "router" | "simcard" | "tablet" | "mobilephone" | "lan" | "ticket"
   location: Location
   onUploadComplete?: () => void
   buttonLayout?: "row" | "column"
@@ -128,6 +130,12 @@ export function SectionUpload({ section, location, onUploadComplete, buttonLayou
           case "simcard":
             assetsEndpoint = `/api/assets/simcards?location=${location}`
             break
+          case "tablet":
+            assetsEndpoint = `/api/assets/tablets?location=${location}`
+            break
+          case "mobilephone":
+            assetsEndpoint = `/api/assets/mobile-phones?location=${location}`
+            break
         }
 
         if (assetsEndpoint) {
@@ -157,6 +165,12 @@ export function SectionUpload({ section, location, onUploadComplete, buttonLayou
         break
       case "lan":
         generateLANTemplate(location, selectedFacilityList)
+        break
+      case "tablet":
+        generateTabletTemplate(location, selectedFacilityList, existingAssets)
+        break
+      case "mobilephone":
+        generateMobilePhoneTemplate(location, selectedFacilityList, existingAssets)
         break
       case "ticket":
         generateTicketTemplate(location, selectedFacilityList)
@@ -236,6 +250,8 @@ export function SectionUpload({ section, location, onUploadComplete, buttonLayou
         server: ["Servers", "Server"],
         router: ["Routers", "Router"],
         simcard: ["Simcards", "Simcard"],
+        tablet: ["Tablets", "Tablet"],
+        mobilephone: ["Mobile Phones", "Mobile Phone", "MobilePhones"],
         lan: ["LAN"],
         ticket: ["Tickets", "Ticket"],
       }
@@ -368,6 +384,49 @@ export function SectionUpload({ section, location, onUploadComplete, buttonLayou
             .filter((item): item is NonNullable<typeof item> => item !== null)
           break
 
+        case "tablet":
+          endpoint = "/api/assets/tablets"
+          processedData = jsonData
+            .map((row) => {
+              const facilityName = row["Facility Name"] || row["Facility"] || row["Name"] || ""
+              if (!facilityName) return null
+              const matchedName = matchFacility(facilityName)
+              return {
+                facilityName: matchedName,
+                subcounty: row["Subcounty"] ? String(row["Subcounty"]).trim() : undefined,
+                tabletType: row["Tablet Type"] || row["tabletType"] || "",
+                assetTag: row["Asset Tag"] || row["assetTag"] || undefined,
+                serialNumber: row["Serial Number"] || row["serialNumber"] || undefined,
+                notes: row["Notes"] || row["notes"] || undefined,
+                location,
+              }
+            })
+            .filter((item): item is NonNullable<typeof item> => item !== null)
+          break
+
+        case "mobilephone":
+          endpoint = "/api/assets/mobile-phones"
+          processedData = jsonData
+            .map((row) => {
+              const facilityName = row["Facility Name"] || row["Facility"] || row["Name"] || ""
+              if (!facilityName) return null
+              const matchedName = matchFacility(facilityName)
+              return {
+                facilityName: matchedName,
+                subcounty: row["Subcounty"] ? String(row["Subcounty"]).trim() : undefined,
+                phoneModel: row["Phone Model"] || row["phoneModel"] || "",
+                phoneNumber: row["Phone Number"] || row["phoneNumber"] || undefined,
+                imei: row["IMEI"] || row["imei"] || undefined,
+                provider: row["Provider"] || row["provider"] || undefined,
+                assetTag: row["Asset Tag"] || row["assetTag"] || undefined,
+                serialNumber: row["Serial Number"] || row["serialNumber"] || undefined,
+                notes: row["Notes"] || row["notes"] || undefined,
+                location,
+              }
+            })
+            .filter((item): item is NonNullable<typeof item> => item !== null)
+          break
+
         case "lan":
           endpoint = "/api/assets/lan"
           processedData = jsonData
@@ -467,6 +526,12 @@ export function SectionUpload({ section, location, onUploadComplete, buttonLayou
         case "simcard":
           endpoint = "/api/assets/simcards"
           break
+        case "tablet":
+          endpoint = "/api/assets/tablets"
+          break
+        case "mobilephone":
+          endpoint = "/api/assets/mobile-phones"
+          break
         case "lan":
           endpoint = "/api/assets/lan"
           break
@@ -542,10 +607,12 @@ export function SectionUpload({ section, location, onUploadComplete, buttonLayou
     }
   }
 
-  const sectionLabels = {
+  const sectionLabels: Record<SectionUploadProps["section"], string> = {
     server: "Server",
     router: "Router",
     simcard: "Simcard",
+    tablet: "Tablet",
+    mobilephone: "Mobile Phone",
     lan: "LAN",
     ticket: "Ticket",
   }
@@ -567,8 +634,8 @@ export function SectionUpload({ section, location, onUploadComplete, buttonLayou
               className={buttonLayout === "column" ? "gap-2 justify-start w-full" : "gap-2"}
             >
               <Download className="h-4 w-4" />
-              <span className="hidden sm:inline">Bulk Template (All Facilities)</span>
-              <span className="sm:hidden">Bulk Template</span>
+              <span className="hidden sm:inline">Download Import Template (all facilities)</span>
+              <span className="sm:hidden">Import Template</span>
             </Button>
             <Button
               variant="outline"
@@ -577,8 +644,8 @@ export function SectionUpload({ section, location, onUploadComplete, buttonLayou
               className={buttonLayout === "column" ? "gap-2 justify-start w-full" : "gap-2"}
             >
               <Download className="h-4 w-4" />
-              <span className="hidden sm:inline">Template (Choose Facilities)</span>
-              <span className="sm:hidden">Choose Facilities</span>
+              <span className="hidden sm:inline">Template (pick facilities)</span>
+              <span className="sm:hidden">Pick facilities</span>
             </Button>
           </>
         )}
@@ -600,10 +667,10 @@ export function SectionUpload({ section, location, onUploadComplete, buttonLayou
             >
               <span>
                 <Upload className="h-4 w-4" />
-                {isUploading ? "Uploading..." : (
+                {isUploading ? "Reading…" : (
                   <>
-                    <span className="hidden sm:inline">Upload Filled {sectionLabels[section]} Template</span>
-                    <span className="sm:hidden">Upload</span>
+                    <span className="hidden sm:inline">Import from Excel</span>
+                    <span className="sm:hidden">Import</span>
                   </>
                 )}
               </span>

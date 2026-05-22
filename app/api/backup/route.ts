@@ -58,12 +58,31 @@ function insertRows(table: string, rows: Record<string, unknown>[]): string[] {
 }
 
 async function buildSqlBackupFromPrisma(): Promise<string> {
-  const [facilities, serverAssets, routerAssets, simcardAssets, lanAssets, tickets, appSettings, comparisonHistory] = await Promise.all([
+  const [
+    facilities,
+    serverAssets,
+    routerAssets,
+    simcardAssets,
+    tabletAssets,
+    mobilePhoneAssets,
+    lanAssets,
+    assetTypeDefinitions,
+    assetTypeFields,
+    inventoryAssets,
+    tickets,
+    appSettings,
+    comparisonHistory,
+  ] = await Promise.all([
     prisma.facility.findMany(),
     prisma.serverAsset.findMany(),
     prisma.routerAsset.findMany(),
     prisma.simcardAsset.findMany(),
+    prisma.tabletAsset.findMany(),
+    prisma.mobilePhoneAsset.findMany(),
     prisma.lanAsset.findMany(),
+    prisma.assetTypeDefinition.findMany(),
+    prisma.assetTypeField.findMany(),
+    prisma.inventoryAsset.findMany(),
     prisma.ticket.findMany(),
     prisma.appSetting.findMany(),
     prisma.comparisonHistory.findMany(),
@@ -78,7 +97,12 @@ async function buildSqlBackupFromPrisma(): Promise<string> {
   output.push("DELETE FROM `comparison_history`;")
   output.push("DELETE FROM `tickets`;")
   output.push("DELETE FROM `lan_assets`;")
+  output.push("DELETE FROM `inventory_assets`;")
+  output.push("DELETE FROM `asset_type_fields`;")
+  output.push("DELETE FROM `asset_type_definitions`;")
   output.push("DELETE FROM `simcard_assets`;")
+  output.push("DELETE FROM `tablet_assets`;")
+  output.push("DELETE FROM `mobile_phone_assets`;")
   output.push("DELETE FROM `router_assets`;")
   output.push("DELETE FROM `server_assets`;")
   output.push("DELETE FROM `facilities`;")
@@ -89,7 +113,12 @@ async function buildSqlBackupFromPrisma(): Promise<string> {
   output.push(...insertRows("server_assets", serverAssets as unknown as Record<string, unknown>[]))
   output.push(...insertRows("router_assets", routerAssets as unknown as Record<string, unknown>[]))
   output.push(...insertRows("simcard_assets", simcardAssets as unknown as Record<string, unknown>[]))
+  output.push(...insertRows("tablet_assets", tabletAssets as unknown as Record<string, unknown>[]))
+  output.push(...insertRows("mobile_phone_assets", mobilePhoneAssets as unknown as Record<string, unknown>[]))
   output.push(...insertRows("lan_assets", lanAssets as unknown as Record<string, unknown>[]))
+  output.push(...insertRows("asset_type_definitions", assetTypeDefinitions as unknown as Record<string, unknown>[]))
+  output.push(...insertRows("asset_type_fields", assetTypeFields as unknown as Record<string, unknown>[]))
+  output.push(...insertRows("inventory_assets", inventoryAssets as unknown as Record<string, unknown>[]))
   output.push(...insertRows("tickets", tickets as unknown as Record<string, unknown>[]))
   output.push(...insertRows("app_settings", appSettings as unknown as Record<string, unknown>[]))
   output.push(...insertRows("comparison_history", comparisonHistory as unknown as Record<string, unknown>[]))
