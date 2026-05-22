@@ -6,7 +6,17 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { Trash2, Edit2, Plus, Download, Save, XCircle, Package } from "lucide-react"
+import { Trash2, Edit2, Plus, Download, Save, XCircle, Package, MapPinOff } from "lucide-react"
+import {
+  AssetLifecycleDialog,
+  type LifecycleTarget,
+} from "@/components/asset-lifecycle-dialog"
+import {
+  ASSET_STATUS_LABELS,
+  statusBadgeVariant,
+  type LifecycleAction,
+} from "@/lib/asset-lifecycle"
+import { getCustomItemValue } from "@/lib/custom-asset-types"
 import { useToast } from "@/components/ui/use-toast"
 import type { Location } from "@/lib/storage"
 import type { CustomAssetTypeDefinition, CustomInventoryRow } from "@/lib/custom-asset-types"
@@ -22,6 +32,7 @@ interface CustomAssetInventoryProps {
   allowedLocations: Location[]
   subcountiesByLocation: Record<string, string[]>
   loadSubcountiesForLocation: (location: Location) => void
+  onStatusChanged?: () => void
 }
 
 export function CustomAssetInventory({
@@ -30,7 +41,11 @@ export function CustomAssetInventory({
   allowedLocations,
   subcountiesByLocation,
   loadSubcountiesForLocation,
+  onStatusChanged,
 }: CustomAssetInventoryProps) {
+  const [lifecycleOpen, setLifecycleOpen] = useState(false)
+  const [lifecycleAction, setLifecycleAction] = useState<LifecycleAction>("mark_lost")
+  const [lifecycleTarget, setLifecycleTarget] = useState<LifecycleTarget | null>(null)
   const { toast } = useToast()
   const [assets, setAssets] = useState<CustomInventoryRow[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -133,6 +148,7 @@ export function CustomAssetInventory({
   const filteredSorted = useMemo(() => {
     return [...assets]
       .filter((a) => {
+        if ((a.assetStatus || "active") === "lost") return false
         if (filterSubcounty !== "all" && (a.subcounty || "") !== filterSubcounty) return false
         if (filterFacility !== "all" && a.facilityName !== filterFacility) return false
         if (filterItem !== "all" && filterField) {
@@ -452,6 +468,7 @@ export function CustomAssetInventory({
                     <th className="text-left p-2">Asset Tag</th>
                     <th className="text-left p-2">Serial</th>
                     <th className="text-left p-2">Notes</th>
+                    <th className="text-left p-2">Status</th>
                     <th className="text-left p-2">Actions</th>
                   </tr>
                 </thead>
@@ -555,6 +572,7 @@ export function CustomAssetInventory({
                           onChange={(e) => setInlineCreateData({ ...inlineCreateData, notes: e.target.value })}
                         />
                       </td>
+                      <td className="p-2" />
                       <td className="p-2">
                         <Button size="icon" variant="ghost" className="h-8 w-8" onClick={saveCreate}>
                           <Save className="h-4 w-4" />
@@ -658,6 +676,17 @@ export function CustomAssetInventory({
                         )}
                       </td>
                       <td className="p-2">
+                        <Badge
+                          variant={statusBadgeVariant((row.assetStatus || "active") as "active" | "lost" | "recovered")}
+                          className="text-xs"
+                        >
+                          {ASSET_STATUS_LABELS[(row.assetStatus || "active") as keyof typeof ASSET_STATUS_LABELS] || "Active"}
+                        </Badge>
+                        {row.storageLocation && (
+                          <div className="text-[10px] text-muted-foreground mt-0.5">{row.storageLocation}</div>
+                        )}
+                      </td>
+                      <td className="p-2">
                         <div className="flex gap-1">
                           {inlineEditingId === row.id ? (
                             <>
@@ -694,6 +723,47 @@ export function CustomAssetInventory({
                               >
                                 <Edit2 className="h-4 w-4" />
                               </Button>
+                              {(row.assetStatus || "active") === "active" && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 text-red-600"
+                                  title="Mark lost"
+                                  onClick={() => {
+                                    setLifecycleTarget({
+                                      id: row.id,
+                                      assetKind: "custom",
+                                      facilityName: row.facilityName,
+                                      typeLabel: definition.label,
+                                      itemSummary: getCustomItemValue(definition, row),
+                                    })
+                                    setLifecycleAction("mark_lost")
+                                    setLifecycleOpen(true)
+                                  }}
+                                >
+                                  <MapPinOff className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {row.assetStatus === "recovered" && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 text-xs"
+                                  onClick={() => {
+                                    setLifecycleTarget({
+                                      id: row.id,
+                                      assetKind: "custom",
+                                      facilityName: row.facilityName,
+                                      typeLabel: definition.label,
+                                      itemSummary: getCustomItemValue(definition, row),
+                                    })
+                                    setLifecycleAction("mark_active")
+                                    setLifecycleOpen(true)
+                                  }}
+                                >
+                                  Active
+                                </Button>
+                              )}
                               <Button
                                 size="icon"
                                 variant="ghost"
@@ -714,6 +784,17 @@ export function CustomAssetInventory({
           )}
         </CardContent>
       </Card>
+
+      <AssetLifecycleDialog
+        open={lifecycleOpen}
+        onOpenChange={setLifecycleOpen}
+        target={lifecycleTarget}
+        action={lifecycleAction}
+        onComplete={() => {
+          loadAssets()
+          onStatusChanged?.()
+        }}
+      />
     </div>
   )
 }

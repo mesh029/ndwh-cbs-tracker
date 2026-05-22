@@ -5,6 +5,7 @@ import { canAccessLocation, canManageAssets, getAccessFromRequest, getRoleFromRe
 import { facilitiesMatch } from "@/lib/utils"
 import type { Location } from "@/lib/storage"
 import { validateAttributes, VALID_LOCATIONS } from "@/lib/custom-asset-types"
+import { withLifecycle } from "@/lib/asset-serialize"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -37,9 +38,14 @@ function rowFromAsset(asset: {
   serialNumber: string | null
   notes: string | null
   attributes: unknown
+  assetStatus?: string
+  lostAt?: Date | null
+  recoveredAt?: Date | null
+  statusComment?: string | null
+  storageLocation?: string | null
   facility: { name: string }
 }) {
-  return {
+  return withLifecycle({
     id: asset.id,
     facilityName: asset.facility.name,
     location: asset.location,
@@ -51,7 +57,12 @@ function rowFromAsset(asset: {
       asset.attributes && typeof asset.attributes === "object" && !Array.isArray(asset.attributes)
         ? (asset.attributes as Record<string, unknown>)
         : {},
-  }
+    assetStatus: asset.assetStatus,
+    lostAt: asset.lostAt,
+    recoveredAt: asset.recoveredAt,
+    statusComment: asset.statusComment,
+    storageLocation: asset.storageLocation,
+  })
 }
 
 export async function GET(request: NextRequest) {

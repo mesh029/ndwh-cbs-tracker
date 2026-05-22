@@ -75,11 +75,18 @@ model ServerAsset {
   subcounty   String?  @db.VarChar(100)
   sublocation String?  @db.VarChar(100)
   notes       String?  @db.Text // Additional notes
+  assetStatus       String    @default("active") @db.VarChar(20)
+  lostAt            DateTime?
+  recoveredAt       DateTime?
+  statusComment     String?   @db.Text
+  storageLocation   String?   @db.VarChar(200)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([facilityId])
   @@index([location])
+  @@index([location, assetStatus])
+  @@index([assetStatus])
   @@index([assetTag])
   @@index([serialNumber])
   @@map("server_assets")
@@ -96,11 +103,18 @@ model RouterAsset {
   subcounty   String?  @db.VarChar(100)
   sublocation String?  @db.VarChar(100)
   notes       String?  @db.Text // Additional notes
+  assetStatus       String    @default("active") @db.VarChar(20)
+  lostAt            DateTime?
+  recoveredAt       DateTime?
+  statusComment     String?   @db.Text
+  storageLocation   String?   @db.VarChar(200)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([facilityId])
   @@index([location])
+  @@index([location, assetStatus])
+  @@index([assetStatus])
   @@index([assetTag])
   @@index([serialNumber])
   @@map("router_assets")
@@ -118,11 +132,18 @@ model SimcardAsset {
   subcounty   String?  @db.VarChar(100)
   sublocation String?  @db.VarChar(100)
   notes       String?  @db.Text // Additional notes
+  assetStatus       String    @default("active") @db.VarChar(20)
+  lostAt            DateTime?
+  recoveredAt       DateTime?
+  statusComment     String?   @db.Text
+  storageLocation   String?   @db.VarChar(200)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([facilityId])
   @@index([location])
+  @@index([location, assetStatus])
+  @@index([assetStatus])
   @@index([assetTag])
   @@index([serialNumber])
   @@index([phoneNumber])
@@ -140,11 +161,18 @@ model TabletAsset {
   subcounty    String?  @db.VarChar(100)
   sublocation  String?  @db.VarChar(100)
   notes        String?  @db.Text
+  assetStatus       String    @default("active") @db.VarChar(20)
+  lostAt            DateTime?
+  recoveredAt       DateTime?
+  statusComment     String?   @db.Text
+  storageLocation   String?   @db.VarChar(200)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   @@index([facilityId])
   @@index([location])
+  @@index([location, assetStatus])
+  @@index([assetStatus])
   @@index([assetTag])
   @@index([serialNumber])
   @@map("tablet_assets")
@@ -164,11 +192,18 @@ model MobilePhoneAsset {
   subcounty    String?  @db.VarChar(100)
   sublocation  String?  @db.VarChar(100)
   notes        String?  @db.Text
+  assetStatus       String    @default("active") @db.VarChar(20)
+  lostAt            DateTime?
+  recoveredAt       DateTime?
+  statusComment     String?   @db.Text
+  storageLocation   String?   @db.VarChar(200)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   @@index([facilityId])
   @@index([location])
+  @@index([location, assetStatus])
+  @@index([assetStatus])
   @@index([assetTag])
   @@index([serialNumber])
   @@index([phoneNumber])
@@ -184,11 +219,18 @@ model LanAsset {
   hasLAN      Boolean  @default(false) // Whether facility has LAN
   lanType     String?  @db.VarChar(50) // Type of LAN (e.g., "Fiber", "Wireless")
   notes       String?  @db.Text // Additional notes
+  assetStatus       String    @default("active") @db.VarChar(20)
+  lostAt            DateTime?
+  recoveredAt       DateTime?
+  statusComment     String?   @db.Text
+  storageLocation   String?   @db.VarChar(200)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([facilityId])
   @@index([location])
+  @@index([location, assetStatus])
+  @@index([assetStatus])
   @@map("lan_assets")
 }
 
@@ -272,12 +314,19 @@ model InventoryAsset {
   serialNumber String?             @db.VarChar(100)
   notes        String?             @db.Text
   attributes   Json                @default("{}")
+  assetStatus       String    @default("active") @db.VarChar(20)
+  lostAt            DateTime?
+  recoveredAt       DateTime?
+  statusComment     String?   @db.Text
+  storageLocation   String?   @db.VarChar(200)
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
 
   @@index([assetTypeId, location])
   @@index([facilityId])
   @@index([location])
+  @@index([location, assetStatus])
+  @@index([assetStatus])
   @@index([assetTag])
   @@index([serialNumber])
   @@map("inventory_assets")

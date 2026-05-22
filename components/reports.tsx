@@ -12,6 +12,7 @@ import { useAuth } from "@/components/auth-provider"
 import {
   appendBuiltinSheetsToWorkbook,
   appendCustomSheetsToWorkbook,
+  appendLostSheetToWorkbook,
   buildAssetSummaryRows,
   fetchBuiltinAssetRows,
   fetchCustomAssetTypeDefinitions,
@@ -139,6 +140,7 @@ export function Reports() {
       const definitions = await fetchCustomAssetTypeDefinitions()
       const customSheets = await fetchCustomInventoryRows(locations, definitions)
       appendCustomSheetsToWorkbook(wb, customSheets)
+      appendLostSheetToWorkbook(wb, byType, customSheets)
       tick("Custom type sheets ready")
 
       const summary = buildAssetSummaryRows(locations, byType, customSheets)
@@ -151,7 +153,7 @@ export function Reports() {
       XLSX.writeFile(wb, `Asset_Inventory_${suffix}_${timestamp}.xlsx`)
       progress.update({
         title: "Done",
-        description: "Includes servers, routers, simcards, tablets, phones, LAN, and all custom types",
+        description: "Includes all asset types, status (active/lost/recovered), storage location, and a Lost Assets sheet",
       })
     } catch (e) {
       console.error(e)
@@ -284,7 +286,7 @@ export function Reports() {
             Asset inventory
           </CardTitle>
           <CardDescription>
-            All rows from Asset Manager: servers, routers, simcards, tablets, mobile phones, LAN, plus every active custom asset type (WiFi extenders, UPS, etc.).
+            All rows from Asset Manager with status and storage location, plus a dedicated Lost Assets sheet when any items are marked lost.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">

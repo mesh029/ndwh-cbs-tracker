@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Trash2, Edit2, Plus, Server, Router, Smartphone, Wifi, Download, Save, XCircle, Tablet, Phone, Upload, Package, Settings2 } from "lucide-react"
+import { Trash2, Edit2, Plus, Server, Router, Smartphone, Wifi, Download, Save, XCircle, Tablet, Phone, Upload, Package, Settings2, LayoutDashboard, AlertTriangle, MapPinOff } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
 import type { Location } from "@/lib/storage"
@@ -25,6 +25,18 @@ import {
 import { customTabKey, parseCustomTabKey, type CustomAssetTypeDefinition } from "@/lib/custom-asset-types"
 import { CustomAssetInventory } from "@/components/custom-asset-inventory"
 import { FacilityPicker } from "@/components/facility-picker"
+import { AssetCommandDashboard } from "@/components/asset-command-dashboard"
+import { AssetLostRegister } from "@/components/asset-lost-register"
+import {
+  AssetLifecycleDialog,
+  type LifecycleTarget,
+} from "@/components/asset-lifecycle-dialog"
+import {
+  ASSET_STATUS_LABELS,
+  statusBadgeVariant,
+  type AssetKind,
+  type LifecycleAction,
+} from "@/lib/asset-lifecycle"
 
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
@@ -113,6 +125,11 @@ export function AssetManager() {
   const [importCounty, setImportCounty] = useState<Location>(
     (allowedLocations[0] || "Kakamega") as Location
   )
+  const [commandView, setCommandView] = useState<"home" | "inventory" | "lost">("home")
+  const [dashboardKey, setDashboardKey] = useState(0)
+  const [lifecycleOpen, setLifecycleOpen] = useState(false)
+  const [lifecycleAction, setLifecycleAction] = useState<LifecycleAction>("mark_lost")
+  const [lifecycleTarget, setLifecycleTarget] = useState<LifecycleTarget | null>(null)
   const [inlineCreateData, setInlineCreateData] = useState<any>({
     location: "Kakamega",
     facilityName: "",
@@ -765,8 +782,29 @@ export function AssetManager() {
     }
   }, [assets, selectedAssetType])
 
+  const openLifecycle = (asset: Record<string, unknown>, action: LifecycleAction) => {
+    const kind = selectedAssetType as AssetKind
+    setLifecycleTarget({
+      id: String(asset.id),
+      assetKind: kind,
+      facilityName: String(asset.facilityName || ""),
+      typeLabel: ASSET_TYPE_LABELS[selectedAssetType],
+      itemSummary: getItemValue(selectedAssetType, asset),
+      assetStatus: String(asset.assetStatus || "active"),
+    })
+    setLifecycleAction(action)
+    setLifecycleOpen(true)
+  }
+
+  const onLifecycleComplete = () => {
+    loadAssets()
+    setDashboardKey((k) => k + 1)
+  }
+
   const filteredSortedAssets = [...assets]
     .filter((asset) => {
+      const status = asset.assetStatus || "active"
+      if (commandView === "inventory" && status === "lost") return false
       if (filterSubcounty !== "all" && (asset.subcounty || "") !== filterSubcounty) return false
       if (filterFacility !== "all" && asset.facilityName !== filterFacility) return false
       if (filterItem !== "all" && getItemValue(selectedAssetType, asset) !== filterItem) return false
@@ -864,7 +902,7 @@ export function AssetManager() {
         </div>
       </section>
 
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-3 items-center">
         <Select value={selectedLocation} onValueChange={(v) => setSelectedLocation(v as Location | "all")}>
           <SelectTrigger className="w-full sm:w-44">
             <SelectValue />
@@ -878,7 +916,46 @@ export function AssetManager() {
             ))}
           </SelectContent>
         </Select>
+      </div>
 
+      <Tabs value={commandView} onValueChange={(v) => setCommandView(v as "home" | "inventory" | "lost")}>
+        <TabsList className="w-full sm:w-auto">
+          <TabsTrigger value="home">
+            <LayoutDashboard className="h-4 w-4 mr-1" />
+            Overview
+          </TabsTrigger>
+          <TabsTrigger value="inventory">
+            <Package className="h-4 w-4 mr-1" />
+            Inventory
+          </TabsTrigger>
+          <TabsTrigger value="lost">
+            <AlertTriangle className="h-4 w-4 mr-1" />
+            Lost assets
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {commandView === "home" && (
+        <AssetCommandDashboard
+          key={dashboardKey}
+          selectedLocation={selectedLocation}
+          onViewLost={() => setCommandView("lost")}
+        />
+      )}
+
+      {commandView === "lost" && (
+        <AssetLostRegister
+          selectedLocation={selectedLocation}
+          onRecovered={() => {
+            loadAssets()
+            setDashboardKey((k) => k + 1)
+          }}
+        />
+      )}
+
+      {commandView === "inventory" && (
+      <>
+      <div className="flex flex-wrap gap-3">
         <Tabs value={selectedTab} onValueChange={setSelectedTab} className="w-full lg:w-auto">
           <TabsList className="w-full lg:w-auto overflow-x-auto flex-wrap h-auto">
             <TabsTrigger value="server"><Server className="h-4 w-4 mr-1" />Servers</TabsTrigger>
@@ -949,6 +1026,7 @@ export function AssetManager() {
           allowedLocations={allowedLocations}
           subcountiesByLocation={subcountiesByLocation}
           loadSubcountiesForLocation={loadSubcountiesForLocation}
+          onStatusChanged={onLifecycleComplete}
         />
       )}
 
@@ -1108,6 +1186,7 @@ export function AssetManager() {
                     <th className="text-left p-2 font-medium">Asset Tag</th>
                     <th className="text-left p-2 font-medium">Serial</th>
                     <th className="text-left p-2 font-medium">Notes</th>
+                    <th className="text-left p-2 font-medium">Status</th>
                     <th className="text-left p-2 font-medium">Source</th>
                     <th className="text-left p-2 font-medium">Actions</th>
                   </tr>
@@ -1206,6 +1285,7 @@ export function AssetManager() {
                       <td className="p-2">
                         <Input value={inlineCreateData.notes || ""} onChange={(e) => setInlineCreateData({ ...inlineCreateData, notes: e.target.value })} className="h-8" />
                       </td>
+                      <td className="p-2" />
                       <td className="p-2">
                         <Badge variant="secondary" className="text-xs">New</Badge>
                       </td>
@@ -1326,6 +1406,20 @@ export function AssetManager() {
                         ) : (asset.notes || "-")}
                       </td>
                       <td className="p-2">
+                        {!asset.isFromInventory && asset.assetStatus && asset.assetStatus !== "active" ? (
+                          <div className="flex flex-col gap-0.5">
+                            <Badge variant={statusBadgeVariant(asset.assetStatus)} className="text-xs w-fit">
+                              {ASSET_STATUS_LABELS[asset.assetStatus as keyof typeof ASSET_STATUS_LABELS] || asset.assetStatus}
+                            </Badge>
+                            {asset.storageLocation && (
+                              <span className="text-[10px] text-muted-foreground">{asset.storageLocation}</span>
+                            )}
+                          </div>
+                        ) : (
+                          <Badge variant="outline" className="text-xs">Active</Badge>
+                        )}
+                      </td>
+                      <td className="p-2">
                         {asset.isFromInventory ? (
                           <Badge variant="outline" className="text-xs">Facility Inventory</Badge>
                         ) : (
@@ -1333,7 +1427,7 @@ export function AssetManager() {
                         )}
                       </td>
                       <td className="p-2">
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 flex-wrap">
                           {inlineEditingId === asset.id ? (
                             <>
                               <Button variant="ghost" size="icon" onClick={() => saveInlineEdit(asset)} className="h-8 w-8">
@@ -1348,6 +1442,31 @@ export function AssetManager() {
                               <Button variant="ghost" size="icon" onClick={() => handleEdit(asset)} className="h-8 w-8">
                                 <Edit2 className="h-4 w-4" />
                               </Button>
+                              {!asset.isFromInventory && !String(asset.id || "").startsWith("facility-") && (
+                                <>
+                                  {(asset.assetStatus || "active") === "active" && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8 text-red-600"
+                                      title="Mark lost"
+                                      onClick={() => openLifecycle(asset, "mark_lost")}
+                                    >
+                                      <MapPinOff className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                  {asset.assetStatus === "recovered" && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-8 text-xs"
+                                      onClick={() => openLifecycle(asset, "mark_active")}
+                                    >
+                                      Active
+                                    </Button>
+                                  )}
+                                </>
+                              )}
                               <Button variant="ghost" size="icon" onClick={() => handleDelete(asset.id)} className="h-8 w-8">
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -1363,6 +1482,16 @@ export function AssetManager() {
           )}
         </CardContent>
       </Card>
+      </>
+      )}
+
+      <AssetLifecycleDialog
+        open={lifecycleOpen}
+        onOpenChange={setLifecycleOpen}
+        target={lifecycleTarget}
+        action={lifecycleAction}
+        onComplete={onLifecycleComplete}
+      />
       </>
       )}
 

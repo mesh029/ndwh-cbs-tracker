@@ -1,4 +1,5 @@
 import type { Location } from "@/lib/storage"
+import { lifecycleFromRecord, lifecycleReportColumns } from "@/lib/asset-lifecycle"
 
 export type AssetType =
   | "server"
@@ -117,7 +118,7 @@ export function assetToReportRow(type: AssetType, asset: Record<string, unknown>
   }
 
   base.Notes = String(asset.notes || "")
-  return base
+  return { ...base, ...lifecycleReportColumns(lifecycleFromRecord(asset)) }
 }
 
 export const VALID_LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]

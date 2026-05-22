@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { canAccessLocation, canManageAssets, getAccessFromRequest, getRoleFromRequest } from "@/lib/auth"
 import { facilitiesMatch } from "@/lib/utils"
 import type { Location } from "@/lib/storage"
+import { withLifecycle } from "@/lib/asset-serialize"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -183,16 +184,23 @@ export async function GET(request: NextRequest) {
       orderBy: { facility: { name: "asc" } },
     })
 
-    const assets = tabletAssets.map((asset) => ({
-      id: asset.id,
-      facilityName: asset.facility.name,
-      location: asset.location,
-      subcounty: asset.subcounty || asset.facility.subcounty || null,
-      tabletType: asset.tabletType,
-      assetTag: asset.assetTag,
-      serialNumber: asset.serialNumber,
-      notes: asset.notes,
-    }))
+    const assets = tabletAssets.map((asset) =>
+      withLifecycle({
+        id: asset.id,
+        facilityName: asset.facility.name,
+        location: asset.location,
+        subcounty: asset.subcounty || asset.facility.subcounty || null,
+        tabletType: asset.tabletType,
+        assetTag: asset.assetTag,
+        serialNumber: asset.serialNumber,
+        notes: asset.notes,
+        assetStatus: asset.assetStatus,
+        lostAt: asset.lostAt,
+        recoveredAt: asset.recoveredAt,
+        statusComment: asset.statusComment,
+        storageLocation: asset.storageLocation,
+      })
+    )
 
     return NextResponse.json({ assets })
   } catch (error) {

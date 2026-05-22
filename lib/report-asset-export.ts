@@ -136,6 +136,20 @@ export function buildAssetSummaryRows(
       counts.phones +
       counts.lan +
       counts.custom
+    const allRows = [
+      ...byType.server,
+      ...byType.router,
+      ...byType.simcard,
+      ...byType.tablet,
+      ...byType.mobilephone,
+      ...byType.lan,
+      ...customSheets.flatMap((s) => s.rows),
+    ].filter((r) => r.Location === loc)
+
+    const lost = allRows.filter((r) => r.Status === "Lost").length
+    const recovered = allRows.filter((r) => r.Status === "Recovered").length
+    const active = allRows.filter((r) => r.Status === "Active").length
+
     return {
       Location: loc,
       Servers: counts.servers,
@@ -146,6 +160,41 @@ export function buildAssetSummaryRows(
       LAN: counts.lan,
       "Custom types": counts.custom,
       "Total rows": total,
+      Active: active,
+      Lost: lost,
+      Recovered: recovered,
     }
   })
+}
+
+export function buildLostAssetsSheetRows(
+  byType: Record<AssetType, Record<string, string>[]>,
+  customSheets: Array<{ sheetName: string; rows: Record<string, string>[] }>
+): Record<string, string>[] {
+  const rows: Record<string, string>[] = []
+  for (const type of BUILTIN_TYPES) {
+    for (const r of byType[type]) {
+      if (r.Status === "Lost") {
+        rows.push({ "Asset Type": BUILTIN_API[type].sheet, ...r })
+      }
+    }
+  }
+  for (const sheet of customSheets) {
+    for (const r of sheet.rows) {
+      if (r.Status === "Lost") {
+        rows.push({ "Asset Type": sheet.sheetName, ...r })
+      }
+    }
+  }
+  return rows
+}
+
+export function appendLostSheetToWorkbook(
+  wb: XLSX.WorkBook,
+  byType: Record<AssetType, Record<string, string>[]>,
+  customSheets: Array<{ sheetName: string; rows: Record<string, string>[] }>
+) {
+  const lostRows = buildLostAssetsSheetRows(byType, customSheets)
+  if (lostRows.length === 0) return
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(lostRows), "Lost Assets")
 }

@@ -1,4 +1,5 @@
 import type { Location } from "@/lib/storage"
+import { lifecycleFromRecord, lifecycleReportColumns } from "@/lib/asset-lifecycle"
 
 export type CustomFieldType = "text" | "number" | "boolean" | "select"
 
@@ -36,6 +37,11 @@ export interface CustomInventoryRow {
   attributes: Record<string, unknown>
   assetTypeSlug?: string
   assetTypeLabel?: string
+  assetStatus?: string
+  lostAt?: string | null
+  recoveredAt?: string | null
+  statusComment?: string | null
+  storageLocation?: string | null
 }
 
 /** Built-in columns on every inventory row — cannot be duplicated as custom field keys. */
@@ -135,7 +141,7 @@ export function customAssetToReportRow(
       base[field.label] = val !== undefined && val !== null ? String(val) : ""
     }
   }
-  return base
+  return { ...base, ...lifecycleReportColumns(lifecycleFromRecord(row)) }
 }
 
 export function validateAttributes(

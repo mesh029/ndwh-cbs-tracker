@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { canAccessLocation, canManageAssets, getAccessFromRequest, getRoleFromRequest } from "@/lib/auth"
+import { withLifecycle } from "@/lib/asset-serialize"
 import type { Location } from "@/lib/storage"
 
 // Force dynamic rendering to prevent build-time static generation
@@ -307,16 +308,23 @@ export async function GET(request: NextRequest) {
     }
 
     // Transform to include facilityName
-    const assets = serverAssets.map(asset => ({
-      id: asset.id,
-      facilityName: asset.facility.name,
-      location: asset.location,
-      subcounty: asset.subcounty || asset.facility.subcounty || null,
-      serverType: asset.serverType,
-      assetTag: asset.assetTag,
-      serialNumber: asset.serialNumber,
-      notes: asset.notes,
-    }))
+    const assets = serverAssets.map((asset) =>
+      withLifecycle({
+        id: asset.id,
+        facilityName: asset.facility.name,
+        location: asset.location,
+        subcounty: asset.subcounty || asset.facility.subcounty || null,
+        serverType: asset.serverType,
+        assetTag: asset.assetTag,
+        serialNumber: asset.serialNumber,
+        notes: asset.notes,
+        assetStatus: asset.assetStatus,
+        lostAt: asset.lostAt,
+        recoveredAt: asset.recoveredAt,
+        statusComment: asset.statusComment,
+        storageLocation: asset.storageLocation,
+      })
+    )
 
     return NextResponse.json({ assets })
   } catch (error) {
