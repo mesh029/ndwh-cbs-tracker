@@ -209,7 +209,7 @@ export function AssetTypeAdmin() {
     }
 
     if (inventoryCount > 0) {
-      for (const key of lockedFieldKeys) {
+      for (const key of Array.from(lockedFieldKeys)) {
         if (!prepared.some((f) => f.key === key)) {
           toast({
             title: "Cannot remove field keys",
