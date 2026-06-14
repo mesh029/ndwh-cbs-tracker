@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import {
@@ -18,16 +18,25 @@ import {
   YAxis,
   CartesianGrid,
 } from "recharts"
-import { Package, AlertTriangle, CheckCircle2, Archive } from "lucide-react"
+import { Package, AlertTriangle, CheckCircle2, Archive, Loader2 } from "lucide-react"
 import type { Location } from "@/lib/storage"
+import { cachedFetch } from "@/lib/cache"
+import { ASSET_CLIENT_TTL_MS } from "@/lib/asset-cache"
 
 const PIE_COLORS = ["#22c55e", "#ef4444", "#3b82f6"]
 
-interface SummaryData {
+interface CountySlice {
   totals: { active: number; lost: number; recovered: number; total: number }
   distributionChart: { name: string; value: number }[]
   typeChart: { type: string; total: number; lost: number; active: number }[]
+}
+
+interface SummaryBundle {
+  totals: CountySlice["totals"]
+  distributionChart: CountySlice["distributionChart"]
+  typeChart: CountySlice["typeChart"]
   byLocation: { location: string; active: number; lost: number; recovered: number }[]
+  countySlices?: Partial<Record<Location, CountySlice>>
   lostAssets: Array<{
     id: string
     typeLabel: string
@@ -42,54 +51,96 @@ interface SummaryData {
 interface AssetCommandDashboardProps {
   selectedLocation: Location | "all"
   onViewLost?: () => void
+  /** Bump to refetch the all-counties bundle (e.g. after lifecycle change). */
+  refreshKey?: number
 }
 
 export function AssetCommandDashboard({
   selectedLocation,
   onViewLost,
+  refreshKey = 0,
 }: AssetCommandDashboardProps) {
-  const [data, setData] = useState<SummaryData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [bundle, setBundle] = useState<SummaryBundle | null>(null)
+  const [initialLoading, setInitialLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setLoadError(null)
-    try {
-      const loc =
-        selectedLocation === "all" ? "location=all" : `location=${encodeURIComponent(selectedLocation)}`
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 45000)
-
-      const res = await fetch(`/api/assets/summary?${loc}`, {
-        signal: controller.signal,
-        cache: "no-store",
-      })
-      clearTimeout(timeout)
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        setData(null)
-        setLoadError(err.error || `Request failed (${res.status})`)
-        return
-      }
-      const json = await res.json()
-      setData(json)
-    } catch (e) {
-      setData(null)
-      setLoadError(
-        e instanceof Error && e.name === "AbortError"
-          ? "Analytics timed out — try one county instead of all."
-          : "Could not load analytics."
-      )
-    } finally {
-      setLoading(false)
-    }
-  }, [selectedLocation])
-
   useEffect(() => {
-    load()
-  }, [load])
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const json = await cachedFetch<SummaryBundle>(
+          "/api/assets/summary?location=all",
+          {
+            forceRefresh: refreshKey > 0,
+            onUpdate: (fresh) => {
+              if (!cancelled) setBundle(fresh as SummaryBundle)
+            },
+          },
+          ASSET_CLIENT_TTL_MS
+        )
+        if (!cancelled) {
+          setBundle(json)
+          setLoadError(null)
+        }
+      } catch {
+        if (!cancelled) setLoadError("Could not load analytics.")
+      } finally {
+        if (!cancelled) setInitialLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [refreshKey])
+
+  const view = useMemo(() => {
+    if (!bundle) return null
+
+    if (selectedLocation === "all") {
+      return {
+        totals: bundle.totals,
+        distributionChart: bundle.distributionChart,
+        typeChart: bundle.typeChart,
+        byLocation: bundle.byLocation,
+        lostAssets: bundle.lostAssets,
+      }
+    }
+
+    const slice = bundle.countySlices?.[selectedLocation]
+    if (slice) {
+      return {
+        totals: slice.totals,
+        distributionChart: slice.distributionChart,
+        typeChart: slice.typeChart,
+        byLocation: bundle.byLocation,
+        lostAssets: bundle.lostAssets.filter((a) => a.location === selectedLocation),
+      }
+    }
+
+    const row = bundle.byLocation.find((r) => r.location === selectedLocation)
+    const totals = row
+      ? {
+          active: row.active,
+          lost: row.lost,
+          recovered: row.recovered,
+          total: row.active + row.lost + row.recovered,
+        }
+      : { active: 0, lost: 0, recovered: 0, total: 0 }
+
+    return {
+      totals,
+      distributionChart: [
+        { name: "Active", value: totals.active },
+        { name: "Lost", value: totals.lost },
+        { name: "Recovered", value: totals.recovered },
+      ].filter((d) => d.value > 0),
+      typeChart: [] as CountySlice["typeChart"],
+      byLocation: bundle.byLocation,
+      lostAssets: bundle.lostAssets.filter((a) => a.location === selectedLocation),
+    }
+  }, [bundle, selectedLocation])
 
   const pieConfig = {
     active: { label: "Active", color: PIE_COLORS[0] },
@@ -102,27 +153,54 @@ export function AssetCommandDashboard({
     lost: { label: "Lost", color: PIE_COLORS[1] },
   }
 
-  if (loading) {
+  if (initialLoading && !bundle) {
     return (
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {[1, 2, 3, 4].map((i) => (
-          <Card key={i} className="animate-pulse">
-            <CardHeader className="pb-2 h-20 bg-muted/30" />
-            <CardContent className="h-10 bg-muted/20" />
-          </Card>
-        ))}
+      <div className="space-y-6">
+        <div className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Loading asset analytics…
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i} className="animate-pulse">
+              <CardHeader className="pb-2 h-20 bg-muted/30" />
+              <CardContent className="h-10 bg-muted/20" />
+            </Card>
+          ))}
+        </div>
+        <div className="grid gap-6 lg:grid-cols-2">
+          {[1, 2].map((i) => (
+            <Card key={i} className="animate-pulse">
+              <CardHeader className="h-16 bg-muted/30" />
+              <CardContent className="h-[260px] bg-muted/20" />
+            </Card>
+          ))}
+        </div>
       </div>
     )
   }
 
-  if (!data) {
+  if (!bundle || !view) {
     return (
       <Card>
         <CardContent className="py-8 text-center space-y-3">
           <p className="text-muted-foreground">
             {loadError || "Could not load analytics. Check database connection and try again."}
           </p>
-          <Button variant="outline" size="sm" onClick={() => load()}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setInitialLoading(true)
+              void cachedFetch<SummaryBundle>("/api/assets/summary?location=all", { forceRefresh: true }, ASSET_CLIENT_TTL_MS)
+                .then((json) => {
+                  setBundle(json)
+                  setLoadError(null)
+                })
+                .catch(() => setLoadError("Could not load analytics."))
+                .finally(() => setInitialLoading(false))
+            }}
+          >
             Retry
           </Button>
         </CardContent>
@@ -130,7 +208,7 @@ export function AssetCommandDashboard({
     )
   }
 
-  const { totals, distributionChart, typeChart, byLocation, lostAssets } = data
+  const { totals, distributionChart, typeChart, byLocation, lostAssets } = view
   const topTypes = typeChart.slice(0, 8)
 
   return (
@@ -144,8 +222,8 @@ export function AssetCommandDashboard({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{totals.total}</div>
-            <p className="text-xs text-muted-foreground mt-1">Database rows (all types)</p>
+            <div className="text-3xl font-bold tabular-nums">{totals.total}</div>
+            <p className="text-xs text-muted-foreground mt-1">Detailed rows + facility inventory</p>
           </CardContent>
         </Card>
         <Card className="border-l-4 border-l-emerald-500">
@@ -156,7 +234,7 @@ export function AssetCommandDashboard({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-emerald-600">{totals.active}</div>
+            <div className="text-3xl font-bold tabular-nums text-emerald-600">{totals.active}</div>
           </CardContent>
         </Card>
         <Card
@@ -171,7 +249,7 @@ export function AssetCommandDashboard({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-red-600">{totals.lost}</div>
+            <div className="text-3xl font-bold tabular-nums text-red-600">{totals.lost}</div>
             {onViewLost && totals.lost > 0 && (
               <p className="text-xs text-primary mt-1">View lost register →</p>
             )}
@@ -185,7 +263,7 @@ export function AssetCommandDashboard({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-blue-600">{totals.recovered}</div>
+            <div className="text-3xl font-bold tabular-nums text-blue-600">{totals.recovered}</div>
             <p className="text-xs text-muted-foreground mt-1">Back in office/store</p>
           </CardContent>
         </Card>

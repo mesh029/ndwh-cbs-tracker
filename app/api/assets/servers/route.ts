@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma"
 import { canAccessLocation, canManageAssets, getAccessFromRequest, getRoleFromRequest } from "@/lib/auth"
 import { withLifecycle } from "@/lib/asset-serialize"
 import type { Location } from "@/lib/storage"
+import { getServerCache, setServerCache, SERVER_CACHE_TTL_MS, invalidateServerCachePrefix } from "@/lib/server-cache"
+import { DEFAULT_KENYAEMR_VERSION, parseServerAssetPatch } from "@/lib/server-spec"
 
 // Force dynamic rendering to prevent build-time static generation
 export const dynamic = 'force-dynamic'
@@ -66,7 +68,7 @@ export async function POST(request: NextRequest) {
 
     for (const item of data) {
       try {
-        const { facilityName, subcounty, serverType, assetTag, serialNumber, notes, location } = item
+        const { facilityName, subcounty, serverType, assetTag, serialNumber, notes, location, kenyaemrVersion, ramGb, storageType, storageGb } = item
 
         // Validate required fields
         if (!facilityName || typeof facilityName !== "string" || facilityName.trim() === "") {
@@ -136,10 +138,12 @@ export async function POST(request: NextRequest) {
         if (mode === "merge") {
           const assetTagValue = assetTag ? String(assetTag).trim().substring(0, 100) : null
           const serialNumberValue = serialNumber ? String(serialNumber).trim().substring(0, 100) : null
-          
-          // Try to find existing asset by assetTag or serialNumber
-          let existingAsset = null
-          if (assetTagValue) {
+
+          let existingAsset = await prisma.serverAsset.findFirst({
+            where: { facilityId: facility.id },
+          })
+
+          if (!existingAsset && assetTagValue) {
             existingAsset = await prisma.serverAsset.findFirst({
               where: {
                 facilityId: facility.id,
@@ -157,16 +161,24 @@ export async function POST(request: NextRequest) {
           }
 
           if (existingAsset) {
-            // Update existing asset
             await prisma.serverAsset.update({
               where: { id: existingAsset.id },
               data: {
                 serverType: validatedServerType,
-                assetTag: assetTagValue,
-                serialNumber: serialNumberValue,
+                assetTag: assetTagValue ?? existingAsset.assetTag,
+                serialNumber: serialNumberValue ?? existingAsset.serialNumber,
                 location: trimmedLocation as Location,
                 subcounty: subcounty ? String(subcounty).trim().substring(0, 100) : null,
-                notes: notes ? String(notes).trim() : null,
+                notes: notes ? String(notes).trim() : existingAsset.notes,
+                kenyaemrVersion: kenyaemrVersion
+                  ? String(kenyaemrVersion).trim().substring(0, 24)
+                  : existingAsset.kenyaemrVersion,
+                ramGb: ramGb != null && ramGb !== "" ? Math.max(0, Number(ramGb)) : existingAsset.ramGb,
+                storageType: storageType ? String(storageType).trim().substring(0, 10) : existingAsset.storageType,
+                storageGb:
+                  storageGb != null && storageGb !== ""
+                    ? Math.max(0, Number(storageGb))
+                    : existingAsset.storageGb,
               },
             })
             successCount++
@@ -184,6 +196,10 @@ export async function POST(request: NextRequest) {
             location: trimmedLocation as Location,
             subcounty: subcounty ? String(subcounty).trim().substring(0, 100) : null,
             notes: notes ? String(notes).trim() : null,
+            kenyaemrVersion: kenyaemrVersion ? String(kenyaemrVersion).trim().substring(0, 24) : DEFAULT_KENYAEMR_VERSION,
+            ramGb: ramGb != null && ramGb !== "" ? Math.max(0, Number(ramGb)) : null,
+            storageType: storageType ? String(storageType).trim().substring(0, 10) : null,
+            storageGb: storageGb != null && storageGb !== "" ? Math.max(0, Number(storageGb)) : null,
           },
         })
 
@@ -230,6 +246,7 @@ export async function POST(request: NextRequest) {
 
     // Return response even if there were errors (partial success)
     if (successCount > 0 || errorCount === 0) {
+      invalidateServerCachePrefix("assets:servers:")
       return NextResponse.json({
         success: true,
         count: successCount,
@@ -288,6 +305,12 @@ export async function GET(request: NextRequest) {
       where.facilityId = facilityId
     }
 
+    const cacheKey = `assets:servers:${location}:${facilityId || ""}:${role}`
+    const cached = getServerCache<{ assets: unknown[] }>(cacheKey)
+    if (cached) {
+      return NextResponse.json(cached)
+    }
+
     let serverAssets
     try {
       serverAssets = await prisma.serverAsset.findMany({
@@ -318,6 +341,10 @@ export async function GET(request: NextRequest) {
         assetTag: asset.assetTag,
         serialNumber: asset.serialNumber,
         notes: asset.notes,
+        kenyaemrVersion: asset.kenyaemrVersion,
+        ramGb: asset.ramGb,
+        storageType: asset.storageType,
+        storageGb: asset.storageGb,
         assetStatus: asset.assetStatus,
         lostAt: asset.lostAt,
         recoveredAt: asset.recoveredAt,
@@ -326,7 +353,9 @@ export async function GET(request: NextRequest) {
       })
     )
 
-    return NextResponse.json({ assets })
+    const payload = { assets }
+    setServerCache(cacheKey, payload, SERVER_CACHE_TTL_MS)
+    return NextResponse.json(payload)
   } catch (error) {
     console.error("Error fetching server assets:", error)
     return NextResponse.json(
@@ -344,19 +373,78 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden: assets access required" }, { status: 403 })
     }
     const body = await request.json()
-    const { id, ...data } = body || {}
-    if (!id) {
-      return NextResponse.json({ error: "id is required" }, { status: 400 })
+    const { id, facilityId, ...rest } = body || {}
+    const patchData = parseServerAssetPatch(rest)
+
+    let targetId = id ? String(id) : null
+
+    if (!targetId && facilityId) {
+      const facility = await prisma.facility.findUnique({
+        where: { id: String(facilityId) },
+        select: { id: true, location: true, serverType: true, subcounty: true },
+      })
+      if (!facility) {
+        return NextResponse.json({ error: "Facility not found" }, { status: 404 })
+      }
+      if (!canAccessLocation(access, facility.location)) {
+        return NextResponse.json({ error: "Forbidden: location out of scope" }, { status: 403 })
+      }
+
+      const existing = await prisma.serverAsset.findFirst({
+        where: { facilityId: facility.id },
+      })
+
+      if (existing) {
+        targetId = existing.id
+      } else {
+        const loc = (patchData.location as Location) || (facility.location as Location)
+        const serverType =
+          (patchData.serverType as string) ||
+          (rest.serverType ? String(rest.serverType).trim().substring(0, 50) : null) ||
+          facility.serverType ||
+          "Unknown"
+
+        const created = await prisma.serverAsset.create({
+          data: {
+            facilityId: facility.id,
+            location: loc,
+            subcounty:
+              (patchData.subcounty as string | null | undefined) ??
+              (rest.subcounty ? String(rest.subcounty).trim().substring(0, 100) : facility.subcounty),
+            serverType,
+            assetTag: (patchData.assetTag as string | null | undefined) ?? null,
+            serialNumber: (patchData.serialNumber as string | null | undefined) ?? null,
+            notes: (patchData.notes as string | null | undefined) ?? "Promoted from facility inventory",
+            kenyaemrVersion:
+              (patchData.kenyaemrVersion as string | undefined) ?? DEFAULT_KENYAEMR_VERSION,
+            ramGb: (patchData.ramGb as number | null | undefined) ?? null,
+            storageType: (patchData.storageType as string | null | undefined) ?? null,
+            storageGb: (patchData.storageGb as number | null | undefined) ?? null,
+          },
+        })
+        invalidateServerCachePrefix("assets:servers:")
+        return NextResponse.json({ success: true, asset: created, created: true })
+      }
     }
-    const existing = await prisma.serverAsset.findUnique({ where: { id: String(id) }, select: { location: true } })
+
+    if (!targetId) {
+      return NextResponse.json({ error: "id or facilityId is required" }, { status: 400 })
+    }
+
+    const existing = await prisma.serverAsset.findUnique({
+      where: { id: targetId },
+      select: { location: true },
+    })
     if (!existing) return NextResponse.json({ error: "Asset not found" }, { status: 404 })
     if (!canAccessLocation(access, existing.location)) {
       return NextResponse.json({ error: "Forbidden: location out of scope" }, { status: 403 })
     }
+
     const asset = await prisma.serverAsset.update({
-      where: { id: String(id) },
-      data,
+      where: { id: targetId },
+      data: patchData,
     })
+    invalidateServerCachePrefix("assets:servers:")
     return NextResponse.json({ success: true, asset })
   } catch (error) {
     console.error("Error patching server asset:", error)
@@ -382,6 +470,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden: location out of scope" }, { status: 403 })
     }
     await prisma.serverAsset.delete({ where: { id: String(id) } })
+    invalidateServerCachePrefix("assets:servers:")
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error("Error deleting server asset:", error)

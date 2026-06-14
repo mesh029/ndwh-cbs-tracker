@@ -17,6 +17,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  if (pathname.startsWith("/api/home/metrics") && request.method === "GET") {
+    return NextResponse.next()
+  }
+
   const roleCookie = request.cookies.get(AUTH_COOKIE_NAME)?.value
   const role = isValidRole(roleCookie) ? roleCookie : null
   const access = parseAccessCookie(request.cookies.get(AUTH_ACCESS_COOKIE)?.value)

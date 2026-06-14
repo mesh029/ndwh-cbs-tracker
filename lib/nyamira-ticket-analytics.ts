@@ -36,17 +36,15 @@ export function computeNyamiraTicketAnalytics(
       count: number
       facilities: string[]
       serverTypes: string[]
-      withSimcards: number
       withLAN: number
     }>
     byServerType: Array<{
       serverType: string
       tickets: number
       facilities: number
-      simcards: number
       lanFacilities: number
     }>
-    byNetworkType: Array<{ hasSimcard: boolean; hasLAN: boolean; tickets: number; facilities: number }>
+    byNetworkType: Array<{ hasLAN: boolean; tickets: number; facilities: number }>
   }
   ticketAnalytics: any
 } {
@@ -68,8 +66,8 @@ export function computeNyamiraTicketAnalytics(
     }
   }
 
-  const byCategory: Record<string, { count: number; facilities: string[]; serverTypes: Set<string>; withSimcards: number; withLAN: number }> = {}
-  const byServerTypeComprehensive: Record<string, { tickets: number; facilities: number; simcards: number; lanFacilities: number }> = {}
+  const byCategory: Record<string, { count: number; facilities: string[]; serverTypes: Set<string>; withLAN: number }> = {}
+  const byServerTypeComprehensive: Record<string, { tickets: number; facilities: number; lanFacilities: number }> = {}
   const byNetworkType: Record<string, { tickets: number; facilities: number }> = {}
 
   locationTickets.forEach((ticket: any) => {
@@ -93,7 +91,6 @@ export function computeNyamiraTicketAnalytics(
           count: 0,
           facilities: [],
           serverTypes: new Set(),
-          withSimcards: 0,
           withLAN: 0,
         }
       }
@@ -104,9 +101,6 @@ export function computeNyamiraTicketAnalytics(
         }
         if (matchedFacility.serverType) {
           byCategory[category].serverTypes.add(matchedFacility.serverType)
-        }
-        if (matchedFacility.simcardCount && matchedFacility.simcardCount > 0) {
-          byCategory[category].withSimcards++
         }
         if (matchedFacility.hasLAN) {
           byCategory[category].withLAN++
@@ -124,7 +118,6 @@ export function computeNyamiraTicketAnalytics(
       byServerTypeComprehensive[serverType] = {
         tickets: 0,
         facilities: 0,
-        simcards: 0,
         lanFacilities: 0,
       }
     }
@@ -135,14 +128,10 @@ export function computeNyamiraTicketAnalytics(
       return normalizedFacilityType === serverType && normalizedFacilityType.toLowerCase() !== "tickets"
     })
     byServerTypeComprehensive[serverType].facilities = facilitiesWithServerType.length
-    byServerTypeComprehensive[serverType].simcards = facilitiesWithServerType.reduce(
-      (sum: number, f: any) => sum + (f.simcardCount || 0),
-      0
-    )
     byServerTypeComprehensive[serverType].lanFacilities = facilitiesWithServerType.filter((f: any) => f.hasLAN).length
 
     if (matchedFacility?.serverType?.toLowerCase() !== "tickets") {
-      const networkKey = `${matchedFacility?.simcardCount && matchedFacility.simcardCount > 0 ? "hasSimcard" : "noSimcard"}_${matchedFacility?.hasLAN ? "hasLAN" : "noLAN"}`
+      const networkKey = matchedFacility?.hasLAN ? "hasLAN" : "noLAN"
       if (!byNetworkType[networkKey]) {
         byNetworkType[networkKey] = { tickets: 0, facilities: 0 }
       }
@@ -159,7 +148,6 @@ export function computeNyamiraTicketAnalytics(
       count: data.count,
       facilities: data.facilities,
       serverTypes: Array.from(data.serverTypes),
-      withSimcards: data.withSimcards,
       withLAN: data.withLAN,
     }))
     .sort((a, b) => b.count - a.count)
@@ -171,15 +159,11 @@ export function computeNyamiraTicketAnalytics(
     }))
     .sort((a, b) => b.tickets - a.tickets)
 
-  const networkTypeArray = Object.entries(byNetworkType).map(([key, data]) => {
-    const [simcard, lan] = key.split("_")
-    return {
-      hasSimcard: simcard === "hasSimcard",
-      hasLAN: lan === "hasLAN",
-      tickets: data.tickets,
-      facilities: data.facilities,
-    }
-  })
+  const networkTypeArray = Object.entries(byNetworkType).map(([key, data]) => ({
+    hasLAN: key === "hasLAN",
+    tickets: data.tickets,
+    facilities: data.facilities,
+  }))
 
   const comprehensiveAnalytics = {
     byCategory: categoryArray,
@@ -232,9 +216,7 @@ export function computeNyamiraTicketAnalytics(
     }
 
     if (issueType === "network" && matchedFacility) {
-      const hasSimcard = matchedFacility.simcardCount && matchedFacility.simcardCount > 0
-      const hasLAN = matchedFacility.hasLAN
-      const networkKey = `${hasSimcard ? "hasSimcard" : "noSimcard"}_${hasLAN ? "hasLAN" : "noLAN"}`
+      const networkKey = matchedFacility.hasLAN ? "hasLAN" : "noLAN"
       if (!networkCorrelation[networkKey]) {
         networkCorrelation[networkKey] = { networkIssues: 0, facilities: 0 }
       }
@@ -253,9 +235,7 @@ export function computeNyamiraTicketAnalytics(
   })
 
   facilities.forEach((facility: any) => {
-    const hasSimcard = facility.simcardCount && facility.simcardCount > 0
-    const hasLAN = facility.hasLAN
-    const networkKey = `${hasSimcard ? "hasSimcard" : "noSimcard"}_${hasLAN ? "hasLAN" : "noLAN"}`
+    const networkKey = facility.hasLAN ? "hasLAN" : "noLAN"
     if (!networkCorrelation[networkKey]) {
       networkCorrelation[networkKey] = { networkIssues: 0, facilities: 0 }
     }
@@ -335,15 +315,11 @@ export function computeNyamiraTicketAnalytics(
       .filter((item) => item.ssdIssues > 0 || item.serverIssues > 0)
       .sort((a, b) => b.totalIssues - a.totalIssues),
     networkCorrelation: Object.entries(networkCorrelation)
-      .map(([key, data]) => {
-        const [simcardPart, lanPart] = key.split("_")
-        return {
-          hasSimcard: simcardPart === "hasSimcard",
-          hasLAN: lanPart === "hasLAN",
-          networkIssues: data.networkIssues,
-          facilities: data.facilities,
-        }
-      })
+      .map(([key, data]) => ({
+        hasLAN: key === "hasLAN",
+        networkIssues: data.networkIssues,
+        facilities: data.facilities,
+      }))
       .filter((item) => item.networkIssues > 0 || item.facilities > 0),
   }
 

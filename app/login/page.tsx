@@ -43,7 +43,8 @@ export default function LoginPage() {
       notifyAuthNavigationTarget(dest, { stopOnPathMatch: true })
       router.push(dest)
       router.refresh()
-      // For login, stop loader as soon as destination route is active.
+      // Safety: clear auth overlay if navigation watcher misses (middleware redirect, query-only change)
+      window.setTimeout(() => endAuthTransition(), 2000)
     } catch (err) {
       endAuthTransition()
       setError(err instanceof Error ? err.message : "Login failed")

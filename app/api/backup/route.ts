@@ -62,7 +62,6 @@ async function buildSqlBackupFromPrisma(): Promise<string> {
     facilities,
     serverAssets,
     routerAssets,
-    simcardAssets,
     tabletAssets,
     mobilePhoneAssets,
     lanAssets,
@@ -76,7 +75,6 @@ async function buildSqlBackupFromPrisma(): Promise<string> {
     prisma.facility.findMany(),
     prisma.serverAsset.findMany(),
     prisma.routerAsset.findMany(),
-    prisma.simcardAsset.findMany(),
     prisma.tabletAsset.findMany(),
     prisma.mobilePhoneAsset.findMany(),
     prisma.lanAsset.findMany(),
@@ -100,7 +98,6 @@ async function buildSqlBackupFromPrisma(): Promise<string> {
   output.push("DELETE FROM `inventory_assets`;")
   output.push("DELETE FROM `asset_type_fields`;")
   output.push("DELETE FROM `asset_type_definitions`;")
-  output.push("DELETE FROM `simcard_assets`;")
   output.push("DELETE FROM `tablet_assets`;")
   output.push("DELETE FROM `mobile_phone_assets`;")
   output.push("DELETE FROM `router_assets`;")
@@ -112,7 +109,6 @@ async function buildSqlBackupFromPrisma(): Promise<string> {
   output.push(...insertRows("facilities", facilities as unknown as Record<string, unknown>[]))
   output.push(...insertRows("server_assets", serverAssets as unknown as Record<string, unknown>[]))
   output.push(...insertRows("router_assets", routerAssets as unknown as Record<string, unknown>[]))
-  output.push(...insertRows("simcard_assets", simcardAssets as unknown as Record<string, unknown>[]))
   output.push(...insertRows("tablet_assets", tabletAssets as unknown as Record<string, unknown>[]))
   output.push(...insertRows("mobile_phone_assets", mobilePhoneAssets as unknown as Record<string, unknown>[]))
   output.push(...insertRows("lan_assets", lanAssets as unknown as Record<string, unknown>[]))

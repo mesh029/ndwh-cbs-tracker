@@ -2,7 +2,7 @@
  * EMR Asset & Ticket Upload Component
  * 
  * IMPORTANT SEPARATION:
- * - This component is ONLY for EMR data (servers, routers, simcards, LAN, tickets)
+ * - This component is ONLY for EMR data (servers, routers, LAN, tickets)
  * - NDWH/CBS uploads are handled separately in /uploads page for compliance monitoring
  * - NDWH/CBS = facility list uploads to track which facilities uploaded to NDWH/CBS systems
  * - EMR = detailed asset data (equipment, infrastructure, tickets) for facility management
@@ -13,13 +13,19 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import { Download, Upload } from "lucide-react"
+import { Download, Upload, ChevronDown } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import {
   generateServerTemplate,
   generateRouterTemplate,
-  generateSimcardTemplate,
   generateLANTemplate,
   generateTabletTemplate,
   generateMobilePhoneTemplate,
@@ -32,10 +38,14 @@ import { canDownloadTemplates, canUploadData } from "@/lib/auth"
 import { useAuth } from "@/components/auth-provider"
 
 interface SectionUploadProps {
-  section: "server" | "router" | "simcard" | "tablet" | "mobilephone" | "lan" | "ticket"
+  section: "server" | "router" | "tablet" | "mobilephone" | "lan" | "ticket"
   location: Location
   onUploadComplete?: () => void
   buttonLayout?: "row" | "column"
+  layout?: "buttons" | "dropdown"
+  onExportFiltered?: () => void
+  onExportAll?: () => void
+  exportFilteredCount?: number
 }
 
 interface Facility {
@@ -44,7 +54,16 @@ interface Facility {
   subcounty?: string | null
 }
 
-export function SectionUpload({ section, location, onUploadComplete, buttonLayout = "row" }: SectionUploadProps) {
+export function SectionUpload({
+  section,
+  location,
+  onUploadComplete,
+  buttonLayout = "row",
+  layout = "buttons",
+  onExportFiltered,
+  onExportAll,
+  exportFilteredCount,
+}: SectionUploadProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [showFacilityDialog, setShowFacilityDialog] = useState(false)
@@ -127,9 +146,6 @@ export function SectionUpload({ section, location, onUploadComplete, buttonLayou
           case "router":
             assetsEndpoint = `/api/assets/routers?location=${location}`
             break
-          case "simcard":
-            assetsEndpoint = `/api/assets/simcards?location=${location}`
-            break
           case "tablet":
             assetsEndpoint = `/api/assets/tablets?location=${location}`
             break
@@ -159,9 +175,6 @@ export function SectionUpload({ section, location, onUploadComplete, buttonLayou
         break
       case "router":
         generateRouterTemplate(location, selectedFacilityList, existingAssets)
-        break
-      case "simcard":
-        generateSimcardTemplate(location, selectedFacilityList, existingAssets)
         break
       case "lan":
         generateLANTemplate(location, selectedFacilityList)
@@ -249,7 +262,6 @@ export function SectionUpload({ section, location, onUploadComplete, buttonLayou
       const sectionSheetNames: Record<string, string[]> = {
         server: ["Servers", "Server"],
         router: ["Routers", "Router"],
-        simcard: ["Simcards", "Simcard"],
         tablet: ["Tablets", "Tablet"],
         mobilephone: ["Mobile Phones", "Mobile Phone", "MobilePhones"],
         lan: ["LAN"],
@@ -358,27 +370,6 @@ export function SectionUpload({ section, location, onUploadComplete, buttonLayou
                 serialNumber: row["Serial Number"] || row["serialNumber"] || undefined,
                 notes: row["Notes"] || row["notes"] || undefined,
                 location: row["Location"] ? String(row["Location"]).trim() : location,
-              }
-            })
-            .filter((item): item is NonNullable<typeof item> => item !== null)
-          break
-
-        case "simcard":
-          endpoint = "/api/assets/simcards"
-          processedData = jsonData
-            .map((row) => {
-              const facilityName = row["Facility Name"] || row["Facility"] || row["Name"] || ""
-              if (!facilityName) return null
-              const matchedName = matchFacility(facilityName)
-              return {
-                facilityName: matchedName,
-                subcounty: row["Subcounty"] ? String(row["Subcounty"]).trim() : undefined,
-                phoneNumber: row["Phone Number"] || row["phoneNumber"] || undefined,
-                assetTag: row["Asset Tag"] || row["assetTag"] || undefined,
-                serialNumber: row["Serial Number"] || row["serialNumber"] || undefined,
-                provider: row["Provider"] || row["provider"] || undefined,
-                notes: row["Notes"] || row["notes"] || undefined,
-                location,
               }
             })
             .filter((item): item is NonNullable<typeof item> => item !== null)
@@ -523,9 +514,6 @@ export function SectionUpload({ section, location, onUploadComplete, buttonLayou
         case "router":
           endpoint = "/api/assets/routers"
           break
-        case "simcard":
-          endpoint = "/api/assets/simcards"
-          break
         case "tablet":
           endpoint = "/api/assets/tablets"
           break
@@ -610,7 +598,6 @@ export function SectionUpload({ section, location, onUploadComplete, buttonLayou
   const sectionLabels: Record<SectionUploadProps["section"], string> = {
     server: "Server",
     router: "Router",
-    simcard: "Simcard",
     tablet: "Tablet",
     mobilephone: "Mobile Phone",
     lan: "LAN",
@@ -622,8 +609,68 @@ export function SectionUpload({ section, location, onUploadComplete, buttonLayou
     return null
   }
 
+  const fileInputId = `import-file-${section}`
+
+  const triggerFileInput = () => {
+    document.getElementById(fileInputId)?.click()
+  }
+
+  const menuItems = (
+    <>
+      {canDownloadTemplates(role) && (
+        <>
+          <DropdownMenuItem onClick={handleQuickBulkTemplateDownload}>
+            <Download className="h-4 w-4 mr-2" />
+            Download template (all facilities)
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleDownloadTemplate}>
+            <Download className="h-4 w-4 mr-2" />
+            Download template (pick facilities…)
+          </DropdownMenuItem>
+        </>
+      )}
+      {canUploadData(role) && (
+        <DropdownMenuItem onClick={triggerFileInput} disabled={isUploading}>
+          <Upload className="h-4 w-4 mr-2" />
+          {isUploading ? "Reading…" : "Import from Excel"}
+        </DropdownMenuItem>
+      )}
+      {(onExportFiltered || onExportAll) && (
+        <>
+          <DropdownMenuSeparator />
+          {onExportFiltered && (
+            <DropdownMenuItem onClick={onExportFiltered}>
+              <Download className="h-4 w-4 mr-2" />
+              Export filtered{exportFilteredCount != null ? ` (${exportFilteredCount})` : ""}
+            </DropdownMenuItem>
+          )}
+          {onExportAll && (
+            <DropdownMenuItem onClick={onExportAll}>
+              <Download className="h-4 w-4 mr-2" />
+              Export all loaded
+            </DropdownMenuItem>
+          )}
+        </>
+      )}
+    </>
+  )
+
   return (
     <>
+      {layout === "dropdown" ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-2">
+              <Download className="h-4 w-4" />
+              Data
+              <ChevronDown className="h-3 w-3 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            {menuItems}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
       <div className={buttonLayout === "column" ? "flex flex-col gap-2 w-full" : "flex flex-wrap gap-2"}>
         {canDownloadTemplates(role) && (
           <>
@@ -678,6 +725,18 @@ export function SectionUpload({ section, location, onUploadComplete, buttonLayou
           </label>
         )}
       </div>
+      )}
+
+      {canUploadData(role) && (
+        <input
+          id={fileInputId}
+          type="file"
+          accept=".xlsx,.xls"
+          onChange={handleFileUpload}
+          className="hidden"
+          disabled={isUploading}
+        />
+      )}
 
       {/* Import Dialog with Overwrite/Merge Options */}
       <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>

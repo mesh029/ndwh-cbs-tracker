@@ -9,17 +9,12 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import { HomeGuidedTour } from "@/components/home-guided-tour"
 import { HomeAuthButton } from "@/components/home-auth-button"
 import { getArticles, getArticleSlug } from "@/lib/articles"
-import { HomeDistributionMap } from "@/components/home-distribution-map"
-import { prisma } from "@/lib/prisma"
+import { HomeMapSection } from "@/components/home-map-section"
 import { ArrowRight, FileText, Home as HomeIcon, Monitor, Newspaper, Package, ShieldCheck, Ticket } from "lucide-react"
 import { AUTH_ACCESS_COOKIE, AUTH_COOKIE_NAME, AUTH_USERNAME_COOKIE, isValidRole, parseAccessCookie } from "@/lib/auth"
 
-const COUNTY_CENTERS = [
-  { location: "Kakamega", latitude: 0.2827, longitude: 34.7519 },
-  { location: "Vihiga", latitude: 0.0760, longitude: 34.7229 },
-  { location: "Nyamira", latitude: -0.5669, longitude: 34.9341 },
-  { location: "Kisumu", latitude: -0.1022, longitude: 34.7617 },
-] as const
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
 
 export default async function Home() {
   const cookieStore = await cookies()
@@ -41,98 +36,6 @@ export default async function Home() {
   const heroImage = heroArticle?.imageUrl || "https://images.unsplash.com/photo-1516574187841-cb9cc2ca948b?auto=format&fit=crop&w=2200&q=80"
   const ticketHref = firstScopedLocation ? `/tickets?location=${encodeURIComponent(firstScopedLocation)}` : "/tickets"
   const dashboardHref = firstScopedLocation ? `/nyamira?location=${encodeURIComponent(firstScopedLocation)}` : "/nyamira"
-  let serverByLocation: Array<{ location: string; _count: { _all: number } }> = []
-  let ticketByLocation: Array<{ location: string; _count: { _all: number } }> = []
-  let facilityServerByLocation: Array<{ location: string; _count: { _all: number } }> = []
-  let facilityServerBySubcounty: Array<{ location: string; subcounty: string | null; _count: { _all: number } }> = []
-  let serverBySubcounty: Array<{ location: string; subcounty: string | null; _count: { _all: number } }> = []
-  let ticketBySubcounty: Array<{ location: string; subcounty: string | null; _count: { _all: number } }> = []
-
-  try {
-    ;[serverByLocation, ticketByLocation] = await Promise.all([
-      prisma.serverAsset.groupBy({
-        by: ["location"],
-        _count: { _all: true },
-      }),
-      prisma.ticket.groupBy({
-        by: ["location"],
-        _count: { _all: true },
-      }),
-    ])
-    ;[facilityServerByLocation, facilityServerBySubcounty] = await Promise.all([
-      prisma.facility.groupBy({
-        by: ["location"],
-        where: { isMaster: true, serverType: { not: null } },
-        _count: { _all: true },
-      }),
-      prisma.facility.groupBy({
-        by: ["location", "subcounty"],
-        where: { isMaster: true, serverType: { not: null }, subcounty: { not: null } },
-        _count: { _all: true },
-      }),
-    ])
-    ;[serverBySubcounty, ticketBySubcounty] = await Promise.all([
-      prisma.serverAsset.groupBy({
-        by: ["location", "subcounty"],
-        where: { subcounty: { not: null } },
-        _count: { _all: true },
-      }),
-      prisma.ticket.groupBy({
-        by: ["location", "subcounty"],
-        where: { subcounty: { not: "" } },
-        _count: { _all: true },
-      }),
-    ])
-  } catch (error) {
-    console.error("Home page metrics query failed:", error)
-  }
-  const serverCountMap = new Map(serverByLocation.map((row) => [row.location, row._count._all]))
-  const facilityServerCountMap = new Map(facilityServerByLocation.map((row) => [row.location, row._count._all]))
-  const ticketCountMap = new Map(ticketByLocation.map((row) => [row.location, row._count._all]))
-  const mapMetrics = COUNTY_CENTERS.map((county) => ({
-    ...county,
-    // Prefer the broader server signal during transition (assets table + facility inventory table)
-    serverCount: Math.max(serverCountMap.get(county.location) || 0, facilityServerCountMap.get(county.location) || 0),
-    ticketCount: ticketCountMap.get(county.location) || 0,
-  }))
-  const subcountyKey = (location: string, subcounty: string) => `${location.toLowerCase()}::${subcounty.toLowerCase()}`
-  const mergedSubcounty = new Map<string, { location: string; subcounty: string; serverCount: number; ticketCount: number }>()
-  for (const row of serverBySubcounty) {
-    const subcounty = String(row.subcounty || "").trim()
-    if (!subcounty) continue
-    const key = subcountyKey(row.location, subcounty)
-    mergedSubcounty.set(key, {
-      location: row.location,
-      subcounty,
-      serverCount: row._count._all,
-      ticketCount: mergedSubcounty.get(key)?.ticketCount || 0,
-    })
-  }
-  for (const row of facilityServerBySubcounty) {
-    const subcounty = String(row.subcounty || "").trim()
-    if (!subcounty) continue
-    const key = subcountyKey(row.location, subcounty)
-    const existing = mergedSubcounty.get(key)
-    mergedSubcounty.set(key, {
-      location: row.location,
-      subcounty,
-      serverCount: Math.max(existing?.serverCount || 0, row._count._all),
-      ticketCount: existing?.ticketCount || 0,
-    })
-  }
-  for (const row of ticketBySubcounty) {
-    const subcounty = String(row.subcounty || "").trim()
-    if (!subcounty) continue
-    const key = subcountyKey(row.location, subcounty)
-    const existing = mergedSubcounty.get(key)
-    mergedSubcounty.set(key, {
-      location: row.location,
-      subcounty,
-      serverCount: existing?.serverCount || 0,
-      ticketCount: row._count._all,
-    })
-  }
-  const subcountyMetrics = Array.from(mergedSubcounty.values())
 
   return (
     <main className="min-h-screen bg-background">
@@ -264,7 +167,7 @@ export default async function Home() {
 
       <section id="home-map-section" className="mx-auto w-full max-w-[1800px] px-3 sm:px-4 lg:px-6 py-8 sm:py-10">
         <div className="mb-8">
-          <HomeDistributionMap metrics={mapMetrics} subcountyMetrics={subcountyMetrics} />
+          <HomeMapSection />
         </div>
         <div id="home-articles-section" className="flex items-center justify-between mb-4">
           <h2 className="text-xl sm:text-2xl font-semibold">Latest Article Previews</h2>

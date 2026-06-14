@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server"
-import { findUserByEmail, verifyPassword } from "@/lib/user-accounts"
 
 export type UserRole = "admin" | "guest" | "superadmin"
 export type UserAccess = {
@@ -11,17 +10,6 @@ export const AUTH_COOKIE_NAME = "ndwh_role"
 export const AUTH_USERNAME_COOKIE = "ndwh_user"
 export const AUTH_ACCESS_COOKIE = "ndwh_access"
 export const AUTH_EMAIL_COOKIE = "ndwh_email"
-
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
-const GUEST_USERNAME = process.env.GUEST_USERNAME
-const GUEST_PASSWORD = process.env.GUEST_PASSWORD
-const SUPERADMIN_USERNAME = process.env.SUPERADMIN_USERNAME
-const SUPERADMIN_PASSWORD = process.env.SUPERADMIN_PASSWORD
-
-export function isValidRole(value: string | undefined | null): value is UserRole {
-  return value === "admin" || value === "guest" || value === "superadmin"
-}
 
 function normalizeModulesForRole(role: UserRole, modules: string[]): string[] {
   const unique = Array.from(new Set(modules))
@@ -38,7 +26,7 @@ function normalizeAccessForRole(role: UserRole, access: UserAccess | null | unde
   }
 }
 
-function defaultAccessForRole(role: UserRole): UserAccess {
+export function defaultAccessForRole(role: UserRole): UserAccess {
   if (role === "superadmin") {
     return { locations: "all", modules: ["dashboard", "tickets", "assets", "facility", "reports", "uploads", "users"] }
   }
@@ -47,6 +35,9 @@ function defaultAccessForRole(role: UserRole): UserAccess {
   }
   return { locations: "all", modules: ["tickets"] }
 }
+
+/** @internal Used by auth-server.ts */
+export { normalizeModulesForRole }
 
 export function parseAccessCookie(value: string | undefined): UserAccess | null {
   if (!value) return null
@@ -78,35 +69,18 @@ export function parseAccessCookie(value: string | undefined): UserAccess | null 
   return null
 }
 
-export async function resolveRoleFromCredentials(
-  username: string,
-  password: string
-): Promise<{ role: UserRole; displayName: string; email?: string; access: UserAccess } | null> {
-  const cleanUsername = username.trim()
+/** Read county access from cookie synchronously (no /api/auth/me wait). */
+export function getClientAccessLocations<T extends string>(valid: readonly T[]): T[] {
+  if (typeof document === "undefined") return [...valid]
+  const match = document.cookie.match(/(?:^|;\s*)ndwh_access=([^;]*)/)
+  if (!match?.[1]) return [...valid]
+  const access = parseAccessCookie(decodeURIComponent(match[1]))
+  if (!access || access.locations === "all") return [...valid]
+  return valid.filter((l) => (access.locations as string[]).includes(l))
+}
 
-  const managedUser = await findUserByEmail(cleanUsername)
-  if (managedUser && verifyPassword(password, managedUser.passwordHash)) {
-    return {
-      role: managedUser.role,
-      displayName: managedUser.name,
-      email: managedUser.email,
-      access: {
-        locations: managedUser.locations,
-        modules: normalizeModulesForRole(managedUser.role, managedUser.modules || []),
-      },
-    }
-  }
-
-  if (SUPERADMIN_USERNAME && SUPERADMIN_PASSWORD && cleanUsername === SUPERADMIN_USERNAME && password === SUPERADMIN_PASSWORD) {
-    return { role: "superadmin", displayName: SUPERADMIN_USERNAME, access: defaultAccessForRole("superadmin") }
-  }
-  if (ADMIN_USERNAME && ADMIN_PASSWORD && cleanUsername === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
-    return { role: "admin", displayName: ADMIN_USERNAME, access: defaultAccessForRole("admin") }
-  }
-  if (GUEST_USERNAME && GUEST_PASSWORD && cleanUsername === GUEST_USERNAME && password === GUEST_PASSWORD) {
-    return { role: "guest", displayName: GUEST_USERNAME, access: defaultAccessForRole("guest") }
-  }
-  return null
+export function isValidRole(value: string | undefined | null): value is UserRole {
+  return value === "admin" || value === "guest" || value === "superadmin"
 }
 
 export function isSuperAdmin(role: UserRole | null): boolean {

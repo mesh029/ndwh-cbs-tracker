@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { canAccessLocation, getAccessFromRequest, getRoleFromRequest } from "@/lib/auth"
 import type { SystemType, Location } from "@/lib/storage"
+import { getServerCache, setServerCache, SERVER_CACHE_TTL_MS } from "@/lib/server-cache"
+import { invalidateDashboardServerCaches } from "@/lib/invalidate-caches"
 
 // Force dynamic rendering to prevent build-time static generation
 export const dynamic = 'force-dynamic'
@@ -45,6 +47,12 @@ export async function GET(request: NextRequest) {
     }
     if (!canAccessLocation(access, location)) {
       return NextResponse.json({ error: "Forbidden: location out of scope" }, { status: 403 })
+    }
+
+    const cacheKey = `facilities:${system}:${location}:${isMaster ?? "any"}:${role}`
+    const cached = getServerCache<{ facilities: unknown[] }>(cacheKey)
+    if (cached) {
+      return NextResponse.json(cached)
     }
 
     const where: any = {
@@ -97,8 +105,11 @@ export async function GET(request: NextRequest) {
     }))
 
     console.log(`[API] Fetched ${normalizedFacilities.length} facilities for ${system}/${location} (isMaster=${isMaster})`)
-    
-    return NextResponse.json({ facilities: normalizedFacilities })
+
+    const payload = { facilities: normalizedFacilities }
+    setServerCache(cacheKey, payload, SERVER_CACHE_TTL_MS)
+
+    return NextResponse.json(payload)
   } catch (error: any) {
     console.error("Error fetching facilities:", error)
     console.error("Error details:", error?.message, error?.stack)
@@ -230,12 +241,15 @@ export async function POST(request: NextRequest) {
     }
 
     if (results.created === 0 && results.errors.length === 0) {
+      invalidateDashboardServerCaches(location as Location)
       return NextResponse.json({
         success: true,
         count: 0,
         message: "All facilities already exist",
       })
     }
+
+    invalidateDashboardServerCaches(location as Location)
 
     return NextResponse.json({
       success: true,
@@ -315,6 +329,8 @@ export async function PATCH(request: NextRequest) {
         data: updateData,
       })
 
+      invalidateDashboardServerCaches(location as Location)
+
       return NextResponse.json({
         success: true,
         facility: updated,
@@ -391,6 +407,8 @@ export async function DELETE(request: NextRequest) {
       where,
     })
 
+    invalidateDashboardServerCaches(location)
+
     return NextResponse.json({
       success: true,
       count: result.count,
@@ -445,6 +463,8 @@ export async function PUT(request: NextRequest) {
         skipDuplicates: true,
       })
     }
+
+    invalidateDashboardServerCaches(location as Location)
 
     return NextResponse.json({
       success: true,

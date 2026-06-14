@@ -1,14 +1,14 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, type ReactNode } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Download, FileText, Building2, Package, Ticket } from "lucide-react"
+import { Download, FileText, Building2, Package, Ticket, Loader2 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import type { Location } from "@/lib/storage"
 import * as XLSX from "xlsx"
 import { useAuth } from "@/components/auth-provider"
+import { CountyChipRow, ChipRow } from "@/components/filter-chips"
 import {
   appendBuiltinSheetsToWorkbook,
   appendCustomSheetsToWorkbook,
@@ -21,6 +21,14 @@ import {
 
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
+type ReportType = "facilities" | "assets" | "tickets"
+
+const REPORT_OPTIONS = [
+  { value: "facilities" as const, label: "Facilities", icon: <Building2 className="h-3.5 w-3.5" /> },
+  { value: "assets" as const, label: "Assets", icon: <Package className="h-3.5 w-3.5" /> },
+  { value: "tickets" as const, label: "Tickets", icon: <Ticket className="h-3.5 w-3.5" /> },
+]
+
 export function Reports() {
   const { access } = useAuth()
   const allowedLocations =
@@ -28,6 +36,9 @@ export function Reports() {
       ? LOCATIONS
       : LOCATIONS.filter((loc) => access.locations.includes(loc))
   const [selectedLocation, setSelectedLocation] = useState<Location | "all">("all")
+  const [selectedReport, setSelectedReport] = useState<ReportType>("facilities")
+  const [exporting, setExporting] = useState(false)
+  const [exportStep, setExportStep] = useState("")
   const { toast } = useToast()
 
   useEffect(() => {
@@ -51,9 +62,12 @@ export function Reports() {
     const startedAt = performance.now()
     let stepsDone = 0
     const stepsTotal = 3
+    setExporting(true)
+    setExportStep("Fetching facilities…")
     const progress = toast({ title: "Facility master report…", description: "Starting…" })
     const tick = (label: string) => {
       stepsDone++
+      setExportStep(label)
       const etaMs = (performance.now() - startedAt) / stepsDone * (stepsTotal - stepsDone)
       progress.update({ title: "Facility master report…", description: `${label} • ETA ${formatDuration(etaMs)}` })
     }
@@ -100,29 +114,31 @@ export function Reports() {
       if (summaryRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), "Summary")
       tick("Summary ready")
       if (facilityRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(facilityRows), "Facilities")
-      tick("Facilities ready")
+      tick("Details ready")
 
       const suffix = selectedLocation === "all" ? "AllCounties" : selectedLocation
       XLSX.writeFile(wb, `Facility_Master_${suffix}_${timestamp}.xlsx`)
       progress.update({ title: "Done", description: "Facility master report downloaded" })
     } catch (e) {
       console.error(e)
-      progress.update({
-        title: "Error",
-        description: "Failed to export facility report",
-        variant: "destructive",
-      })
+      progress.update({ title: "Error", description: "Failed to export facility master", variant: "destructive" })
+    } finally {
+      setExporting(false)
+      setExportStep("")
     }
   }
 
   const exportAssetInventoryReport = async () => {
     const startedAt = performance.now()
     let stepsDone = 0
-    const stepsTotal = 5
+    const stepsTotal = 6
+    setExporting(true)
+    setExportStep("Fetching asset data…")
     const progress = toast({ title: "Asset inventory report…", description: "Starting…" })
     const tick = (label: string) => {
       stepsDone++
-      const etaMs = (performance.now() - startedAt) / Math.max(stepsDone, 1) * (stepsTotal - stepsDone)
+      setExportStep(label)
+      const etaMs = (performance.now() - startedAt) / stepsDone * (stepsTotal - stepsDone)
       progress.update({ title: "Asset inventory report…", description: `${label} • ETA ${formatDuration(etaMs)}` })
     }
 
@@ -131,47 +147,44 @@ export function Reports() {
       const timestamp = new Date().toISOString().split("T")[0]
       const locations = resolveLocations()
 
-      tick("Loading built-in assets…")
+      tick("Loading builtin assets…")
       const byType = await fetchBuiltinAssetRows(locations)
       appendBuiltinSheetsToWorkbook(wb, byType)
-      tick("Built-in sheets ready")
 
-      tick("Loading custom asset types…")
+      tick("Loading custom types…")
       const definitions = await fetchCustomAssetTypeDefinitions()
       const customSheets = await fetchCustomInventoryRows(locations, definitions)
       appendCustomSheetsToWorkbook(wb, customSheets)
       appendLostSheetToWorkbook(wb, byType, customSheets)
-      tick("Custom type sheets ready")
 
+      tick("Building summary…")
       const summary = buildAssetSummaryRows(locations, byType, customSheets)
       if (summary.length) {
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), "Asset Summary")
       }
-      tick("Writing file…")
 
       const suffix = selectedLocation === "all" ? "AllCounties" : selectedLocation
       XLSX.writeFile(wb, `Asset_Inventory_${suffix}_${timestamp}.xlsx`)
-      progress.update({
-        title: "Done",
-        description: "Includes all asset types, status (active/lost/recovered), storage location, and a Lost Assets sheet",
-      })
+      progress.update({ title: "Done", description: "Asset inventory report downloaded" })
     } catch (e) {
       console.error(e)
-      progress.update({
-        title: "Error",
-        description: "Failed to export asset inventory",
-        variant: "destructive",
-      })
+      progress.update({ title: "Error", description: "Failed to export asset inventory", variant: "destructive" })
+    } finally {
+      setExporting(false)
+      setExportStep("")
     }
   }
 
   const exportTicketReport = async () => {
     const startedAt = performance.now()
     let stepsDone = 0
-    const stepsTotal = 2
+    const stepsTotal = 3
+    setExporting(true)
+    setExportStep("Fetching tickets…")
     const progress = toast({ title: "Ticket report…", description: "Starting…" })
     const tick = (label: string) => {
       stepsDone++
+      setExportStep(label)
       const etaMs = (performance.now() - startedAt) / stepsDone * (stepsTotal - stepsDone)
       progress.update({ title: "Ticket report…", description: `${label} • ETA ${formatDuration(etaMs)}` })
     }
@@ -181,8 +194,8 @@ export function Reports() {
       const timestamp = new Date().toISOString().split("T")[0]
       const locations = resolveLocations()
 
-      const summaryRows: Record<string, string | number>[] = []
-      const ticketRows: Record<string, string>[] = []
+      const summaryRows: Array<Record<string, string | number>> = []
+      const ticketRows: Array<Record<string, string | number>> = []
 
       for (const loc of locations) {
         try {
@@ -192,7 +205,7 @@ export function Reports() {
           const tickets = data.tickets || []
           summaryRows.push({
             Location: loc,
-            "Total Tickets": tickets.length,
+            Total: tickets.length,
             Open: tickets.filter((t: { status: string }) => t.status === "open").length,
             "In Progress": tickets.filter((t: { status: string }) => t.status === "in-progress").length,
             Resolved: tickets.filter((t: { status: string }) => t.status === "resolved").length,
@@ -229,92 +242,93 @@ export function Reports() {
     } catch (e) {
       console.error(e)
       progress.update({ title: "Error", description: "Failed to export tickets", variant: "destructive" })
+    } finally {
+      setExporting(false)
+      setExportStep("")
     }
+  }
+
+  const handleExport = () => {
+    if (selectedReport === "facilities") void exportFacilityMasterReport()
+    else if (selectedReport === "assets") void exportAssetInventoryReport()
+    else void exportTicketReport()
   }
 
   const locationLabel =
     selectedLocation === "all" ? "all counties you can access" : selectedLocation
+
+  const reportMeta: Record<ReportType, { title: string; description: string; icon: ReactNode }> = {
+    facilities: {
+      title: "Facility master list",
+      description: `Master facilities from Facility Manager (NDWH list) for ${locationLabel}.`,
+      icon: <Building2 className="h-5 w-5" />,
+    },
+    assets: {
+      title: "Asset inventory",
+      description: `All asset types including custom inventory, with a Lost Assets sheet when applicable — for ${locationLabel}.`,
+      icon: <Package className="h-5 w-5" />,
+    },
+    tickets: {
+      title: "Tickets",
+      description: `Open, in-progress, and resolved tickets for ${locationLabel}.`,
+      icon: <Ticket className="h-5 w-5" />,
+    },
+  }
+
+  const active = reportMeta[selectedReport]
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">Reports &amp; Export</h1>
         <p className="text-muted-foreground mt-1">
-          Download data from Facility Manager and Asset Manager — master facilities, all asset types (including tablets and custom types), and tickets.
+          Download facility master lists, full asset inventory, and ticket exports as Excel files.
         </p>
       </div>
 
-      <Select
-        value={selectedLocation}
-        onValueChange={(v) => setSelectedLocation(v as Location | "all")}
-      >
-        <SelectTrigger className="w-56">
-          <SelectValue placeholder="County" />
-        </SelectTrigger>
-        <SelectContent>
-          {access?.locations === "all" && <SelectItem value="all">All counties</SelectItem>}
-          {allowedLocations.map((location) => (
-            <SelectItem key={location} value={location}>
-              {location}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <div className="space-y-3">
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">County scope</p>
+        <CountyChipRow
+          counties={allowedLocations}
+          value={selectedLocation}
+          onChange={(v) => setSelectedLocation(v as Location | "all")}
+          showAll={access?.locations === "all"}
+        />
+      </div>
+
+      <div className="space-y-3">
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Report type</p>
+        <ChipRow
+          options={REPORT_OPTIONS}
+          value={selectedReport}
+          onChange={(v) => setSelectedReport(v as ReportType)}
+        />
+      </div>
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
-            <Building2 className="h-5 w-5" />
-            Facility master list
+            {active.icon}
+            {active.title}
           </CardTitle>
-          <CardDescription>
-            Master facilities from Facility Manager (NDWH list) for {locationLabel}.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button onClick={exportFacilityMasterReport}>
-            <Download className="mr-2 h-4 w-4" />
-            Export facility master (Excel)
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Package className="h-5 w-5" />
-            Asset inventory
-          </CardTitle>
-          <CardDescription>
-            All rows from Asset Manager with status and storage location, plus a dedicated Lost Assets sheet when any items are marked lost.
-          </CardDescription>
+          <CardDescription>{active.description}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Button onClick={exportAssetInventoryReport}>
-            <Download className="mr-2 h-4 w-4" />
-            Export full asset inventory (Excel)
+          <Button onClick={handleExport} disabled={exporting} className="gap-2">
+            {exporting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : selectedReport === "tickets" ? (
+              <FileText className="h-4 w-4" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            {exporting ? exportStep || "Exporting…" : `Export ${active.title.toLowerCase()} (Excel)`}
           </Button>
-          <p className="text-xs text-muted-foreground">
-            To bulk load data, use Asset Manager → pick a tab → Download Import Template → Import from Excel (same for each type).
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Ticket className="h-5 w-5" />
-            Tickets
-          </CardTitle>
-          <CardDescription>
-            Open, in-progress, and resolved tickets for {locationLabel}.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button onClick={exportTicketReport} variant="default">
-            <FileText className="mr-2 h-4 w-4" />
-            Export tickets (Excel)
-          </Button>
+          {selectedReport === "assets" && (
+            <p className="text-xs text-muted-foreground">
+              To bulk load asset data, use Asset Manager → pick a type → Data menu → Download template.
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>

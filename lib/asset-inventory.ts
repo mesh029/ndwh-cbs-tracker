@@ -4,7 +4,6 @@ import { lifecycleFromRecord, lifecycleReportColumns } from "@/lib/asset-lifecyc
 export type AssetType =
   | "server"
   | "router"
-  | "simcard"
   | "tablet"
   | "mobilephone"
   | "lan"
@@ -12,7 +11,6 @@ export type AssetType =
 export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
   server: "Servers",
   router: "Routers",
-  simcard: "Simcards",
   tablet: "Tablets",
   mobilephone: "Mobile Phones",
   lan: "LAN",
@@ -24,8 +22,6 @@ export function assetApiBase(type: AssetType): string {
       return "/api/assets/servers"
     case "router":
       return "/api/assets/routers"
-    case "simcard":
-      return "/api/assets/simcards"
     case "tablet":
       return "/api/assets/tablets"
     case "mobilephone":
@@ -41,8 +37,6 @@ export function getItemValue(type: AssetType, asset: Record<string, unknown>): s
       return String(asset.serverType || "")
     case "router":
       return String(asset.routerType || "")
-    case "simcard":
-      return `${asset.phoneNumber || ""} ${asset.provider || ""}`.trim()
     case "tablet":
       return String(asset.tabletType || "")
     case "mobilephone":
@@ -60,8 +54,6 @@ export function itemFilterLabel(type: AssetType): string {
       return "Server type"
     case "router":
       return "Router type"
-    case "simcard":
-      return "Provider"
     case "tablet":
       return "Tablet model"
     case "mobilephone":
@@ -84,17 +76,15 @@ export function assetToReportRow(type: AssetType, asset: Record<string, unknown>
   switch (type) {
     case "server":
       base["Server Type"] = String(asset.serverType || "")
+      base["KenyaEMR Version"] = String(asset.kenyaemrVersion || "")
+      base["RAM (GB)"] = asset.ramGb != null ? String(asset.ramGb) : ""
+      base["Storage"] = String(asset.storageType || "")
+      base["Storage (GB)"] = asset.storageGb != null ? String(asset.storageGb) : ""
       base["Asset Tag"] = String(asset.assetTag || "")
       base["Serial Number"] = String(asset.serialNumber || "")
       break
     case "router":
       base["Router Type"] = String(asset.routerType || "")
-      base["Asset Tag"] = String(asset.assetTag || "")
-      base["Serial Number"] = String(asset.serialNumber || "")
-      break
-    case "simcard":
-      base["Phone Number"] = String(asset.phoneNumber || "")
-      base["Provider"] = String(asset.provider || "")
       base["Asset Tag"] = String(asset.assetTag || "")
       base["Serial Number"] = String(asset.serialNumber || "")
       break

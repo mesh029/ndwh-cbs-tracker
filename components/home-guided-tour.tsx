@@ -1,6 +1,5 @@
 "use client"
 
-import { useEffect } from "react"
 import { driver } from "driver.js"
 import "driver.js/dist/driver.css"
 import { Button } from "@/components/ui/button"
@@ -56,22 +55,12 @@ function runHomeTour() {
 
   activeHomeTour = tour
   tour.drive()
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(HOME_TOUR_STORAGE_KEY, "true")
+  }
 }
 
 export function HomeGuidedTour() {
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    const seen = window.localStorage.getItem(HOME_TOUR_STORAGE_KEY)
-    if (!seen) {
-      runHomeTour()
-      window.localStorage.setItem(HOME_TOUR_STORAGE_KEY, "true")
-    }
-    return () => {
-      activeHomeTour?.destroy()
-      activeHomeTour = null
-    }
-  }, [])
-
   return (
     <Button
       type="button"

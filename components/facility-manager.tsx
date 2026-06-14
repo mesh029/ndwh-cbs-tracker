@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { X, Upload, Plus, Edit2, Save, XCircle, Trash2, Download, Copy, ChevronDown, ChevronRight, Server, Router, Smartphone, Loader2 } from "lucide-react"
+import { X, Upload, Plus, Edit2, Save, XCircle, Trash2, Download, Copy, ChevronDown, ChevronRight, Server, Router, Loader2 } from "lucide-react"
 import { useFacilityData } from "@/hooks/use-facility-data"
 import { useToast } from "@/components/ui/use-toast"
 import { parseFacilityList } from "@/lib/utils"
@@ -34,7 +34,6 @@ export function FacilityManager() {
   const [facilityAssets, setFacilityAssets] = useState<Record<string, {
     servers: any[]
     routers: any[]
-    simcards: any[]
   }>>({})
   const [detailedForm, setDetailedForm] = useState({
     name: "",
@@ -96,19 +95,17 @@ export function FacilityManager() {
     if (facilityAssets[facilityId]) return // Already loaded
     
     try {
-      const [serversRes, routersRes, simcardsRes] = await Promise.all([
+      const [serversRes, routersRes] = await Promise.all([
         fetch(`/api/assets/servers?location=${selectedLocation}&facilityId=${facilityId}`).catch(() => ({ ok: false })),
         fetch(`/api/assets/routers?location=${selectedLocation}&facilityId=${facilityId}`).catch(() => ({ ok: false })),
-        fetch(`/api/assets/simcards?location=${selectedLocation}&facilityId=${facilityId}`).catch(() => ({ ok: false })),
       ])
 
       const servers = serversRes.ok && 'json' in serversRes ? (await serversRes.json()).assets || [] : []
       const routers = routersRes.ok && 'json' in routersRes ? (await routersRes.json()).assets || [] : []
-      const simcards = simcardsRes.ok && 'json' in simcardsRes ? (await simcardsRes.json()).assets || [] : []
 
       setFacilityAssets(prev => ({
         ...prev,
-        [facilityId]: { servers, routers, simcards }
+        [facilityId]: { servers, routers }
       }))
     } catch (error) {
       console.error("Error loading facility assets:", error)
@@ -1085,7 +1082,7 @@ export function FacilityManager() {
               ) : (
                 masterFacilitiesWithIds.map((facility) => {
                   const isExpanded = expandedFacilityId === facility.id
-                  const assets = facilityAssets[facility.id] || { servers: [], routers: [], simcards: [] }
+                  const assets = facilityAssets[facility.id] || { servers: [], routers: [] }
                   
                   return (
                     <div key={facility.id} className="rounded-md border">
@@ -1193,23 +1190,7 @@ export function FacilityManager() {
                               </div>
                             </div>
                           )}
-                          {/* Simcard Assets */}
-                          {assets.simcards.length > 0 && (
-                            <div>
-                              <div className="flex items-center gap-2 mb-2">
-                                <Smartphone className="h-4 w-4" />
-                                <span className="text-sm font-medium">Simcards ({assets.simcards.length})</span>
-                              </div>
-                              <div className="space-y-1 ml-6">
-                                {assets.simcards.map((simcard: any) => (
-                                  <div key={simcard.id} className="text-xs text-muted-foreground">
-                                    {simcard.phoneNumber || "N/A"} {simcard.provider && `• ${simcard.provider}`} {simcard.assetTag && `• Tag: ${simcard.assetTag}`}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          {assets.servers.length === 0 && assets.routers.length === 0 && assets.simcards.length === 0 && (
+                          {assets.servers.length === 0 && assets.routers.length === 0 && (
                             <p className="text-xs text-muted-foreground">No assets recorded for this facility</p>
                           )}
                         </div>

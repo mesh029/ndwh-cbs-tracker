@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { ChipRow, CountyChipRow } from "@/components/filter-chips"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
 import { 
   Server, 
@@ -15,9 +16,9 @@ import {
   Clock,
   ArrowRight
 } from "lucide-react"
-import { useToast } from "@/components/ui/use-toast"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/components/auth-provider"
+import { getClientAccessLocations } from "@/lib/auth"
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, AreaChart, Area, LineChart, Line, ResponsiveContainer, Legend } from "recharts"
 import {
   ChartContainer,
@@ -26,34 +27,71 @@ import {
 } from "@/components/ui/chart"
 import type { ChartConfig } from "@/components/ui/chart"
 import type { Location } from "@/lib/storage"
-import { facilitiesMatch, normalizeServerType } from "@/lib/utils"
-import { determineIssueType } from "@/lib/date-utils"
-import { cachedFetch, cache } from "@/lib/cache"
+import {
+  buildCountyDataFromRaw,
+  buildTicketAnalytics,
+  type CountyData,
+  type OverviewCountyRaw,
+} from "@/lib/overview-stats"
+import type { OverviewMetricsPayload } from "@/lib/overview-metrics"
+import { metricsFromRawCounties } from "@/lib/overview-metrics"
+import { cachedFetch } from "@/lib/cache"
+import {
+  DASHBOARD_CLIENT_TTL_MS,
+  readOverviewMetricsSessionCache,
+  readOverviewSessionCache,
+  bootstrapOverviewState,
+  writeOverviewMetricsSessionCache,
+  writeOverviewSessionCache,
+} from "@/lib/dashboard-cache"
 
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
-interface CountyData {
-  location: Location
-  totalFacilities: number
-  facilitiesWithServers: number
-  totalTickets: number
-  openTickets: number
-  inProgressTickets: number
-  resolvedTickets: number
-  serverIssues: number
-  networkIssues: number
-  totalSimcards: number
-  facilitiesWithSimcards: number
-  facilitiesWithLAN: number
-  serverDistribution: Array<{ serverType: string; count: number; facilities: string[] }>
+const EMPTY_TOTALS = {
+  totalFacilities: 0,
+  facilitiesWithServers: 0,
+  totalTickets: 0,
+  openTickets: 0,
+  inProgressTickets: 0,
+  resolvedTickets: 0,
+  serverIssues: 0,
+  networkIssues: 0,
+  totalSimcards: 0,
+  facilitiesWithSimcards: 0,
+  facilitiesWithLAN: 0,
+}
+
+function MetricValue({
+  value,
+  className,
+}: {
+  value: number
+  className?: string
+}) {
+  return <span className={className}>{value.toLocaleString()}</span>
 }
 
 export function OverviewDashboard() {
   const router = useRouter()
-  const { toast } = useToast()
-  const { access } = useAuth()
-  const [countyData, setCountyData] = useState<CountyData[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const { access, loading: authLoading } = useAuth()
+
+  const [boot] = useState(() => bootstrapOverviewState(getClientAccessLocations(LOCATIONS)))
+
+  const [countyData, setCountyData] = useState<CountyData[]>(() =>
+    boot.counties.map(buildCountyDataFromRaw)
+  )
+  const [rawCountiesByLoc, setRawCountiesByLoc] = useState<Partial<Record<Location, OverviewCountyRaw>>>(() => {
+    const map: Partial<Record<Location, OverviewCountyRaw>> = {}
+    for (const c of boot.counties) map[c.location] = c
+    return map
+  })
+  const [metrics, setMetrics] = useState<OverviewMetricsPayload | null>(boot.metrics)
+  const [pendingCounties, setPendingCounties] = useState<Location[]>(() =>
+    boot.hasFullCache
+      ? []
+      : boot.locations.filter((loc) => !boot.counties.some((c) => c.location === loc))
+  )
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [ticketAnalytics, setTicketAnalytics] = useState<{
     byServerType: Array<{ 
       serverType: string; 
@@ -94,359 +132,248 @@ export function OverviewDashboard() {
     return LOCATIONS.filter((loc) => access.locations.includes(loc))
   }, [access])
 
-  // Load data for all counties
+  /** Use cookie scope until auth resolves — never block UI on authLoading. */
+  const displayLocations = allowedLocations.length > 0 ? allowedLocations : boot.locations
+  const fetchLocations = displayLocations
+
   useEffect(() => {
-    if (!allowedLocations.length) {
-      setCountyData([])
-      setTicketAnalytics(null)
-      setIsLoading(false)
-      return
+    if (boot.hasFullCache && boot.counties.length > 0) {
+      setTicketAnalytics(buildTicketAnalytics(boot.counties.map(buildCountyDataFromRaw), boot.counties))
     }
-    const loadAllCountyData = async () => {
-      setIsLoading(true)
-      try {
-        const dataPromises = allowedLocations.map(async (location): Promise<CountyData> => {
-          // Load facilities (cached for 5 minutes)
-          let facilities: any[] = []
-          try {
-            const facilitiesData = await cachedFetch<{ facilities: any[] }>(`/api/facilities?system=NDWH&location=${location}&isMaster=true`, undefined, 5 * 60 * 1000)
-            facilities = facilitiesData.facilities || []
-          } catch (error) {
-            console.error(`Error loading facilities for ${location}:`, error)
-          }
+  }, [boot.counties, boot.hasFullCache])
 
-
-          // Load tickets (cached for 2 minutes)
-          let tickets: any[] = []
-          try {
-            const ticketsData = await cachedFetch<{ tickets: any[] }>(`/api/tickets?location=${location}`, undefined, 2 * 60 * 1000)
-            tickets = ticketsData.tickets || []
-          } catch (error) {
-            console.error(`Error loading tickets for ${location}:`, error)
-          }
-
-
-          // Calculate server distribution from facilities (like county dashboard)
-          const distribution: Record<string, { count: number; facilities: string[] }> = {}
-          
-          facilities.forEach((facility: any) => {
-            const rawServerType = facility.serverType || "No Server Type"
-            // Filter out "Tickets" - it's not a server type, it's a separate system
-            if (rawServerType.toLowerCase() === "tickets") {
-              return
-            }
-            // Normalize server type to match the format used in ticket analytics
-            const serverType = normalizeServerType(rawServerType)
-            if (serverType === "Unknown" || serverType.toLowerCase() === "tickets") {
-              return
-            }
-            if (!distribution[serverType]) {
-              distribution[serverType] = { count: 0, facilities: [] }
-            }
-            distribution[serverType].count++
-            distribution[serverType].facilities.push(facility.name)
-          })
-          
-          // Convert to array and sort by count
-          const serverDistribution = Object.entries(distribution)
-            .map(([serverType, data]) => ({
-              serverType,
-              count: data.count,
-              facilities: data.facilities,
-            }))
-            .sort((a, b) => b.count - a.count)
-
-          // Calculate ticket stats
-          const openTickets = tickets.filter((t: any) => t.status === "open").length
-          const inProgressTickets = tickets.filter((t: any) => t.status === "in-progress").length
-          const resolvedTickets = tickets.filter((t: any) => t.status === "resolved").length
-
-          // Calculate issue types
-          let serverIssues = 0
-          let networkIssues = 0
-          tickets.forEach((ticket: any) => {
-            const issueType = ticket.issueType || determineIssueType(ticket.serverCondition || "")
-            if (issueType === "server") {
-              serverIssues++
-            } else if (issueType === "network") {
-              networkIssues++
-            }
-          })
-
-          // Calculate simcard stats from facilities (like county dashboard)
-          let totalSimcards = 0
-          let facilitiesWithSimcards = 0
-          let facilitiesWithLAN = 0
-          
-          facilities.forEach((facility: any) => {
-            // Count simcards - only if simcardCount is a valid number > 0
-            const simcardCount = facility.simcardCount
-            if (simcardCount !== null && simcardCount !== undefined && simcardCount !== "") {
-              const count = typeof simcardCount === 'number' ? simcardCount : Number(simcardCount)
-              if (!isNaN(count) && count > 0) {
-                totalSimcards += count
-                facilitiesWithSimcards++
-              }
-            }
-            // Count LAN facilities - check for boolean true
-            if (facility.hasLAN === true || facility.hasLAN === 1 || facility.hasLAN === "true") {
-              facilitiesWithLAN++
-            }
-          })
-
-          return {
-            location,
-            totalFacilities: facilities.length,
-            facilitiesWithServers: serverDistribution.reduce((sum, item) => sum + item.count, 0),
-            totalTickets: tickets.length,
-            openTickets,
-            inProgressTickets,
-            resolvedTickets,
-            serverIssues,
-            networkIssues,
-            totalSimcards,
-            facilitiesWithSimcards,
-            facilitiesWithLAN,
-            serverDistribution,
-          }
-        })
-
-        const allCountyData = await Promise.all(dataPromises)
-        setCountyData(allCountyData)
-
-        // Calculate aggregated ticket analytics
-        await calculateTicketAnalytics(allCountyData, allowedLocations)
-      } catch (error) {
-        console.error("Error loading overview data:", error)
-        toast({
-          title: "Error",
-          description: "Failed to load overview data",
-          variant: "destructive",
-        })
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    loadAllCountyData()
-  }, [toast, allowedLocations])
-
-  const calculateTicketAnalytics = async (countyDataArray: CountyData[], scopedLocations: Location[]) => {
-    try {
-      // Load all tickets across all counties (cached for 2 minutes)
-      const allTicketsPromises = scopedLocations.map(async (location) => {
-        try {
-          const data = await cachedFetch<{ tickets: any[] }>(`/api/tickets?location=${location}`, undefined, 2 * 60 * 1000)
-          return data.tickets || []
-        } catch (error) {
-          console.error(`Failed to fetch tickets for ${location}:`, error)
-          return []
-        }
-      })
-
-      const allTicketsArrays = await Promise.all(allTicketsPromises)
-      const allTickets = allTicketsArrays.flat()
-
-      // Load all facilities to match server types (cached for 5 minutes)
-      const allFacilitiesPromises = scopedLocations.map(async (location) => {
-        try {
-          const data = await cachedFetch<{ facilities: any[] }>(`/api/facilities?system=NDWH&location=${location}&isMaster=true`, undefined, 5 * 60 * 1000)
-          return data.facilities || []
-        } catch (error) {
-          console.error(`Failed to fetch facilities for ${location}:`, error)
-          return []
-        }
-      })
-
-      const allFacilitiesArrays = await Promise.all(allFacilitiesPromises)
-      const allFacilities = allFacilitiesArrays.flat()
-
-      // Load all server assets (cached for 5 minutes)
-      const allServersPromises = scopedLocations.map(async (location) => {
-        try {
-          const data = await cachedFetch<{ assets: any[] }>(`/api/assets/servers?location=${location}`, undefined, 5 * 60 * 1000)
-          return data.assets || []
-        } catch (error) {
-          console.error(`Failed to fetch servers for ${location}:`, error)
-          return []
-        }
-      })
-
-      const allServersArrays = await Promise.all(allServersPromises)
-      const allServers = allServersArrays.flat()
-
-      // Build facility to server type map
-      const facilityServerTypeMap = new Map<string, string>()
-      allServers.forEach((server: any) => {
-        if (server.facilityId && server.serverType) {
-          facilityServerTypeMap.set(server.facilityId, server.serverType)
-        }
-      })
-
-      // Match tickets to facilities and get server types
-      const ticketsWithServerTypes = allTickets.map((ticket: any) => {
-        const matchedFacility = allFacilities.find((f: any) =>
-          facilitiesMatch(f.name, ticket.facilityName)
-        )
-        const serverType = matchedFacility?.serverType || facilityServerTypeMap.get(matchedFacility?.id || "") || "Unknown"
-        return { ...ticket, serverType }
-      })
-
-      // Calculate by server type (with resolution stats)
-      const byServerTypeMap = new Map<string, { 
-        count: number; 
-        serverIssues: number; 
-        networkIssues: number;
-        resolved: number;
-        open: number;
-        inProgress: number;
-      }>()
-      ticketsWithServerTypes.forEach((ticket: any) => {
-        const serverType = ticket.serverType || "Unknown"
-        if (!byServerTypeMap.has(serverType)) {
-          byServerTypeMap.set(serverType, { 
-            count: 0, 
-            serverIssues: 0, 
-            networkIssues: 0,
-            resolved: 0,
-            open: 0,
-            inProgress: 0,
-          })
-        }
-        const stats = byServerTypeMap.get(serverType)!
-        stats.count++
-        const issueType = ticket.issueType || determineIssueType(ticket.serverCondition || "")
-        if (issueType === "server") {
-          stats.serverIssues++
-        } else if (issueType === "network") {
-          stats.networkIssues++
-        }
-        // Track status
-        if (ticket.status === "resolved") {
-          stats.resolved++
-        } else if (ticket.status === "open") {
-          stats.open++
-        } else if (ticket.status === "in-progress") {
-          stats.inProgress++
-        }
-      })
-
-      const byServerType = Array.from(byServerTypeMap.entries()).map(([serverType, stats]) => ({
-        serverType,
-        ...stats,
-        resolutionRate: stats.count > 0 ? (stats.resolved / stats.count) * 100 : 0,
-      }))
-
-      // Calculate by problem
-      const byProblemMap = new Map<string, number>()
-      allTickets.forEach((ticket: any) => {
-        const problem = ticket.problem || "Unknown"
-        byProblemMap.set(problem, (byProblemMap.get(problem) || 0) + 1)
-      })
-
-      const byProblem = Array.from(byProblemMap.entries())
-        .map(([problem, count]) => ({ problem, count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 10)
-
-      // Calculate correlation (issue rate by server type)
-      const serverTypeFacilityCountMap = new Map<string, number>()
-      countyDataArray.forEach((county) => {
-        county.serverDistribution.forEach((dist) => {
-          serverTypeFacilityCountMap.set(
-            dist.serverType,
-            (serverTypeFacilityCountMap.get(dist.serverType) || 0) + dist.count
-          )
-        })
-      })
-
-      const correlation = Array.from(byServerTypeMap.entries()).map(([serverType, stats]) => {
-        const totalFacilities = serverTypeFacilityCountMap.get(serverType) || 0
-        const issueRate = totalFacilities > 0 ? (stats.count / totalFacilities) * 100 : 0
-        return {
-          serverType,
-          issueRate,
-          totalIssues: stats.count,
-          totalFacilities,
-        }
-      })
-
-      // Calculate issue type totals
-      const byIssueType = {
-        server: allTickets.filter((t: any) => {
-          const issueType = t.issueType || determineIssueType(t.serverCondition || "")
-          return issueType === "server"
-        }).length,
-        network: allTickets.filter((t: any) => {
-          const issueType = t.issueType || determineIssueType(t.serverCondition || "")
-          return issueType === "network"
-        }).length,
-      }
-
-      setTicketAnalytics({
-        byServerType,
-        byProblem,
-        correlation,
-        byIssueType,
-      })
-    } catch (error) {
-      console.error("Error calculating ticket analytics:", error)
-    }
+  const applyOverview = (rawCounties: OverviewCountyRaw[]) => {
+    const byLoc: Partial<Record<Location, OverviewCountyRaw>> = {}
+    for (const raw of rawCounties) byLoc[raw.location] = raw
+    setRawCountiesByLoc(byLoc)
+    const allCountyData = rawCounties.map(buildCountyDataFromRaw)
+    setCountyData(allCountyData)
+    setMetrics(metricsFromRawCounties(rawCounties))
+    setTicketAnalytics(buildTicketAnalytics(allCountyData, rawCounties))
+    setPendingCounties([])
   }
 
-  // Aggregated totals
-  const totals = useMemo(() => {
-    return {
-      totalFacilities: countyData.reduce((sum, county) => sum + county.totalFacilities, 0),
-      facilitiesWithServers: countyData.reduce((sum, county) => sum + county.facilitiesWithServers, 0),
-      totalTickets: countyData.reduce((sum, county) => sum + county.totalTickets, 0),
-      openTickets: countyData.reduce((sum, county) => sum + county.openTickets, 0),
-      inProgressTickets: countyData.reduce((sum, county) => sum + county.inProgressTickets, 0),
-      resolvedTickets: countyData.reduce((sum, county) => sum + county.resolvedTickets, 0),
-      serverIssues: countyData.reduce((sum, county) => sum + county.serverIssues, 0),
-      networkIssues: countyData.reduce((sum, county) => sum + county.networkIssues, 0),
-      totalSimcards: countyData.reduce((sum, county) => sum + county.totalSimcards, 0),
-      facilitiesWithSimcards: countyData.reduce((sum, county) => sum + county.facilitiesWithSimcards, 0),
-      facilitiesWithLAN: countyData.reduce((sum, county) => sum + county.facilitiesWithLAN, 0),
-    }
-  }, [countyData])
+  const mergeCountySlice = (raw: OverviewCountyRaw) => {
+    setRawCountiesByLoc((prev) => {
+      const next = { ...prev, [raw.location]: raw }
+      const ordered = fetchLocations
+        .map((loc) => next[loc])
+        .filter(Boolean) as OverviewCountyRaw[]
+      const allCountyData = ordered.map(buildCountyDataFromRaw)
+      setCountyData(allCountyData)
+      setTicketAnalytics(buildTicketAnalytics(allCountyData, ordered))
+      if (ordered.length === fetchLocations.length) {
+        writeOverviewSessionCache(fetchLocations, { counties: ordered })
+      }
+      return next
+    })
+    setPendingCounties((prev) => prev.filter((l) => l !== raw.location))
+  }
 
-  // Aggregated server distribution (with facility names)
+  // Progressive load: metrics first, counties in parallel — starts immediately
+  useEffect(() => {
+    if (!fetchLocations.length) {
+      if (!authLoading) {
+        setCountyData([])
+        setMetrics(null)
+        setTicketAnalytics(null)
+        setPendingCounties([])
+      }
+      return
+    }
+
+    let cancelled = false
+
+    const sessionCached = readOverviewSessionCache(fetchLocations)
+    const metricsCached = readOverviewMetricsSessionCache(fetchLocations)
+
+    if (sessionCached?.counties?.length && countyData.length === 0) {
+      applyOverview(sessionCached.counties as OverviewCountyRaw[])
+      setIsRefreshing(true)
+    } else if (metricsCached && !metrics) {
+      setMetrics(metricsCached)
+    }
+
+    const loadMetrics = async () => {
+      try {
+        const data = await cachedFetch<OverviewMetricsPayload>(
+          "/api/dashboard/overview/metrics",
+          {
+            ttl: DASHBOARD_CLIENT_TTL_MS,
+            forceRefresh: !metricsCached && !sessionCached?.counties?.length,
+            onUpdate: (fresh) => {
+              if (cancelled) return
+              setMetrics(fresh as OverviewMetricsPayload)
+              writeOverviewMetricsSessionCache(fetchLocations, fresh as OverviewMetricsPayload)
+            },
+          },
+          DASHBOARD_CLIENT_TTL_MS
+        )
+        if (cancelled) return
+        setMetrics(data)
+        writeOverviewMetricsSessionCache(fetchLocations, data)
+      } catch (error) {
+        console.error("Error loading overview metrics:", error)
+      }
+    }
+
+    const loadCounty = async (location: Location) => {
+      try {
+        const url = `/api/dashboard/overview/county?location=${encodeURIComponent(location)}`
+        const data = await cachedFetch<{ county: OverviewCountyRaw }>(
+          url,
+          { ttl: DASHBOARD_CLIENT_TTL_MS },
+          DASHBOARD_CLIENT_TTL_MS
+        )
+        if (cancelled || !data.county) return
+        mergeCountySlice(data.county)
+      } catch (error) {
+        console.error(`Error loading county ${location}:`, error)
+        if (!cancelled) setPendingCounties((prev) => prev.filter((l) => l !== location))
+      }
+    }
+
+    const allLoaded =
+      fetchLocations.length > 0 &&
+      fetchLocations.every((loc) => rawCountiesByLoc[loc])
+
+    if (!allLoaded) {
+      void loadMetrics()
+      fetchLocations.forEach((loc) => {
+        if (!rawCountiesByLoc[loc]) void loadCounty(loc)
+      })
+    } else if (sessionCached?.counties?.length) {
+      void cachedFetch<{ counties: OverviewCountyRaw[] }>(
+        "/api/dashboard/overview",
+        {
+          ttl: DASHBOARD_CLIENT_TTL_MS,
+          forceRefresh: true,
+          onUpdate: (fresh) => {
+            if (cancelled) return
+            applyOverview((fresh as { counties: OverviewCountyRaw[] }).counties || [])
+            writeOverviewSessionCache(fetchLocations, fresh as { counties: OverviewCountyRaw[] })
+            setIsRefreshing(false)
+          },
+        },
+        DASHBOARD_CLIENT_TTL_MS
+      )
+        .then((data) => {
+          if (cancelled) return
+          applyOverview(data.counties || [])
+          writeOverviewSessionCache(fetchLocations, data)
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) setIsRefreshing(false)
+        })
+    }
+
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchLocations.join(","), authLoading])
+
+  const allCountiesLoaded =
+    displayLocations.length > 0 &&
+    pendingCounties.length === 0 &&
+    countyData.length === displayLocations.length
+
+  const countyMetricsMap = useMemo(() => {
+    const map = new Map<Location, OverviewMetricsPayload["counties"][number]>()
+    metrics?.counties.forEach((c) => map.set(c.location, c))
+    return map
+  }, [metrics])
+
+  // KPI totals: use fast metrics until every county slice has loaded
+  const totals = useMemo(() => {
+    const aggregateFromCounties = (rows: CountyData[]) => ({
+      totalFacilities: rows.reduce((sum, county) => sum + county.totalFacilities, 0),
+      facilitiesWithServers: rows.reduce((sum, county) => sum + county.facilitiesWithServers, 0),
+      totalTickets: rows.reduce((sum, county) => sum + county.totalTickets, 0),
+      openTickets: rows.reduce((sum, county) => sum + county.openTickets, 0),
+      inProgressTickets: rows.reduce((sum, county) => sum + county.inProgressTickets, 0),
+      resolvedTickets: rows.reduce((sum, county) => sum + county.resolvedTickets, 0),
+      serverIssues: rows.reduce((sum, county) => sum + county.serverIssues, 0),
+      networkIssues: rows.reduce((sum, county) => sum + county.networkIssues, 0),
+      totalSimcards: rows.reduce((sum, county) => sum + county.totalSimcards, 0),
+      facilitiesWithSimcards: rows.reduce((sum, county) => sum + county.facilitiesWithSimcards, 0),
+      facilitiesWithLAN: rows.reduce((sum, county) => sum + county.facilitiesWithLAN, 0),
+    })
+
+    if (allCountiesLoaded && countyData.length > 0) {
+      return aggregateFromCounties(countyData)
+    }
+    if (metrics?.totals) return metrics.totals
+    if (countyData.length > 0) return aggregateFromCounties(countyData)
+    return EMPTY_TOTALS
+  }, [countyData, metrics, allCountiesLoaded])
+
+  // Aggregated server distribution (with facility names when county slices are loaded)
   const aggregatedServerDistribution = useMemo(() => {
-    const serverTypeMap = new Map<string, { count: number; facilities: string[] }>()
-    countyData.forEach((county) => {
-      county.serverDistribution.forEach((dist) => {
-        if (!serverTypeMap.has(dist.serverType)) {
-          serverTypeMap.set(dist.serverType, { count: 0, facilities: [] })
-        }
-        const existing = serverTypeMap.get(dist.serverType)!
-        existing.count += dist.count
-        // Add facility names (with county prefix for clarity)
-        dist.facilities.forEach((facility) => {
-          existing.facilities.push(`${facility} (${county.location})`)
+    if (countyData.length > 0) {
+      const serverTypeMap = new Map<string, { count: number; facilities: string[] }>()
+      countyData.forEach((county) => {
+        county.serverDistribution.forEach((dist) => {
+          if (!serverTypeMap.has(dist.serverType)) {
+            serverTypeMap.set(dist.serverType, { count: 0, facilities: [] })
+          }
+          const existing = serverTypeMap.get(dist.serverType)!
+          existing.count += dist.count
+          dist.facilities.forEach((facility) => {
+            existing.facilities.push(`${facility} (${county.location})`)
+          })
         })
       })
-    })
-    return Array.from(serverTypeMap.entries())
-      .map(([serverType, data]) => ({ 
-        serverType, 
-        count: data.count,
-        facilities: data.facilities,
+      return Array.from(serverTypeMap.entries())
+        .map(([serverType, data]) => ({
+          serverType,
+          count: data.count,
+          facilities: data.facilities,
+        }))
+        .sort((a, b) => b.count - a.count)
+    }
+    if (metrics?.serverDistribution?.length) {
+      return metrics.serverDistribution.map((item) => ({
+        serverType: item.serverType,
+        count: item.count,
+        facilities: [] as string[],
       }))
-      .sort((a, b) => b.count - a.count)
-  }, [countyData])
+    }
+    return []
+  }, [countyData, metrics])
 
   // Chart data
   const countyComparisonChartData = useMemo(() => {
-    return countyData.map((county) => ({
-      county: county.location,
-      facilities: county.totalFacilities,
-      tickets: county.totalTickets,
-      open: county.openTickets,
-      inProgress: county.inProgressTickets,
-      resolved: county.resolvedTickets,
+    if (countyData.length > 0) {
+      return countyData.map((county) => ({
+        county: county.location,
+        facilities: county.totalFacilities,
+        tickets: county.totalTickets,
+        open: county.openTickets,
+        inProgress: county.inProgressTickets,
+        resolved: county.resolvedTickets,
+      }))
+    }
+    if (metrics?.counties?.length) {
+      return metrics.counties.map((county) => ({
+        county: county.location,
+        facilities: county.totalFacilities,
+        tickets: county.totalTickets,
+        open: county.openTickets,
+        inProgress: county.inProgressTickets,
+        resolved: county.resolvedTickets,
+      }))
+    }
+    return displayLocations.map((loc) => ({
+      county: loc,
+      facilities: 0,
+      tickets: 0,
+      open: 0,
+      inProgress: 0,
+      resolved: 0,
     }))
-  }, [countyData])
+  }, [countyData, metrics, displayLocations])
 
   const serverDistributionChartData = useMemo(() => {
     return aggregatedServerDistribution.map((item) => ({
@@ -464,14 +391,11 @@ export function OverviewDashboard() {
     ]
   }, [totals])
 
-  if (isLoading) {
+  if (authLoading === false && !allowedLocations.length) {
     return (
-      <div className="flex flex-col items-center justify-center h-96 gap-4">
-        <div className="flex items-center gap-2">
-          <div className="h-6 w-6 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-          <span className="text-lg font-medium">Loading overview data...</span>
-        </div>
-        <p className="text-sm text-muted-foreground">Fetching data from all counties</p>
+      <div className="flex flex-col items-center justify-center h-96 gap-2 text-center">
+        <p className="text-lg font-medium">No counties in your access scope</p>
+        <p className="text-sm text-muted-foreground">Contact an administrator to assign county access.</p>
       </div>
     )
   }
@@ -479,25 +403,24 @@ export function OverviewDashboard() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex-1">
+      <div className="space-y-4">
+        <div>
           <h1 className="text-3xl font-bold">County Dashboard - Overview</h1>
           <p className="text-muted-foreground">
             Aggregated EMR data across allowed counties
+            {isRefreshing ? " · refreshing…" : pendingCounties.length > 0 ? ` · loading ${pendingCounties.length} county…` : ""}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {allowedLocations.map((location) => (
-            <Button
-              key={location}
-              variant="outline"
-              size="sm"
-              onClick={() => router.push(`/nyamira?location=${location}`)}
-            >
-              {location}
-            </Button>
-          ))}
-        </div>
+        <ChipRow
+          options={[
+            { value: "overview", label: "All counties" },
+            ...displayLocations.map((location) => ({ value: location, label: location })),
+          ]}
+          value="overview"
+          onChange={(v) => {
+            if (v !== "overview") router.push(`/nyamira?location=${v}`)
+          }}
+        />
       </div>
 
       {/* Overview Summary Cards */}
@@ -508,10 +431,12 @@ export function OverviewDashboard() {
             <CardDescription>Master list</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totals.totalFacilities}</div>
+            <div className="text-2xl font-bold">
+              <MetricValue value={totals.totalFacilities} />
+            </div>
             <p className="text-xs text-muted-foreground mt-1">
               <Building2 className="inline h-3 w-3 mr-1" />
-              {totals.facilitiesWithServers} with servers
+              <MetricValue value={totals.facilitiesWithServers} className="text-xs font-normal inline" /> with servers
             </p>
           </CardContent>
         </Card>
@@ -524,9 +449,11 @@ export function OverviewDashboard() {
                 <CardDescription>All issues reported - Hover for breakdown</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{totals.totalTickets}</div>
+                <div className="text-2xl font-bold">
+                  <MetricValue value={totals.totalTickets} />
+                </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {totals.resolvedTickets} resolved
+                  <MetricValue value={totals.resolvedTickets} className="text-xs font-normal inline" /> resolved
                 </p>
               </CardContent>
             </Card>
@@ -570,9 +497,11 @@ export function OverviewDashboard() {
                 <CardDescription>Network infrastructure</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-blue-600">{totals.totalSimcards}</div>
+                <div className="text-2xl font-bold text-blue-600">
+                  <MetricValue value={totals.totalSimcards} className="text-2xl font-bold text-blue-600" />
+                </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Across {totals.facilitiesWithSimcards} facilities
+                  Across <MetricValue value={totals.facilitiesWithSimcards} className="text-xs font-normal inline" /> facilities
                 </p>
               </CardContent>
             </Card>
@@ -615,7 +544,9 @@ export function OverviewDashboard() {
                 <CardDescription>Network infrastructure</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-purple-600">{totals.facilitiesWithLAN}</div>
+                <div className="text-2xl font-bold text-purple-600">
+                  <MetricValue value={totals.facilitiesWithLAN} className="text-2xl font-bold text-purple-600" />
+                </div>
                 <p className="text-xs text-muted-foreground mt-1">
                   Facilities with LAN connectivity
                 </p>
@@ -658,103 +589,85 @@ export function OverviewDashboard() {
       <div>
         <h2 className="text-2xl font-semibold mb-4">County Comparison</h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {countyData.map((county) => (
+          {displayLocations.map((loc) => {
+            const county = countyData.find((c) => c.location === loc)
+            const partial = countyMetricsMap.get(loc)
+            const stats = county || partial || {
+              totalFacilities: 0,
+              totalTickets: 0,
+              openTickets: 0,
+              resolvedTickets: 0,
+              facilitiesWithServers: 0,
+              facilitiesWithSimcards: 0,
+              facilitiesWithLAN: 0,
+            }
+
+            return (
             <Card 
-              key={county.location} 
+              key={loc} 
               className="cursor-pointer hover:bg-accent/50 transition-colors"
-              onClick={() => router.push(`/nyamira?location=${county.location}`)}
+              onClick={() => router.push(`/nyamira?location=${loc}`)}
             >
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">{county.location}</CardTitle>
+                  <CardTitle className="text-lg">{loc}</CardTitle>
                   <ArrowRight className="h-4 w-4 text-muted-foreground" />
                 </div>
-                <CardDescription>Click to view details</CardDescription>
+                <CardDescription>
+                  {county ? "Click to view details" : partial ? "Summary loaded · detail loading…" : "Loading summary…"}
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Facilities</span>
-                    <Badge variant="secondary">{county.totalFacilities}</Badge>
+                    <Badge variant="secondary">{stats.totalFacilities}</Badge>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Tickets</span>
-                    <Badge variant={county.totalTickets > 0 ? "destructive" : "secondary"}>
-                      {county.totalTickets}
+                    <Badge variant={stats.totalTickets > 0 ? "destructive" : "secondary"}>
+                      {stats.totalTickets}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Open</span>
-                    <span className="font-medium text-red-600">{county.openTickets}</span>
+                    <span className="font-medium text-red-600">{stats.openTickets}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Resolved</span>
-                    <span className="font-medium text-green-600">{county.resolvedTickets}</span>
+                    <span className="font-medium text-green-600">{stats.resolvedTickets}</span>
                   </div>
                   <div className="pt-2 border-t mt-2">
-                    <HoverCard>
-                      <HoverCardTrigger asChild>
-                        <div className="flex items-center justify-between text-xs cursor-help">
-                          <span className="text-muted-foreground">With Servers</span>
-                          <span>{county.facilitiesWithServers}</span>
-                        </div>
-                      </HoverCardTrigger>
-                      <HoverCardContent className="w-80">
-                        <div className="text-sm">
-                          <p className="font-semibold mb-2">Server Distribution</p>
-                          <p className="text-muted-foreground">
-                            {county.facilitiesWithServers} out of {county.totalFacilities} facilities have servers configured.
-                          </p>
-                        </div>
-                      </HoverCardContent>
-                    </HoverCard>
-                    <HoverCard>
-                      <HoverCardTrigger asChild>
-                        <div className="flex items-center justify-between text-xs cursor-help">
-                          <span className="text-muted-foreground">With Simcards</span>
-                          <span>{county.facilitiesWithSimcards}</span>
-                        </div>
-                      </HoverCardTrigger>
-                      <HoverCardContent className="w-80">
-                        <div className="text-sm">
-                          <p className="font-semibold mb-2">Simcard Coverage</p>
-                          <p className="text-muted-foreground">
-                            {county.facilitiesWithSimcards} facilities have simcards ({county.totalSimcards || 0} total simcards).
-                          </p>
-                        </div>
-                      </HoverCardContent>
-                    </HoverCard>
-                    <HoverCard>
-                      <HoverCardTrigger asChild>
-                        <div className="flex items-center justify-between text-xs cursor-help">
-                          <span className="text-muted-foreground">With LAN</span>
-                          <span>{county.facilitiesWithLAN}</span>
-                        </div>
-                      </HoverCardTrigger>
-                      <HoverCardContent className="w-80">
-                        <div className="text-sm">
-                          <p className="font-semibold mb-2">LAN Connectivity</p>
-                          <p className="text-muted-foreground">
-                            {county.facilitiesWithLAN} facilities have LAN connectivity configured.
-                          </p>
-                        </div>
-                      </HoverCardContent>
-                    </HoverCard>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">With Servers</span>
+                      <span>{stats.facilitiesWithServers}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs mt-1">
+                      <span className="text-muted-foreground">With Simcards</span>
+                      <span>{stats.facilitiesWithSimcards}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs mt-1">
+                      <span className="text-muted-foreground">With LAN</span>
+                      <span>{stats.facilitiesWithLAN}</span>
+                    </div>
                   </div>
                 </div>
               </CardContent>
             </Card>
-          ))}
+            )
+          })}
         </div>
       </div>
 
-      {/* Server Distribution Section */}
       {aggregatedServerDistribution.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Server className="h-5 w-5" />
               Server Distribution (All Counties)
+              {!allCountiesLoaded && (
+                <Badge variant="secondary" className="text-xs font-normal">Partial · updating</Badge>
+              )}
             </CardTitle>
             <CardDescription>
               Distribution of facilities across different server types
@@ -1000,6 +913,9 @@ export function OverviewDashboard() {
             <CardTitle className="flex items-center gap-2">
               <AlertCircle className="h-5 w-5" />
               Tickets & Server Issue Correlation (All Counties)
+              {!allCountiesLoaded && (
+                <Badge variant="secondary" className="text-xs font-normal">Partial · updating</Badge>
+              )}
             </CardTitle>
             <CardDescription>
               Analyze correlation between server types and issues reported through tickets

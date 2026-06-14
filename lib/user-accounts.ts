@@ -48,9 +48,14 @@ export function verifyPassword(password: string, storedHash: string): boolean {
 }
 
 export async function getUserAccounts(): Promise<UserAccount[]> {
-  const setting = await prisma.appSetting.findUnique({ where: { key: USER_ACCOUNTS_SETTING_KEY } })
-  const parsed = safeJsonParse<UserAccount[]>(setting?.value || null, [])
-  return parsed.filter((u) => u && typeof u.email === "string")
+  try {
+    const setting = await prisma.appSetting.findUnique({ where: { key: USER_ACCOUNTS_SETTING_KEY } })
+    const parsed = safeJsonParse<UserAccount[]>(setting?.value || null, [])
+    return parsed.filter((u) => u && typeof u.email === "string")
+  } catch (error) {
+    console.warn("[user-accounts] Database unavailable, skipping managed users:", error)
+    return []
+  }
 }
 
 export async function saveUserAccounts(accounts: UserAccount[]): Promise<void> {

@@ -3,6 +3,12 @@ import { prisma } from "@/lib/prisma"
 import type { Location } from "@/lib/storage"
 import { canAccessLocation, getAccessFromRequest, getRoleFromRequest } from "@/lib/auth"
 import { validateLocation } from "@/lib/location-utils"
+import { startServerTimer, timedJsonResponse } from "@/lib/server-timing"
+import {
+  getServerCache,
+  setServerCache,
+  SERVER_CACHE_AGGREGATE_TTL_MS,
+} from "@/lib/server-cache"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -55,6 +61,7 @@ function parseComparisonRow(comp: {
  * Single round-trip for county dashboard: NDWH master facilities, tickets, latest CBS/NDWH comparisons.
  */
 export async function GET(request: NextRequest) {
+  const start = startServerTimer()
   try {
     const role = getRoleFromRequest(request)
     if (!role) {
@@ -77,13 +84,24 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 })
     }
 
+    const cacheKey = `county:${location}:${role}`
+    const cached = getServerCache<{
+      facilities: unknown[]
+      tickets: unknown[]
+      cbsLatest: unknown
+      ndwhLatest: unknown
+    }>(cacheKey)
+    if (cached) {
+      return timedJsonResponse(cached, start, `dashboard/county/${location} (cached)`)
+    }
+
     const whereMaster = {
       system: "NDWH" as const,
       location,
       isMaster: true,
     }
 
-    const [facilitiesRaw, tickets, cbsRow, ndwhRow] = await Promise.all([
+    const [facilitiesRaw, tickets, cbsRow, ndwhRow, serverAssetsRaw] = await Promise.all([
       prisma.facility.findMany({
         where: whereMaster,
         orderBy: { name: "asc" },
@@ -107,6 +125,21 @@ export async function GET(request: NextRequest) {
       prisma.ticket.findMany({
         where: { location },
         orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          facilityName: true,
+          serverCondition: true,
+          problem: true,
+          solution: true,
+          status: true,
+          location: true,
+          subcounty: true,
+          serverType: true,
+          issueType: true,
+          assignedTo: true,
+          resolvedAt: true,
+          createdAt: true,
+        },
       }),
       prisma.comparisonHistory.findFirst({
         where: { system: "CBS", location },
@@ -116,6 +149,19 @@ export async function GET(request: NextRequest) {
         where: { system: "NDWH", location },
         orderBy: { timestamp: "desc" },
       }),
+      prisma.serverAsset.findMany({
+        where: { location, assetStatus: "active" },
+        orderBy: { serverType: "asc" },
+        select: {
+          id: true,
+          serverType: true,
+          kenyaemrVersion: true,
+          ramGb: true,
+          storageType: true,
+          storageGb: true,
+          facility: { select: { name: true } },
+        },
+      }),
     ])
 
     const facilities = facilitiesRaw.map((facility) => ({
@@ -124,21 +170,26 @@ export async function GET(request: NextRequest) {
       routerType: sanitizeInventoryType(facility.routerType),
     }))
 
-    return NextResponse.json(
-      {
-        facilities,
-        tickets,
-        cbsLatest: cbsRow ? parseComparisonRow(cbsRow) : null,
-        ndwhLatest: ndwhRow ? parseComparisonRow(ndwhRow) : null,
-      },
-      {
-        headers: {
-          "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-          pragma: "no-cache",
-          expires: "0",
-        },
-      }
-    )
+    const serverAssets = serverAssetsRaw.map((asset) => ({
+      id: asset.id,
+      serverType: asset.serverType,
+      kenyaemrVersion: asset.kenyaemrVersion,
+      ramGb: asset.ramGb,
+      storageType: asset.storageType,
+      storageGb: asset.storageGb,
+      facilityName: asset.facility.name,
+    }))
+
+    const payload = {
+      facilities,
+      tickets,
+      serverAssets,
+      cbsLatest: cbsRow ? parseComparisonRow(cbsRow) : null,
+      ndwhLatest: ndwhRow ? parseComparisonRow(ndwhRow) : null,
+    }
+    setServerCache(cacheKey, payload, SERVER_CACHE_AGGREGATE_TTL_MS)
+
+    return timedJsonResponse(payload, start, `dashboard/county/${location}`)
   } catch (error: any) {
     console.error("Error in GET /api/dashboard/county:", error)
     if (error?.code === "P1001" || error?.message?.includes("connect")) {

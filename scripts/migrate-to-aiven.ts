@@ -46,7 +46,6 @@ async function migrateData() {
         await aivenPrisma.comparisonHistory.deleteMany()
         await aivenPrisma.ticket.deleteMany()
         await aivenPrisma.lanAsset.deleteMany()
-        await aivenPrisma.simcardAsset.deleteMany()
         await aivenPrisma.routerAsset.deleteMany()
         await aivenPrisma.serverAsset.deleteMany()
         await aivenPrisma.facility.deleteMany()
@@ -143,35 +142,8 @@ async function migrateData() {
         console.log(`   ✅ Migrated ${routers.length} router assets\n`)
       }
 
-      // Step 4: Migrate Simcard Assets
-      console.log("📱 Step 4: Migrating simcard assets...")
-      const simcards = await localPrisma.simcardAsset.findMany({
-        orderBy: { createdAt: "asc" }
-      })
-      console.log(`   Found ${simcards.length} simcard assets`)
-
-      if (simcards.length > 0) {
-        await aivenPrisma.simcardAsset.createMany({
-          data: simcards.map((simcard) => ({
-            facilityId: facilityIdMap.get(simcard.facilityId) || simcard.facilityId,
-            phoneNumber: simcard.phoneNumber,
-            assetTag: simcard.assetTag,
-            serialNumber: simcard.serialNumber,
-            provider: simcard.provider,
-            location: simcard.location,
-            subcounty: simcard.subcounty,
-            sublocation: simcard.sublocation,
-            notes: simcard.notes,
-            createdAt: simcard.createdAt,
-            updatedAt: simcard.updatedAt,
-          })),
-          skipDuplicates: true,
-        })
-        console.log(`   ✅ Migrated ${simcards.length} simcard assets\n`)
-      }
-
-      // Step 5: Migrate LAN Assets
-      console.log("🌐 Step 5: Migrating LAN assets...")
+      // Step 4: Migrate LAN Assets
+      console.log("🌐 Step 4: Migrating LAN assets...")
       const lanAssets = await localPrisma.lanAsset.findMany({
         orderBy: { createdAt: "asc" }
       })
@@ -194,8 +166,8 @@ async function migrateData() {
         console.log(`   ✅ Migrated ${lanAssets.length} LAN assets\n`)
       }
 
-      // Step 6: Migrate Tickets
-      console.log("🎫 Step 6: Migrating tickets...")
+      // Step 5: Migrate Tickets
+      console.log("🎫 Step 5: Migrating tickets...")
       const tickets = await localPrisma.ticket.findMany({
         orderBy: { createdAt: "asc" }
       })
@@ -229,8 +201,8 @@ async function migrateData() {
         console.log(`   ✅ Migrated ${tickets.length} tickets\n`)
       }
 
-      // Step 7: Migrate Comparison History
-      console.log("📊 Step 7: Migrating comparison history...")
+      // Step 6: Migrate Comparison History
+      console.log("📊 Step 6: Migrating comparison history...")
       const comparisons = await localPrisma.comparisonHistory.findMany({
         orderBy: { createdAt: "asc" }
       })
@@ -262,7 +234,6 @@ async function migrateData() {
         facilities: await aivenPrisma.facility.count(),
         servers: await aivenPrisma.serverAsset.count(),
         routers: await aivenPrisma.routerAsset.count(),
-        simcards: await aivenPrisma.simcardAsset.count(),
         lanAssets: await aivenPrisma.lanAsset.count(),
         tickets: await aivenPrisma.ticket.count(),
         comparisons: await aivenPrisma.comparisonHistory.count(),
@@ -273,7 +244,6 @@ async function migrateData() {
       console.log(`   Facilities: ${facilities.length} → ${aivenCounts.facilities}`)
       console.log(`   Server Assets: ${servers.length} → ${aivenCounts.servers}`)
       console.log(`   Router Assets: ${routers.length} → ${aivenCounts.routers}`)
-      console.log(`   Simcard Assets: ${simcards.length} → ${aivenCounts.simcards}`)
       console.log(`   LAN Assets: ${lanAssets.length} → ${aivenCounts.lanAssets}`)
       console.log(`   Tickets: ${tickets.length} → ${aivenCounts.tickets}`)
       console.log(`   Comparison History: ${comparisons.length} → ${aivenCounts.comparisons}`)
@@ -282,7 +252,6 @@ async function migrateData() {
         facilities.length === aivenCounts.facilities &&
         servers.length === aivenCounts.servers &&
         routers.length === aivenCounts.routers &&
-        simcards.length === aivenCounts.simcards &&
         lanAssets.length === aivenCounts.lanAssets &&
         tickets.length === aivenCounts.tickets &&
         comparisons.length === aivenCounts.comparisons

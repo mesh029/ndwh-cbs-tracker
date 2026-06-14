@@ -3,12 +3,11 @@ import { assetToReportRow, type AssetType } from "@/lib/asset-inventory"
 import { customAssetToReportRow, type CustomAssetTypeDefinition } from "@/lib/custom-asset-types"
 import * as XLSX from "xlsx"
 
-const BUILTIN_TYPES: AssetType[] = ["server", "router", "simcard", "tablet", "mobilephone", "lan"]
+const BUILTIN_TYPES: AssetType[] = ["server", "router", "tablet", "mobilephone", "lan"]
 
 const BUILTIN_API: Record<AssetType, { path: string; key: string; sheet: string }> = {
   server: { path: "/api/assets/servers", key: "assets", sheet: "Servers" },
   router: { path: "/api/assets/routers", key: "assets", sheet: "Routers" },
-  simcard: { path: "/api/assets/simcards", key: "assets", sheet: "Simcards" },
   tablet: { path: "/api/assets/tablets", key: "assets", sheet: "Tablets" },
   mobilephone: { path: "/api/assets/mobile-phones", key: "assets", sheet: "Mobile Phones" },
   lan: { path: "/api/assets/lan", key: "assets", sheet: "LAN" },
@@ -29,7 +28,7 @@ export async function fetchBuiltinAssetRows(
         const res = await fetch(`${path}?location=${loc}`)
         if (!res.ok) continue
         const data = await res.json()
-        for (const asset of data[key] || data.servers || data.routers || data.simcards || data.lanAssets || []) {
+        for (const asset of data[key] || data.servers || data.routers || data.lanAssets || []) {
           out[type].push(assetToReportRow(type, { ...asset, location: asset.location || loc }))
         }
       } catch {
@@ -122,7 +121,6 @@ export function buildAssetSummaryRows(
     const counts = {
       servers: byType.server.filter((r) => r.Location === loc).length,
       routers: byType.router.filter((r) => r.Location === loc).length,
-      simcards: byType.simcard.filter((r) => r.Location === loc).length,
       tablets: byType.tablet.filter((r) => r.Location === loc).length,
       phones: byType.mobilephone.filter((r) => r.Location === loc).length,
       lan: byType.lan.filter((r) => r.Location === loc).length,
@@ -131,7 +129,6 @@ export function buildAssetSummaryRows(
     const total =
       counts.servers +
       counts.routers +
-      counts.simcards +
       counts.tablets +
       counts.phones +
       counts.lan +
@@ -139,7 +136,6 @@ export function buildAssetSummaryRows(
     const allRows = [
       ...byType.server,
       ...byType.router,
-      ...byType.simcard,
       ...byType.tablet,
       ...byType.mobilephone,
       ...byType.lan,
@@ -154,7 +150,6 @@ export function buildAssetSummaryRows(
       Location: loc,
       Servers: counts.servers,
       Routers: counts.routers,
-      Simcards: counts.simcards,
       Tablets: counts.tablets,
       "Mobile Phones": counts.phones,
       LAN: counts.lan,

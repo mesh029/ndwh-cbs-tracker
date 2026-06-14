@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { validateLocation, validateSubcounty } from "@/lib/location-utils"
 import { getRoleFromRequest } from "@/lib/auth"
+import { invalidateDashboardServerCaches } from "@/lib/invalidate-caches"
+import type { Location } from "@/lib/storage"
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -100,6 +102,8 @@ export async function PATCH(
       data: updateData,
     })
 
+    invalidateDashboardServerCaches(ticket.location as Location)
+
     return NextResponse.json({ success: true, ticket })
   } catch (error: any) {
     console.error("Error updating ticket:", error)
@@ -130,7 +134,14 @@ export async function DELETE(
       return NextResponse.json({ error: "Forbidden: admin or superadmin only" }, { status: 403 })
     }
 
+    const existing = await prisma.ticket.findUnique({
+      where: { id: params.id },
+      select: { location: true },
+    })
+
     await prisma.ticket.delete({ where: { id: params.id } })
+
+    invalidateDashboardServerCaches(existing?.location as Location | undefined)
 
     return NextResponse.json({ success: true })
   } catch (error: any) {

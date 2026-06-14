@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/components/auth-provider"
+import { PerformanceProvider } from "@/components/performance-provider"
 import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
 
@@ -28,7 +29,9 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <PerformanceProvider>{children}</PerformanceProvider>
+          </AuthProvider>
         </ThemeProvider>
         <Analytics />
       </body>

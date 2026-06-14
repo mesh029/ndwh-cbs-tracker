@@ -4,6 +4,8 @@ import { determineIssueType, generateRandomWeekdayDate } from "@/lib/date-utils"
 import { facilitiesMatch } from "@/lib/utils"
 import { validateLocation, validateSubcounty } from "@/lib/location-utils"
 import { canAccessLocation, getAccessFromRequest, getRoleFromRequest } from "@/lib/auth"
+import { invalidateDashboardServerCaches } from "@/lib/invalidate-caches"
+import type { Location } from "@/lib/storage"
 
 // Force dynamic rendering to prevent build-time static generation
 export const dynamic = 'force-dynamic'
@@ -70,9 +72,29 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const limitParam = searchParams.get("limit")
+    const take = limitParam ? Math.min(Math.max(parseInt(limitParam, 10) || 20, 1), 100) : undefined
+
     const tickets = await prisma.ticket.findMany({
       where,
       orderBy: { createdAt: "desc" },
+      ...(take ? { take } : {}),
+      select: {
+        id: true,
+        facilityName: true,
+        serverCondition: true,
+        problem: true,
+        solution: true,
+        reportedBy: true,
+        reporterRole: true,
+        assignedTo: true,
+        status: true,
+        location: true,
+        subcounty: true,
+        issueType: true,
+        createdAt: true,
+        resolvedAt: true,
+      },
     })
 
     return NextResponse.json({ tickets })
@@ -228,6 +250,8 @@ export async function POST(request: NextRequest) {
         createdAt: createdAt,
       },
     })
+
+    invalidateDashboardServerCaches(validatedLocation as Location)
 
     return NextResponse.json({
       success: true,

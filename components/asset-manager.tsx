@@ -6,8 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Trash2, Edit2, Plus, Server, Router, Smartphone, Wifi, Download, Save, XCircle, Tablet, Phone, Upload, Package, Settings2, LayoutDashboard, AlertTriangle, MapPinOff } from "lucide-react"
+import { Trash2, Edit2, Plus, Server, Router, Wifi, Download, Save, XCircle, Tablet, Phone, Upload, Package, Settings2, LayoutDashboard, AlertTriangle, Layers, Search } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
 import type { Location } from "@/lib/storage"
@@ -31,12 +30,39 @@ import {
   AssetLifecycleDialog,
   type LifecycleTarget,
 } from "@/components/asset-lifecycle-dialog"
+import { AssetStatusBadge, AssetStatusMenu } from "@/components/asset-status-menu"
 import {
-  ASSET_STATUS_LABELS,
-  statusBadgeVariant,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import {
   type AssetKind,
   type LifecycleAction,
 } from "@/lib/asset-lifecycle"
+import { cachedFetch } from "@/lib/cache"
+import {
+  ASSET_CLIENT_TTL_MS,
+  invalidateAssetClientCaches,
+  readAssetListCache,
+  writeAssetListCache,
+  bootstrapAssetListState,
+} from "@/lib/asset-cache"
+import {
+  DEFAULT_KENYAEMR_VERSION,
+  STORAGE_TYPES,
+  STORAGE_TYPE_LABELS,
+  formatRamLabel,
+  formatStorageLabel,
+  versionNeedsUpdate,
+} from "@/lib/server-spec"
+import { CountyChipRow, ChipRow, ActiveFilterChips, type ActiveFilter } from "@/components/filter-chips"
+import { AssetFilterPanel } from "@/components/asset-filter-panel"
+import { AssetSortMenu } from "@/components/asset-sort-menu"
 
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
@@ -59,18 +85,6 @@ interface RouterAsset {
   routerType?: string
   assetTag?: string
   serialNumber?: string
-  notes?: string
-}
-
-interface SimcardAsset {
-  id: string
-  facilityName: string
-  location: string
-  subcounty?: string
-  phoneNumber?: string
-  assetTag?: string
-  serialNumber?: string
-  provider?: string
   notes?: string
 }
 
@@ -107,20 +121,45 @@ export function AssetManager() {
   const activeCustomType = customTypes.find((t) => t.slug === activeCustomSlug)
   const isBuiltinView = !activeCustomSlug
   const selectedAssetType = (isBuiltinView ? selectedTab : "server") as AssetType
+  const initialAssetBoot = useMemo(
+    () => bootstrapAssetListState("server", "all", LOCATIONS),
+    []
+  )
   const [filterSubcounty, setFilterSubcounty] = useState("all")
   const [filterFacility, setFilterFacility] = useState("all")
   const [filterItem, setFilterItem] = useState("all")
   const [filterSource, setFilterSource] = useState("all")
+  const [filterStatus, setFilterStatus] = useState("all")
+  const [filterEmrVersion, setFilterEmrVersion] = useState("all")
+  const [filterStorageType, setFilterStorageType] = useState("all")
+  const [filterRamGb, setFilterRamGb] = useState("all")
+  const [filterNeedsUpdate, setFilterNeedsUpdate] = useState(false)
+  const [filterSearch, setFilterSearch] = useState("")
   const [sortBy, setSortBy] = useState<"facilityName" | "location" | "subcounty" | "itemValue">("facilityName")
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc")
-  const [assets, setAssets] = useState<any[]>([])
-  const [assetsByLocation, setAssetsByLocation] = useState<Record<string, any[]>>({})
+  const [assets, setAssets] = useState<any[]>(() => initialAssetBoot.assets as any[])
+  const [assetsByLocation, setAssetsByLocation] = useState<Record<string, any[]>>(
+    () => initialAssetBoot.assetsByLocation as Record<string, any[]>
+  )
   const [subcountiesByLocation, setSubcountiesByLocation] = useState<Record<string, string[]>>({})
   const [masterFacilitiesByLocation, setMasterFacilitiesByLocation] = useState<Record<string, MasterFacility[]>>({})
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(!initialAssetBoot.hasCache)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [inlineEditingId, setInlineEditingId] = useState<string | null>(null)
   const [inlineEditData, setInlineEditData] = useState<any>({})
-  const [selectedSimcardIds, setSelectedSimcardIds] = useState<Set<string>>(new Set())
+  const [selectedServerIds, setSelectedServerIds] = useState<Set<string>>(new Set())
+  const [bulkServerDialogOpen, setBulkServerDialogOpen] = useState(false)
+  const [bulkServerUpdating, setBulkServerUpdating] = useState(false)
+  const [bulkServerForm, setBulkServerForm] = useState({
+    applyEmrVersion: false,
+    kenyaemrVersion: DEFAULT_KENYAEMR_VERSION,
+    applyRam: false,
+    ramGb: "",
+    applyStorageType: false,
+    storageType: "",
+    applyStorageGb: false,
+    storageGb: "",
+  })
   const [isAddingInline, setIsAddingInline] = useState(false)
   const [importCounty, setImportCounty] = useState<Location>(
     (allowedLocations[0] || "Kakamega") as Location
@@ -146,6 +185,10 @@ export function AssetManager() {
     hasLAN: false,
     lanType: "",
     notes: "",
+    kenyaemrVersion: DEFAULT_KENYAEMR_VERSION,
+    ramGb: "",
+    storageType: "",
+    storageGb: "",
   })
   const { toast } = useToast()
 
@@ -205,12 +248,20 @@ export function AssetManager() {
   const fetchMasterFacilities = async (location: string): Promise<MasterFacility[]> => {
     const systems = ["NDWH", "CBS"]
     const responses = await Promise.all(
-      systems.map((system) => fetch(`/api/facilities?system=${system}&location=${location}&isMaster=true`))
+      systems.map(async (system) => {
+        try {
+          return await cachedFetch<{ facilities?: MasterFacility[] }>(
+            `/api/facilities?system=${system}&location=${location}&isMaster=true`,
+            undefined,
+            ASSET_CLIENT_TTL_MS
+          )
+        } catch {
+          return { facilities: [] as MasterFacility[] }
+        }
+      })
     )
     const merged = new Map<string, MasterFacility>()
-    for (const res of responses) {
-      if (!res.ok) continue
-      const data = await res.json()
+    for (const data of responses) {
       for (const facility of (data.facilities || []) as MasterFacility[]) {
         const key = facility.name.trim().toLowerCase()
         if (!merged.has(key)) {
@@ -233,28 +284,36 @@ export function AssetManager() {
 
   const loadAssets = useCallback(async () => {
     if (activeCustomSlug) return
-    setIsLoading(true)
+
+    const locationsToLoad = selectedLocation === "all" ? allowedLocations : [selectedLocation]
+    const boot = bootstrapAssetListState(selectedAssetType, selectedLocation, allowedLocations)
+    if (boot.hasCache) {
+      setAssets(boot.assets as any[])
+      setAssetsByLocation(boot.assetsByLocation as Record<string, any[]>)
+      setIsLoading(false)
+      setIsRefreshing(true)
+    } else {
+      setIsLoading(true)
+      setIsRefreshing(false)
+    }
+
     try {
-      const locationsToLoad = selectedLocation === "all" ? allowedLocations : [selectedLocation]
       let allAssets: any[] = []
       const assetsByLoc: Record<string, any[]> = {}
 
-      // Load assets for each location
-      for (const loc of locationsToLoad) {
+      const loadLocationAssets = async (loc: string) => {
         const endpoint = `${assetApiBase(selectedAssetType)}?location=${loc}`
 
-        const response = await fetch(endpoint)
         let detailedAssets: any[] = []
-        if (response.ok) {
-          const data = await response.json()
+        try {
+          const data = await cachedFetch<{ assets?: any[] }>(endpoint, undefined, ASSET_CLIENT_TTL_MS)
           detailedAssets = data.assets || []
+        } catch {
+          detailedAssets = []
         }
 
-        // Detailed-only inventory types (no facility phantom rows).
-        if (selectedAssetType === "simcard" || selectedAssetType === "tablet" || selectedAssetType === "mobilephone") {
-          assetsByLoc[loc] = detailedAssets
-          allAssets = [...allAssets, ...detailedAssets]
-          continue
+        if (selectedAssetType === "tablet" || selectedAssetType === "mobilephone") {
+          return { loc, assets: detailedAssets }
         }
 
         let facilityInventoryAssets: any[] = []
@@ -272,6 +331,10 @@ export function AssetManager() {
                 location: f.location,
                 subcounty: f.subcounty,
                 serverType: f.serverType,
+                kenyaemrVersion: DEFAULT_KENYAEMR_VERSION,
+                ramGb: null,
+                storageType: null,
+                storageGb: null,
                 assetTag: undefined,
                 serialNumber: undefined,
                 notes: "From facility inventory",
@@ -323,12 +386,21 @@ export function AssetManager() {
           }
         })
 
-        assetsByLoc[loc] = combinedAssets
-        allAssets = [...allAssets, ...combinedAssets]
+        return { loc, assets: combinedAssets }
+      }
+
+      const locationResults = await Promise.all(locationsToLoad.map(loadLocationAssets))
+      for (const { loc, assets: locAssets } of locationResults) {
+        assetsByLoc[loc] = locAssets
+        allAssets = [...allAssets, ...locAssets]
       }
 
       setAssetsByLocation(assetsByLoc)
       setAssets(allAssets)
+
+      for (const loc of locationsToLoad) {
+        writeAssetListCache(selectedAssetType, loc, assetsByLoc[loc] || [])
+      }
     } catch (error) {
       console.error("Error loading assets:", error)
       toast({
@@ -338,6 +410,7 @@ export function AssetManager() {
       })
     } finally {
       setIsLoading(false)
+      setIsRefreshing(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedLocation, selectedAssetType, activeCustomSlug])
@@ -347,8 +420,8 @@ export function AssetManager() {
   }, [loadAssets, activeCustomSlug])
 
   useEffect(() => {
-    setSelectedSimcardIds(new Set())
-  }, [selectedAssetType, selectedLocation, filterSubcounty, filterFacility, filterItem, filterSource, sortBy, sortOrder])
+    setSelectedServerIds(new Set())
+  }, [selectedAssetType, selectedLocation, filterSubcounty, filterFacility, filterItem, filterSource, filterStatus, sortBy, sortOrder])
 
   useEffect(() => {
     setFilterSubcounty("all")
@@ -386,6 +459,10 @@ export function AssetManager() {
       hasLAN: false,
       lanType: "",
       notes: "",
+      kenyaemrVersion: DEFAULT_KENYAEMR_VERSION,
+      ramGb: "",
+      storageType: "",
+      storageGb: "",
     })
     setIsAddingInline(true)
   }
@@ -410,6 +487,10 @@ export function AssetManager() {
       hasLAN: asset.hasLAN || false,
       lanType: asset.lanType || "",
       notes: asset.notes || "",
+      kenyaemrVersion: asset.kenyaemrVersion || DEFAULT_KENYAEMR_VERSION,
+      ramGb: asset.ramGb ?? "",
+      storageType: asset.storageType || "",
+      storageGb: asset.storageGb ?? "",
     })
   }
 
@@ -421,7 +502,7 @@ export function AssetManager() {
   const saveInlineEdit = async (asset: any) => {
     try {
       if (asset.isFromInventory) {
-        const facilityId = asset.facilityId || String(asset.id || "").replace("facility-", "").split("-simcard-")[0]
+        const facilityId = asset.facilityId || String(asset.id || "").replace("facility-", "")
         const facilityPayload: any = {
           id: facilityId,
           name: inlineEditData.facilityName || asset.facilityName,
@@ -431,10 +512,6 @@ export function AssetManager() {
         }
         if (selectedAssetType === "server") facilityPayload.serverType = inlineEditData.serverType || null
         if (selectedAssetType === "router") facilityPayload.routerType = inlineEditData.routerType || null
-        if (selectedAssetType === "simcard") {
-          const parsedCount = Number(inlineEditData.simcardCount ?? asset.simcardCount ?? 0)
-          facilityPayload.simcardCount = Number.isFinite(parsedCount) ? Math.max(0, parsedCount) : 0
-        }
         if (selectedAssetType === "lan") {
           facilityPayload.hasLAN = !!inlineEditData.hasLAN
         }
@@ -444,7 +521,36 @@ export function AssetManager() {
           body: JSON.stringify(facilityPayload),
         })
         if (!facilityRes.ok) throw new Error("Failed to update facility inventory")
-        toast({ title: "Updated", description: "Facility inventory updated from Asset Manager." })
+
+        if (selectedAssetType === "server") {
+          const specRes = await fetch("/api/assets/servers", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              facilityId,
+              location: asset.location || selectedLocation,
+              serverType: inlineEditData.serverType || asset.serverType || "Unknown",
+              subcounty: inlineEditData.subcounty || asset.subcounty || undefined,
+              assetTag: inlineEditData.assetTag || undefined,
+              serialNumber: inlineEditData.serialNumber || undefined,
+              notes: inlineEditData.notes || asset.notes || undefined,
+              kenyaemrVersion: inlineEditData.kenyaemrVersion || DEFAULT_KENYAEMR_VERSION,
+              ramGb: inlineEditData.ramGb !== "" && inlineEditData.ramGb != null ? Number(inlineEditData.ramGb) : null,
+              storageType: inlineEditData.storageType || null,
+              storageGb:
+                inlineEditData.storageGb !== "" && inlineEditData.storageGb != null
+                  ? Number(inlineEditData.storageGb)
+                  : null,
+            }),
+          })
+          if (!specRes.ok) {
+            const err = await specRes.json().catch(() => ({}))
+            throw new Error(err.error || "Failed to save server specs")
+          }
+        }
+
+        invalidateAssetClientCaches(asset.location)
+        toast({ title: "Updated", description: "Facility inventory and server specs saved." })
         cancelInlineEdit()
         loadAssets()
         return
@@ -460,19 +566,19 @@ export function AssetManager() {
 
       switch (selectedAssetType) {
         case "server":
-          payload = { ...payload, serverType: inlineEditData.serverType || undefined, assetTag: inlineEditData.assetTag || undefined, serialNumber: inlineEditData.serialNumber || undefined }
+          payload = {
+            ...payload,
+            serverType: inlineEditData.serverType || undefined,
+            assetTag: inlineEditData.assetTag || undefined,
+            serialNumber: inlineEditData.serialNumber || undefined,
+            kenyaemrVersion: inlineEditData.kenyaemrVersion || DEFAULT_KENYAEMR_VERSION,
+            ramGb: inlineEditData.ramGb !== "" && inlineEditData.ramGb != null ? Number(inlineEditData.ramGb) : null,
+            storageType: inlineEditData.storageType || null,
+            storageGb: inlineEditData.storageGb !== "" && inlineEditData.storageGb != null ? Number(inlineEditData.storageGb) : null,
+          }
           break
         case "router":
           payload = { ...payload, routerType: inlineEditData.routerType || undefined, assetTag: inlineEditData.assetTag || undefined, serialNumber: inlineEditData.serialNumber || undefined }
-          break
-        case "simcard":
-          payload = {
-            ...payload,
-            phoneNumber: inlineEditData.phoneNumber || undefined,
-            provider: inlineEditData.provider || undefined,
-            assetTag: inlineEditData.assetTag || undefined,
-            serialNumber: inlineEditData.serialNumber || undefined,
-          }
           break
         case "tablet":
           payload = { ...payload, tabletType: inlineEditData.tabletType || undefined, assetTag: inlineEditData.assetTag || undefined, serialNumber: inlineEditData.serialNumber || undefined }
@@ -493,6 +599,23 @@ export function AssetManager() {
           break
       }
 
+      if (selectedAssetType === "server") {
+        const response = await fetch("/api/assets/servers", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: asset.id, ...payload }),
+        })
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}))
+          throw new Error(err.error || "Failed to update server")
+        }
+        invalidateAssetClientCaches(asset.location)
+        toast({ title: "Updated", description: "Server updated." })
+        cancelInlineEdit()
+        loadAssets()
+        return
+      }
+
       const response = await fetch(endpoint, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -507,8 +630,10 @@ export function AssetManager() {
         })
         if (!fallbackResponse.ok) throw new Error("Failed to update asset (fallback)")
       } else if (!response.ok) {
-        throw new Error("Failed to update asset")
+        const err = await response.json().catch(() => ({}))
+        throw new Error(err.error || "Failed to update asset")
       }
+      invalidateAssetClientCaches(asset.location)
       toast({ title: "Updated", description: "Asset updated inline." })
       cancelInlineEdit()
       loadAssets()
@@ -523,7 +648,7 @@ export function AssetManager() {
 
     try {
       if (asset?.isFromInventory) {
-        const facilityId = asset.facilityId || String(asset.id || "").replace("facility-", "").split("-simcard-")[0]
+        const facilityId = asset.facilityId || String(asset.id || "").replace("facility-", "")
         const facilityPayload: any = {
           id: facilityId,
           name: asset.facilityName,
@@ -533,10 +658,6 @@ export function AssetManager() {
         }
         if (selectedAssetType === "server") facilityPayload.serverType = null
         if (selectedAssetType === "router") facilityPayload.routerType = null
-        if (selectedAssetType === "simcard") {
-          const count = Number(asset.simcardCount ?? 1)
-          facilityPayload.simcardCount = Math.max(0, count - 1)
-        }
         if (selectedAssetType === "lan") facilityPayload.hasLAN = false
 
         const facilityRes = await fetch("/api/facilities", {
@@ -586,8 +707,8 @@ export function AssetManager() {
     }
   }
 
-  const toggleSimcardSelection = (id: string) => {
-    setSelectedSimcardIds((prev) => {
+  const toggleServerSelection = (id: string) => {
+    setSelectedServerIds((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
@@ -595,72 +716,80 @@ export function AssetManager() {
     })
   }
 
-  const handleBulkDeleteSimcards = async () => {
-    if (selectedSimcardIds.size === 0) {
-      toast({ title: "No selection", description: "Select simcard rows to delete", variant: "destructive" })
+  const openBulkServerDialog = () => {
+    if (selectedServerIds.size === 0) {
+      toast({ title: "No selection", description: "Select server rows to bulk update", variant: "destructive" })
       return
     }
-    if (!confirm(`Delete ${selectedSimcardIds.size} selected simcard(s)? This cannot be undone.`)) return
-
-    try {
-      const response = await fetch("/api/assets/simcards", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: Array.from(selectedSimcardIds) }),
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to bulk delete simcards")
-      }
-      toast({
-        title: "Bulk delete complete",
-        description: `${data.deletedCount || selectedSimcardIds.size} simcard(s) deleted`,
-      })
-      setSelectedSimcardIds(new Set())
-      loadAssets()
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to bulk delete simcards",
-        variant: "destructive",
-      })
-    }
+    setBulkServerForm({
+      applyEmrVersion: false,
+      kenyaemrVersion: DEFAULT_KENYAEMR_VERSION,
+      applyRam: false,
+      ramGb: "",
+      applyStorageType: false,
+      storageType: "",
+      applyStorageGb: false,
+      storageGb: "",
+    })
+    setBulkServerDialogOpen(true)
   }
 
-  const handlePurgeSimcardsInCounty = async () => {
-    if (selectedLocation === "all" || selectedAssetType !== "simcard") return
-    const county = selectedLocation as Location
-    if (
-      !confirm(
-        `Delete EVERY simcard row in ${county} and reset facility simcard counts to 0? This cannot be undone.`
-      )
-    ) {
+  const handleBulkUpdateServers = async () => {
+    const updates: Record<string, unknown> = {}
+    if (bulkServerForm.applyEmrVersion) {
+      updates.kenyaemrVersion = bulkServerForm.kenyaemrVersion || DEFAULT_KENYAEMR_VERSION
+    }
+    if (bulkServerForm.applyRam) {
+      updates.ramGb = bulkServerForm.ramGb !== "" ? Number(bulkServerForm.ramGb) : null
+    }
+    if (bulkServerForm.applyStorageType) {
+      updates.storageType = bulkServerForm.storageType || null
+    }
+    if (bulkServerForm.applyStorageGb) {
+      updates.storageGb = bulkServerForm.storageGb !== "" ? Number(bulkServerForm.storageGb) : null
+    }
+    if (Object.keys(updates).length === 0) {
+      toast({ title: "Nothing to apply", description: "Check at least one field to update", variant: "destructive" })
       return
     }
-    if (!confirm("Second confirmation: proceed with full county purge?")) return
 
+    const selectedAssets = filteredSortedAssets.filter((a) => selectedServerIds.has(String(a.id)))
+    const targets = selectedAssets.map((asset) => ({
+      id: asset.isFromInventory ? undefined : String(asset.id),
+      facilityId:
+        asset.facilityId ||
+        (String(asset.id).startsWith("facility-") ? String(asset.id).replace("facility-", "") : undefined),
+      location: asset.location,
+      serverType: asset.serverType,
+    }))
+
+    setBulkServerUpdating(true)
     try {
-      const response = await fetch("/api/assets/simcards", {
-        method: "DELETE",
+      const response = await fetch("/api/assets/servers/bulk", {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ purgeLocation: county }),
+        body: JSON.stringify({ targets, updates }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
-        throw new Error(data.error || "Purge failed")
+        throw new Error(data.error || "Bulk update failed")
       }
+      invalidateAssetClientCaches(selectedLocation === "all" ? undefined : selectedLocation)
       toast({
-        title: "County purge complete",
-        description: `Removed ${data.deletedCount ?? 0} simcard(s) in ${county}.`,
+        title: "Bulk update complete",
+        description: `Updated ${data.updatedCount ?? 0}, created ${data.createdCount ?? 0}${data.errorCount ? `, ${data.errorCount} errors` : ""}`,
       })
-      setSelectedSimcardIds(new Set())
+      setBulkServerDialogOpen(false)
+      setSelectedServerIds(new Set())
       loadAssets()
     } catch (error) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Purge failed",
+        description: error instanceof Error ? error.message : "Bulk update failed",
         variant: "destructive",
       })
+    } finally {
+      setBulkServerUpdating(false)
     }
   }
 
@@ -694,19 +823,19 @@ export function AssetManager() {
 
       switch (selectedAssetType) {
         case "server":
-          payload = { ...payload, serverType: inlineCreateData.serverType || undefined, assetTag: inlineCreateData.assetTag || undefined, serialNumber: inlineCreateData.serialNumber || undefined }
+          payload = {
+            ...payload,
+            serverType: inlineCreateData.serverType || undefined,
+            assetTag: inlineCreateData.assetTag || undefined,
+            serialNumber: inlineCreateData.serialNumber || undefined,
+            kenyaemrVersion: inlineCreateData.kenyaemrVersion || DEFAULT_KENYAEMR_VERSION,
+            ramGb: inlineCreateData.ramGb !== "" && inlineCreateData.ramGb != null ? Number(inlineCreateData.ramGb) : null,
+            storageType: inlineCreateData.storageType || null,
+            storageGb: inlineCreateData.storageGb !== "" && inlineCreateData.storageGb != null ? Number(inlineCreateData.storageGb) : null,
+          }
           break
         case "router":
           payload = { ...payload, routerType: inlineCreateData.routerType || undefined, assetTag: inlineCreateData.assetTag || undefined, serialNumber: inlineCreateData.serialNumber || undefined }
-          break
-        case "simcard":
-          payload = {
-            ...payload,
-            phoneNumber: inlineCreateData.phoneNumber || undefined,
-            provider: inlineCreateData.provider || undefined,
-            assetTag: inlineCreateData.assetTag || undefined,
-            serialNumber: inlineCreateData.serialNumber || undefined,
-          }
           break
         case "tablet":
           payload = { ...payload, tabletType: inlineCreateData.tabletType || undefined, assetTag: inlineCreateData.assetTag || undefined, serialNumber: inlineCreateData.serialNumber || undefined }
@@ -752,8 +881,6 @@ export function AssetManager() {
         return <Server className="h-5 w-5" />
       case "router":
         return <Router className="h-5 w-5" />
-      case "simcard":
-        return <Smartphone className="h-5 w-5" />
       case "tablet":
         return <Tablet className="h-5 w-5" />
       case "mobilephone":
@@ -769,34 +896,63 @@ export function AssetManager() {
     const subcounties = new Set<string>()
     const facilities = new Set<string>()
     const items = new Set<string>()
+    const emrVersions = new Set<string>()
+    const ramValues = new Set<string>()
     for (const asset of assets) {
       if (asset.subcounty) subcounties.add(String(asset.subcounty))
       if (asset.facilityName) facilities.add(String(asset.facilityName))
       const itemVal = getItemValue(selectedAssetType, asset)
       if (itemVal) items.add(itemVal)
+      if (selectedAssetType === "server") {
+        emrVersions.add(String(asset.kenyaemrVersion || DEFAULT_KENYAEMR_VERSION))
+        if (asset.ramGb != null) ramValues.add(String(asset.ramGb))
+      }
     }
     return {
       subcounties: Array.from(subcounties).sort(),
       facilities: Array.from(facilities).sort(),
       items: Array.from(items).sort(),
+      emrVersions: Array.from(emrVersions).sort(),
+      ramValues: Array.from(ramValues).sort((a, b) => Number(a) - Number(b)),
     }
   }, [assets, selectedAssetType])
 
   const openLifecycle = (asset: Record<string, unknown>, action: LifecycleAction) => {
     const kind = selectedAssetType as AssetKind
+    const isFromInventory = !!asset.isFromInventory
+    const rawId = String(asset.id || "")
+    const facilityId =
+      (asset.facilityId as string) ||
+      (rawId.startsWith("facility-") ? rawId.replace("facility-", "") : undefined)
+
     setLifecycleTarget({
-      id: String(asset.id),
+      id: rawId,
       assetKind: kind,
       facilityName: String(asset.facilityName || ""),
       typeLabel: ASSET_TYPE_LABELS[selectedAssetType],
       itemSummary: getItemValue(selectedAssetType, asset),
       assetStatus: String(asset.assetStatus || "active"),
+      storageLocation: (asset.storageLocation as string | null) || null,
+      statusComment: (asset.statusComment as string | null) || null,
+      isFromInventory,
+      facilityId,
+      location: String(asset.location || (selectedLocation === "all" ? allowedLocations[0] : selectedLocation)),
+      subcounty: (asset.subcounty as string | null) || null,
+      serverType: (asset.serverType as string | null) || null,
+      routerType: (asset.routerType as string | null) || null,
+      hasLAN: (asset.hasLAN as boolean | null) ?? null,
     })
     setLifecycleAction(action)
     setLifecycleOpen(true)
   }
 
+  const canManageLifecycle = (asset: Record<string, unknown>) => {
+    if (!asset.isFromInventory) return true
+    return ["server", "router", "lan"].includes(selectedAssetType)
+  }
+
   const onLifecycleComplete = () => {
+    invalidateAssetClientCaches(selectedLocation === "all" ? undefined : selectedLocation)
     loadAssets()
     setDashboardKey((k) => k + 1)
   }
@@ -805,11 +961,24 @@ export function AssetManager() {
     .filter((asset) => {
       const status = asset.assetStatus || "active"
       if (commandView === "inventory" && status === "lost") return false
+      if (filterSearch.trim()) {
+        const q = filterSearch.trim().toLowerCase()
+        const hay = `${asset.facilityName || ""} ${asset.subcounty || ""} ${getItemValue(selectedAssetType, asset)}`.toLowerCase()
+        if (!hay.includes(q)) return false
+      }
       if (filterSubcounty !== "all" && (asset.subcounty || "") !== filterSubcounty) return false
       if (filterFacility !== "all" && asset.facilityName !== filterFacility) return false
       if (filterItem !== "all" && getItemValue(selectedAssetType, asset) !== filterItem) return false
       if (filterSource === "inventory" && !asset.isFromInventory) return false
       if (filterSource === "detailed" && asset.isFromInventory) return false
+      if (filterStatus !== "all" && (asset.assetStatus || "active") !== filterStatus) return false
+      if (selectedAssetType === "server") {
+        const ver = String(asset.kenyaemrVersion || DEFAULT_KENYAEMR_VERSION)
+        if (filterEmrVersion !== "all" && ver !== filterEmrVersion) return false
+        if (filterStorageType !== "all" && (asset.storageType || "") !== filterStorageType) return false
+        if (filterRamGb !== "all" && String(asset.ramGb ?? "") !== filterRamGb) return false
+        if (filterNeedsUpdate && !versionNeedsUpdate(ver)) return false
+      }
       return true
     })
     .sort((a, b) => {
@@ -823,18 +992,18 @@ export function AssetManager() {
       return sortOrder === "asc" ? base : -base
     })
 
-  const bulkSelectableSimcardIds = filteredSortedAssets
-    .filter((asset) => !asset.isFromInventory && typeof asset.id === "string" && !asset.id.startsWith("facility-"))
-    .map((asset) => asset.id)
+  const bulkSelectableServerIds = filteredSortedAssets.map((asset) => String(asset.id))
+  const allServersSelected =
+    selectedAssetType === "server" &&
+    bulkSelectableServerIds.length > 0 &&
+    bulkSelectableServerIds.every((id) => selectedServerIds.has(id))
 
-  const allSimcardsSelected = bulkSelectableSimcardIds.length > 0 && bulkSelectableSimcardIds.every((id) => selectedSimcardIds.has(id))
-
-  const toggleSelectAllSimcards = () => {
-    if (allSimcardsSelected) {
-      setSelectedSimcardIds(new Set())
+  const toggleSelectAllServers = () => {
+    if (allServersSelected) {
+      setSelectedServerIds(new Set())
       return
     }
-    setSelectedSimcardIds(new Set(bulkSelectableSimcardIds))
+    setSelectedServerIds(new Set(bulkSelectableServerIds))
   }
 
   const toggleSort = (key: "facilityName" | "location" | "subcounty" | "itemValue") => {
@@ -882,6 +1051,64 @@ export function AssetManager() {
     }
   }
 
+  const clearAllFilters = () => {
+    setFilterSubcounty("all")
+    setFilterFacility("all")
+    setFilterItem("all")
+    setFilterSource("all")
+    setFilterStatus("all")
+    setFilterEmrVersion("all")
+    setFilterStorageType("all")
+    setFilterRamGb("all")
+    setFilterNeedsUpdate(false)
+    setFilterSearch("")
+  }
+
+  const activeFilterCount = [
+    filterSubcounty !== "all",
+    filterFacility !== "all",
+    filterItem !== "all",
+    filterSource !== "all",
+    filterStatus !== "all",
+    filterEmrVersion !== "all",
+    filterStorageType !== "all",
+    filterRamGb !== "all",
+    filterNeedsUpdate,
+    filterSearch.trim().length > 0,
+  ].filter(Boolean).length
+
+  const activeFilters: ActiveFilter[] = [
+    filterSearch.trim() && { key: "search", label: `Search: ${filterSearch.trim()}`, onRemove: () => setFilterSearch("") },
+    filterSubcounty !== "all" && { key: "subcounty", label: `Subcounty: ${filterSubcounty}`, onRemove: () => setFilterSubcounty("all") },
+    filterFacility !== "all" && { key: "facility", label: `Facility: ${filterFacility}`, onRemove: () => setFilterFacility("all") },
+    filterItem !== "all" && { key: "item", label: `${itemFilterLabel(selectedAssetType)}: ${filterItem}`, onRemove: () => setFilterItem("all") },
+    filterStatus !== "all" && { key: "status", label: `Status: ${filterStatus}`, onRemove: () => setFilterStatus("all") },
+    filterSource !== "all" && { key: "source", label: `Source: ${filterSource}`, onRemove: () => setFilterSource("all") },
+    filterEmrVersion !== "all" && { key: "emr", label: `EMR: ${filterEmrVersion}`, onRemove: () => setFilterEmrVersion("all") },
+    filterStorageType !== "all" && { key: "storage", label: `Storage: ${STORAGE_TYPE_LABELS[filterStorageType as keyof typeof STORAGE_TYPE_LABELS] || filterStorageType}`, onRemove: () => setFilterStorageType("all") },
+    filterRamGb !== "all" && { key: "ram", label: `RAM: ${filterRamGb} GB`, onRemove: () => setFilterRamGb("all") },
+    filterNeedsUpdate && { key: "needsUpdate", label: "Needs update", onRemove: () => setFilterNeedsUpdate(false) },
+  ].filter(Boolean) as ActiveFilter[]
+
+  const viewChipOptions = [
+    { value: "home", label: "Overview", icon: <LayoutDashboard className="h-3.5 w-3.5" /> },
+    { value: "inventory", label: "Inventory", icon: <Package className="h-3.5 w-3.5" /> },
+    { value: "lost", label: "Lost assets", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
+  ]
+
+  const assetTypeChipOptions = [
+    { value: "server", label: "Servers", icon: <Server className="h-3.5 w-3.5" /> },
+    { value: "router", label: "Routers", icon: <Router className="h-3.5 w-3.5" /> },
+    { value: "tablet", label: "Tablets", icon: <Tablet className="h-3.5 w-3.5" /> },
+    { value: "mobilephone", label: "Phones", icon: <Phone className="h-3.5 w-3.5" /> },
+    { value: "lan", label: "LAN", icon: <Wifi className="h-3.5 w-3.5" /> },
+    ...customTypes.map((t) => ({
+      value: customTabKey(t.slug),
+      label: t.label,
+      icon: <Package className="h-3.5 w-3.5" />,
+    })),
+  ]
+
   return (
     <div className="space-y-6">
       <section className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/10 via-background to-secondary/20 p-4 sm:p-6">
@@ -902,42 +1129,23 @@ export function AssetManager() {
         </div>
       </section>
 
-      <div className="flex flex-wrap gap-3 items-center">
-        <Select value={selectedLocation} onValueChange={(v) => setSelectedLocation(v as Location | "all")}>
-          <SelectTrigger className="w-full sm:w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {access?.locations === "all" && <SelectItem value="all">All Locations</SelectItem>}
-            {allowedLocations.map((location) => (
-              <SelectItem key={location} value={location}>
-                {location}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <CountyChipRow
+        counties={allowedLocations}
+        value={selectedLocation}
+        onChange={(v) => setSelectedLocation(v as Location | "all")}
+        showAll={access?.locations === "all"}
+        allLabel="All locations"
+      />
 
-      <Tabs value={commandView} onValueChange={(v) => setCommandView(v as "home" | "inventory" | "lost")}>
-        <TabsList className="w-full sm:w-auto">
-          <TabsTrigger value="home">
-            <LayoutDashboard className="h-4 w-4 mr-1" />
-            Overview
-          </TabsTrigger>
-          <TabsTrigger value="inventory">
-            <Package className="h-4 w-4 mr-1" />
-            Inventory
-          </TabsTrigger>
-          <TabsTrigger value="lost">
-            <AlertTriangle className="h-4 w-4 mr-1" />
-            Lost assets
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
+      <ChipRow
+        options={viewChipOptions}
+        value={commandView}
+        onChange={(v) => setCommandView(v as "home" | "inventory" | "lost")}
+      />
 
       {commandView === "home" && (
         <AssetCommandDashboard
-          key={dashboardKey}
+          refreshKey={dashboardKey}
           selectedLocation={selectedLocation}
           onViewLost={() => setCommandView("lost")}
         />
@@ -955,69 +1163,93 @@ export function AssetManager() {
 
       {commandView === "inventory" && (
       <>
-      <div className="flex flex-wrap gap-3">
-        <Tabs value={selectedTab} onValueChange={setSelectedTab} className="w-full lg:w-auto">
-          <TabsList className="w-full lg:w-auto overflow-x-auto flex-wrap h-auto">
-            <TabsTrigger value="server"><Server className="h-4 w-4 mr-1" />Servers</TabsTrigger>
-            <TabsTrigger value="router"><Router className="h-4 w-4 mr-1" />Routers</TabsTrigger>
-            <TabsTrigger value="simcard"><Smartphone className="h-4 w-4 mr-1" />Simcards</TabsTrigger>
-            <TabsTrigger value="tablet"><Tablet className="h-4 w-4 mr-1" />Tablets</TabsTrigger>
-            <TabsTrigger value="mobilephone"><Phone className="h-4 w-4 mr-1" />Phones</TabsTrigger>
-            <TabsTrigger value="lan"><Wifi className="h-4 w-4 mr-1" />LAN</TabsTrigger>
-            {customTypes.map((t) => (
-              <TabsTrigger key={t.id} value={customTabKey(t.slug)}>
-                <Package className="h-4 w-4 mr-1" />
-                {t.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+      <ChipRow
+        options={assetTypeChipOptions}
+        value={selectedTab}
+        onChange={setSelectedTab}
+      />
 
-        {isBuiltinView && (
-        <>
-        <Button onClick={handleAdd} className="w-full sm:w-auto lg:ml-auto">
-          <Plus className="h-4 w-4 mr-2" />
-          Add Row
-        </Button>
-        <Button onClick={() => exportInventory(filteredSortedAssets, "filtered")} variant="outline" className="w-full sm:w-auto">
-          <Download className="h-4 w-4 mr-2" />
-          Export ({filteredSortedAssets.length})
-        </Button>
-        <Button onClick={() => exportInventory(assets, "all_loaded")} variant="ghost" className="w-full sm:w-auto">
-          <Upload className="h-4 w-4 mr-2" />
-          Export All Loaded
-        </Button>
-        <div className="w-full flex flex-col gap-2 border-t pt-3 mt-1">
-          <p className="text-xs text-muted-foreground w-full">
-            Import / export uses Excel templates (master facility list). Same flow for servers, routers, simcards, tablets, phones, and LAN.
-          </p>
-          <div className="flex flex-wrap gap-2 items-center">
-            {selectedLocation === "all" && (
-              <Select value={importCounty} onValueChange={(v) => setImportCounty(v as Location)}>
-                <SelectTrigger className="w-[160px] h-9">
-                  <SelectValue placeholder="County for import" />
-                </SelectTrigger>
-                <SelectContent>
-                  {allowedLocations.map((loc) => (
-                    <SelectItem key={loc} value={loc}>
-                      {loc}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            <SectionUpload
-              section={selectedAssetType}
-              location={
-                (selectedLocation !== "all" ? selectedLocation : importCounty) as Location
-              }
-              onUploadComplete={loadAssets}
-            />
-          </div>
+      {isBuiltinView && (
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search facilities…"
+            value={filterSearch}
+            onChange={(e) => setFilterSearch(e.target.value)}
+            className="pl-9 h-9"
+          />
         </div>
-        </>
-        )}
+        <AssetFilterPanel
+          assetType={selectedAssetType}
+          filters={{
+            filterSubcounty,
+            filterFacility,
+            filterItem,
+            filterSource,
+            filterStatus,
+            filterEmrVersion,
+            filterStorageType,
+            filterRamGb,
+            filterNeedsUpdate,
+          }}
+          options={filterOptions}
+          onChange={(patch) => {
+            if (patch.filterSubcounty !== undefined) setFilterSubcounty(patch.filterSubcounty)
+            if (patch.filterFacility !== undefined) setFilterFacility(patch.filterFacility)
+            if (patch.filterItem !== undefined) setFilterItem(patch.filterItem)
+            if (patch.filterSource !== undefined) setFilterSource(patch.filterSource)
+            if (patch.filterStatus !== undefined) setFilterStatus(patch.filterStatus)
+            if (patch.filterEmrVersion !== undefined) setFilterEmrVersion(patch.filterEmrVersion)
+            if (patch.filterStorageType !== undefined) setFilterStorageType(patch.filterStorageType)
+            if (patch.filterRamGb !== undefined) setFilterRamGb(patch.filterRamGb)
+            if (patch.filterNeedsUpdate !== undefined) setFilterNeedsUpdate(patch.filterNeedsUpdate)
+          }}
+          onClear={clearAllFilters}
+          activeCount={activeFilterCount}
+        />
+        <AssetSortMenu
+          sortBy={sortBy}
+          sortOrder={sortOrder}
+          onSortByChange={setSortBy}
+          onSortOrderChange={setSortOrder}
+        />
+        <SectionUpload
+          section={selectedAssetType}
+          location={(selectedLocation !== "all" ? selectedLocation : importCounty) as Location}
+          onUploadComplete={loadAssets}
+          layout="dropdown"
+          onExportFiltered={() => exportInventory(filteredSortedAssets, "filtered")}
+          onExportAll={() => exportInventory(assets, "all_loaded")}
+          exportFilteredCount={filteredSortedAssets.length}
+        />
+        <Button onClick={handleAdd} size="sm">
+          <Plus className="h-4 w-4 mr-2" />
+          Add row
+        </Button>
       </div>
+      )}
+
+      {isBuiltinView && (
+        <ActiveFilterChips filters={activeFilters} onClearAll={clearAllFilters} />
+      )}
+
+      {isBuiltinView && selectedAssetType === "server" && (
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" onClick={toggleSelectAllServers}>
+          {allServersSelected ? "Clear Selection" : `Select All Visible (${bulkSelectableServerIds.length})`}
+        </Button>
+        <Button
+          variant="default"
+          size="sm"
+          onClick={openBulkServerDialog}
+          disabled={selectedServerIds.size === 0}
+        >
+          <Layers className="h-4 w-4 mr-2" />
+          Bulk Update ({selectedServerIds.size})
+        </Button>
+      </div>
+      )}
 
       {activeCustomType && (
         <CustomAssetInventory
@@ -1032,107 +1264,6 @@ export function AssetManager() {
 
       {isBuiltinView && (
       <>
-      <div className="flex flex-wrap gap-3 items-center">
-        <Select value={filterSubcounty} onValueChange={setFilterSubcounty}>
-          <SelectTrigger className="w-full sm:w-[180px]">
-            <SelectValue placeholder="Subcounty" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All subcounties</SelectItem>
-            {filterOptions.subcounties.map((sc) => (
-              <SelectItem key={sc} value={sc}>{sc}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={filterFacility} onValueChange={setFilterFacility}>
-          <SelectTrigger className="w-full sm:w-[220px]">
-            <SelectValue placeholder="Facility" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All facilities</SelectItem>
-            {filterOptions.facilities.map((f) => (
-              <SelectItem key={f} value={f}>{f}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={filterItem} onValueChange={setFilterItem}>
-          <SelectTrigger className="w-full sm:w-[200px]">
-            <SelectValue placeholder={itemFilterLabel(selectedAssetType)} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All {itemFilterLabel(selectedAssetType).toLowerCase()}s</SelectItem>
-            {filterOptions.items.map((item) => (
-              <SelectItem key={item} value={item}>{item}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={filterSource} onValueChange={setFilterSource}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Source" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All sources</SelectItem>
-            <SelectItem value="detailed">Detailed assets</SelectItem>
-            <SelectItem value="inventory">Facility inventory</SelectItem>
-          </SelectContent>
-        </Select>
-        {(filterSubcounty !== "all" || filterFacility !== "all" || filterItem !== "all" || filterSource !== "all") && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setFilterSubcounty("all")
-              setFilterFacility("all")
-              setFilterItem("all")
-              setFilterSource("all")
-            }}
-          >
-            Clear filters
-          </Button>
-        )}
-        <Select value={sortBy} onValueChange={(v) => setSortBy(v as "facilityName" | "location" | "subcounty" | "itemValue")}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Sort by" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="facilityName">Facility</SelectItem>
-            <SelectItem value="location">Location</SelectItem>
-            <SelectItem value="subcounty">Subcounty</SelectItem>
-            <SelectItem value="itemValue">Item</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as "asc" | "desc")}>
-          <SelectTrigger className="w-[140px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="asc">Asc</SelectItem>
-            <SelectItem value="desc">Desc</SelectItem>
-          </SelectContent>
-        </Select>
-        {selectedAssetType === "simcard" && role === "superadmin" && (
-          <>
-            <Button variant="outline" onClick={toggleSelectAllSimcards} className="w-full sm:w-auto">
-              {allSimcardsSelected ? "Clear Selection" : `Select All Visible (${bulkSelectableSimcardIds.length})`}
-            </Button>
-            <Button variant="destructive" onClick={handleBulkDeleteSimcards} disabled={selectedSimcardIds.size === 0} className="w-full sm:w-auto">
-              <Trash2 className="h-4 w-4 mr-2" />
-              Delete Selected ({selectedSimcardIds.size})
-            </Button>
-            {selectedLocation !== "all" && (
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full sm:w-auto border-destructive/50 text-destructive hover:bg-destructive/10"
-                onClick={handlePurgeSimcardsInCounty}
-              >
-                Purge all simcards in {selectedLocation}
-              </Button>
-            )}
-          </>
-        )}
-      </div>
-
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -1140,10 +1271,10 @@ export function AssetManager() {
             {ASSET_TYPE_LABELS[selectedAssetType]} - {selectedLocation === "all" ? "All Locations" : selectedLocation}
           </CardTitle>
           <CardDescription>
-            {isLoading
+            {isLoading && assets.length === 0
               ? "Loading..."
-              : `${filteredSortedAssets.length} of ${assets.length} ${selectedAssetType}${assets.length !== 1 ? "s" : ""} shown${selectedLocation === "all" ? " across all locations" : ""}`}
-            {!isLoading && (selectedAssetType === "simcard" || selectedAssetType === "tablet" || selectedAssetType === "mobilephone") && (
+              : `${filteredSortedAssets.length} of ${assets.length} ${selectedAssetType}${assets.length !== 1 ? "s" : ""} shown${selectedLocation === "all" ? " across all locations" : ""}${isRefreshing ? " · refreshing…" : ""}`}
+            {!isLoading && (selectedAssetType === "tablet" || selectedAssetType === "mobilephone") && (
               <span className="block mt-1 text-xs">
                 Each row is a tracked device in the database. Use Import Template to bulk load, or Export for reports.
               </span>
@@ -1151,8 +1282,27 @@ export function AssetManager() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
-            <p className="text-center text-muted-foreground py-8">Loading assets...</p>
+          {isLoading && assets.length === 0 ? (
+            <div className="rounded-md border overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40">
+                  <tr className="border-b">
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                      <th key={i} className="p-2"><div className="h-4 rounded bg-muted animate-pulse" /></th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[1, 2, 3, 4, 5, 6].map((row) => (
+                    <tr key={row} className="border-b">
+                      {[1, 2, 3, 4, 5, 6, 7, 8].map((col) => (
+                        <td key={col} className="p-2"><div className="h-8 rounded bg-muted/60 animate-pulse" /></td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : filteredSortedAssets.length === 0 ? (
             <p className="text-center text-muted-foreground py-8">No assets found{selectedLocation === "all" ? " across all locations" : ` for ${selectedLocation}`}</p>
           ) : (
@@ -1160,7 +1310,7 @@ export function AssetManager() {
               <table className="w-full text-sm">
                 <thead className="bg-muted/40">
                   <tr className="border-b">
-                    {selectedAssetType === "simcard" && role === "superadmin" && (
+                    {selectedAssetType === "server" && (
                       <th className="text-left p-2 font-medium">Select</th>
                     )}
                     <th className="text-left p-2 font-medium">
@@ -1183,6 +1333,13 @@ export function AssetManager() {
                         Item{sortIndicator("itemValue")}
                       </button>
                     </th>
+                    {selectedAssetType === "server" && (
+                      <>
+                        <th className="text-left p-2 font-medium">KenyaEMR</th>
+                        <th className="text-left p-2 font-medium">RAM</th>
+                        <th className="text-left p-2 font-medium">Storage</th>
+                      </>
+                    )}
                     <th className="text-left p-2 font-medium">Asset Tag</th>
                     <th className="text-left p-2 font-medium">Serial</th>
                     <th className="text-left p-2 font-medium">Notes</th>
@@ -1256,11 +1413,6 @@ export function AssetManager() {
                           <Input value={inlineCreateData.serverType || ""} onChange={(e) => setInlineCreateData({ ...inlineCreateData, serverType: e.target.value })} className="h-8" placeholder="Server type" />
                         ) : selectedAssetType === "router" ? (
                           <Input value={inlineCreateData.routerType || ""} onChange={(e) => setInlineCreateData({ ...inlineCreateData, routerType: e.target.value })} className="h-8" placeholder="Router type" />
-                        ) : selectedAssetType === "simcard" ? (
-                          <div className="flex gap-1">
-                            <Input value={inlineCreateData.phoneNumber || ""} onChange={(e) => setInlineCreateData({ ...inlineCreateData, phoneNumber: e.target.value })} className="h-8 w-28" placeholder="Phone" />
-                            <Input value={inlineCreateData.provider || ""} onChange={(e) => setInlineCreateData({ ...inlineCreateData, provider: e.target.value })} className="h-8 w-24" placeholder="Provider" />
-                          </div>
                         ) : selectedAssetType === "tablet" ? (
                           <Input value={inlineCreateData.tabletType || ""} onChange={(e) => setInlineCreateData({ ...inlineCreateData, tabletType: e.target.value })} className="h-8" placeholder="Tablet model" />
                         ) : selectedAssetType === "mobilephone" ? (
@@ -1276,6 +1428,27 @@ export function AssetManager() {
                           </div>
                         )}
                       </td>
+                      {selectedAssetType === "server" && (
+                        <>
+                          <td className="p-2">
+                            <Input value={inlineCreateData.kenyaemrVersion || DEFAULT_KENYAEMR_VERSION} onChange={(e) => setInlineCreateData({ ...inlineCreateData, kenyaemrVersion: e.target.value })} className="h-8 w-20" placeholder="19.3.3" />
+                          </td>
+                          <td className="p-2">
+                            <Input type="number" value={inlineCreateData.ramGb || ""} onChange={(e) => setInlineCreateData({ ...inlineCreateData, ramGb: e.target.value })} className="h-8 w-16" placeholder="GB" />
+                          </td>
+                          <td className="p-2">
+                            <div className="flex flex-col gap-1">
+                              <Select value={inlineCreateData.storageType || ""} onValueChange={(v) => setInlineCreateData({ ...inlineCreateData, storageType: v })}>
+                                <SelectTrigger className="h-8 w-24"><SelectValue placeholder="Type" /></SelectTrigger>
+                                <SelectContent>
+                                  {STORAGE_TYPES.map((t) => <SelectItem key={t} value={t}>{STORAGE_TYPE_LABELS[t]}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                              <Input type="number" value={inlineCreateData.storageGb || ""} onChange={(e) => setInlineCreateData({ ...inlineCreateData, storageGb: e.target.value })} className="h-8 w-16" placeholder="GB" />
+                            </div>
+                          </td>
+                        </>
+                      )}
                       <td className="p-2">
                         <Input value={inlineCreateData.assetTag || ""} onChange={(e) => setInlineCreateData({ ...inlineCreateData, assetTag: e.target.value })} className="h-8" />
                       </td>
@@ -1303,17 +1476,14 @@ export function AssetManager() {
                   )}
                   {filteredSortedAssets.map((asset) => (
                     <tr key={asset.id} className="border-b hover:bg-accent/30">
-                      {selectedAssetType === "simcard" && role === "superadmin" && (
+                      {selectedAssetType === "server" && (
                         <td className="p-2">
-                          {!asset.isFromInventory && String(asset.id || "").startsWith("facility-") === false ? (
-                            <input
-                              type="checkbox"
-                              checked={selectedSimcardIds.has(asset.id)}
-                              onChange={() => toggleSimcardSelection(asset.id)}
-                            />
-                          ) : (
-                            <span className="text-xs text-muted-foreground">-</span>
-                          )}
+                          <input
+                            type="checkbox"
+                            checked={selectedServerIds.has(String(asset.id))}
+                            onChange={() => toggleServerSelection(String(asset.id))}
+                            aria-label={`Select ${asset.facilityName}`}
+                          />
                         </td>
                       )}
                       <td className="p-2 font-medium min-w-[200px]">
@@ -1360,20 +1530,6 @@ export function AssetManager() {
                             <Input value={inlineEditData.serverType || ""} onChange={(e) => setInlineEditData({ ...inlineEditData, serverType: e.target.value })} className="h-8" />
                           ) : selectedAssetType === "router" ? (
                             <Input value={inlineEditData.routerType || ""} onChange={(e) => setInlineEditData({ ...inlineEditData, routerType: e.target.value })} className="h-8" />
-                          ) : selectedAssetType === "simcard" ? (
-                            asset.isFromInventory ? (
-                              <Input
-                                value={String(inlineEditData.simcardCount ?? asset.simcardCount ?? 0)}
-                                onChange={(e) => setInlineEditData({ ...inlineEditData, simcardCount: e.target.value })}
-                                className="h-8 w-20"
-                                placeholder="Count"
-                              />
-                            ) : (
-                              <div className="flex gap-1">
-                                <Input value={inlineEditData.phoneNumber || ""} onChange={(e) => setInlineEditData({ ...inlineEditData, phoneNumber: e.target.value })} className="h-8 w-28" />
-                                <Input value={inlineEditData.provider || ""} onChange={(e) => setInlineEditData({ ...inlineEditData, provider: e.target.value })} className="h-8 w-24" />
-                              </div>
-                            )
                           ) : selectedAssetType === "tablet" ? (
                             <Input value={inlineEditData.tabletType || ""} onChange={(e) => setInlineEditData({ ...inlineEditData, tabletType: e.target.value })} className="h-8" />
                           ) : selectedAssetType === "mobilephone" ? (
@@ -1390,6 +1546,42 @@ export function AssetManager() {
                           )
                         ) : (getItemValue(selectedAssetType, asset) || "-")}
                       </td>
+                      {selectedAssetType === "server" && (
+                        <>
+                          <td className="p-2">
+                            {inlineEditingId === asset.id ? (
+                              <Input value={inlineEditData.kenyaemrVersion || ""} onChange={(e) => setInlineEditData({ ...inlineEditData, kenyaemrVersion: e.target.value })} className="h-8 w-20" />
+                            ) : (
+                              <div className="flex flex-col gap-0.5">
+                                <Badge variant={versionNeedsUpdate(asset.kenyaemrVersion) ? "secondary" : "outline"} className="text-[10px] w-fit">
+                                  {asset.kenyaemrVersion || DEFAULT_KENYAEMR_VERSION}
+                                </Badge>
+                                {versionNeedsUpdate(asset.kenyaemrVersion) && (
+                                  <span className="text-[10px] text-amber-600">Update pending</span>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td className="p-2">
+                            {inlineEditingId === asset.id ? (
+                              <Input type="number" value={inlineEditData.ramGb ?? ""} onChange={(e) => setInlineEditData({ ...inlineEditData, ramGb: e.target.value })} className="h-8 w-16" />
+                            ) : formatRamLabel(asset.ramGb)}
+                          </td>
+                          <td className="p-2">
+                            {inlineEditingId === asset.id ? (
+                              <div className="flex flex-col gap-1">
+                                <Select value={inlineEditData.storageType || ""} onValueChange={(v) => setInlineEditData({ ...inlineEditData, storageType: v })}>
+                                  <SelectTrigger className="h-8 w-24"><SelectValue placeholder="—" /></SelectTrigger>
+                                  <SelectContent>
+                                    {STORAGE_TYPES.map((t) => <SelectItem key={t} value={t}>{STORAGE_TYPE_LABELS[t]}</SelectItem>)}
+                                  </SelectContent>
+                                </Select>
+                                <Input type="number" value={inlineEditData.storageGb ?? ""} onChange={(e) => setInlineEditData({ ...inlineEditData, storageGb: e.target.value })} className="h-8 w-16" placeholder="GB" />
+                              </div>
+                            ) : formatStorageLabel(asset.storageType, asset.storageGb)}
+                          </td>
+                        </>
+                      )}
                       <td className="p-2">
                         {inlineEditingId === asset.id ? (
                           <Input value={inlineEditData.assetTag || ""} onChange={(e) => setInlineEditData({ ...inlineEditData, assetTag: e.target.value })} className="h-8" />
@@ -1406,18 +1598,10 @@ export function AssetManager() {
                         ) : (asset.notes || "-")}
                       </td>
                       <td className="p-2">
-                        {!asset.isFromInventory && asset.assetStatus && asset.assetStatus !== "active" ? (
-                          <div className="flex flex-col gap-0.5">
-                            <Badge variant={statusBadgeVariant(asset.assetStatus)} className="text-xs w-fit">
-                              {ASSET_STATUS_LABELS[asset.assetStatus as keyof typeof ASSET_STATUS_LABELS] || asset.assetStatus}
-                            </Badge>
-                            {asset.storageLocation && (
-                              <span className="text-[10px] text-muted-foreground">{asset.storageLocation}</span>
-                            )}
-                          </div>
-                        ) : (
-                          <Badge variant="outline" className="text-xs">Active</Badge>
-                        )}
+                        <AssetStatusBadge
+                          assetStatus={asset.assetStatus || "active"}
+                          storageLocation={asset.storageLocation}
+                        />
                       </td>
                       <td className="p-2">
                         {asset.isFromInventory ? (
@@ -1442,30 +1626,13 @@ export function AssetManager() {
                               <Button variant="ghost" size="icon" onClick={() => handleEdit(asset)} className="h-8 w-8">
                                 <Edit2 className="h-4 w-4" />
                               </Button>
-                              {!asset.isFromInventory && !String(asset.id || "").startsWith("facility-") && (
-                                <>
-                                  {(asset.assetStatus || "active") === "active" && (
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 text-red-600"
-                                      title="Mark lost"
-                                      onClick={() => openLifecycle(asset, "mark_lost")}
-                                    >
-                                      <MapPinOff className="h-4 w-4" />
-                                    </Button>
-                                  )}
-                                  {asset.assetStatus === "recovered" && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-8 text-xs"
-                                      onClick={() => openLifecycle(asset, "mark_active")}
-                                    >
-                                      Active
-                                    </Button>
-                                  )}
-                                </>
+                              {canManageLifecycle(asset) && (
+                                <AssetStatusMenu
+                                  assetStatus={asset.assetStatus || "active"}
+                                  storageLocation={asset.storageLocation}
+                                  onAction={(action) => openLifecycle(asset, action)}
+                                  compact
+                                />
                               )}
                               <Button variant="ghost" size="icon" onClick={() => handleDelete(asset.id)} className="h-8 w-8">
                                 <Trash2 className="h-4 w-4" />
@@ -1492,6 +1659,107 @@ export function AssetManager() {
         action={lifecycleAction}
         onComplete={onLifecycleComplete}
       />
+
+      <Dialog open={bulkServerDialogOpen} onOpenChange={setBulkServerDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Bulk update {selectedServerIds.size} server(s)</DialogTitle>
+            <DialogDescription>
+              Check the fields you want to apply to all selected servers. Unchecked fields stay unchanged.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="flex items-start gap-3">
+              <input
+                id="bulk-emr"
+                type="checkbox"
+                className="mt-1"
+                checked={bulkServerForm.applyEmrVersion}
+                onChange={(e) => setBulkServerForm({ ...bulkServerForm, applyEmrVersion: e.target.checked })}
+              />
+              <div className="flex-1 space-y-1">
+                <Label htmlFor="bulk-emr">KenyaEMR version</Label>
+                <Input
+                  value={bulkServerForm.kenyaemrVersion}
+                  onChange={(e) => setBulkServerForm({ ...bulkServerForm, kenyaemrVersion: e.target.value })}
+                  placeholder="19.3.4"
+                  disabled={!bulkServerForm.applyEmrVersion}
+                />
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <input
+                id="bulk-ram"
+                type="checkbox"
+                className="mt-1"
+                checked={bulkServerForm.applyRam}
+                onChange={(e) => setBulkServerForm({ ...bulkServerForm, applyRam: e.target.checked })}
+              />
+              <div className="flex-1 space-y-1">
+                <Label htmlFor="bulk-ram">RAM (GB)</Label>
+                <Input
+                  type="number"
+                  value={bulkServerForm.ramGb}
+                  onChange={(e) => setBulkServerForm({ ...bulkServerForm, ramGb: e.target.value })}
+                  placeholder="e.g. 16"
+                  disabled={!bulkServerForm.applyRam}
+                />
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <input
+                id="bulk-storage-type"
+                type="checkbox"
+                className="mt-1"
+                checked={bulkServerForm.applyStorageType}
+                onChange={(e) => setBulkServerForm({ ...bulkServerForm, applyStorageType: e.target.checked })}
+              />
+              <div className="flex-1 space-y-1">
+                <Label htmlFor="bulk-storage-type">Storage type</Label>
+                <Select
+                  value={bulkServerForm.storageType || ""}
+                  onValueChange={(v) => setBulkServerForm({ ...bulkServerForm, storageType: v })}
+                  disabled={!bulkServerForm.applyStorageType}
+                >
+                  <SelectTrigger><SelectValue placeholder="SSD / HDD / Both" /></SelectTrigger>
+                  <SelectContent>
+                    {STORAGE_TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>{STORAGE_TYPE_LABELS[t]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <input
+                id="bulk-storage-gb"
+                type="checkbox"
+                className="mt-1"
+                checked={bulkServerForm.applyStorageGb}
+                onChange={(e) => setBulkServerForm({ ...bulkServerForm, applyStorageGb: e.target.checked })}
+              />
+              <div className="flex-1 space-y-1">
+                <Label htmlFor="bulk-storage-gb">Storage size (GB)</Label>
+                <Input
+                  type="number"
+                  value={bulkServerForm.storageGb}
+                  onChange={(e) => setBulkServerForm({ ...bulkServerForm, storageGb: e.target.value })}
+                  placeholder="e.g. 512"
+                  disabled={!bulkServerForm.applyStorageGb}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkServerDialogOpen(false)} disabled={bulkServerUpdating}>
+              Cancel
+            </Button>
+            <Button onClick={handleBulkUpdateServers} disabled={bulkServerUpdating}>
+              {bulkServerUpdating ? "Applying…" : `Apply to ${selectedServerIds.size} server(s)`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       </>
       )}
 

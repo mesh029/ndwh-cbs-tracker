@@ -1,8 +1,18 @@
-"use client"
-
-import { AssetManager } from "@/components/asset-manager"
+import dynamic from "next/dynamic"
 import { Sidebar, MobileMenuButton } from "@/components/sidebar"
 import { Toaster } from "@/components/ui/toaster"
+
+const AssetManager = dynamic(
+  () => import("@/components/asset-manager").then((mod) => ({ default: mod.AssetManager })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center py-24 text-muted-foreground">
+        Loading asset center…
+      </div>
+    ),
+  }
+)
 
 export default function AssetManagerPage() {
   return (

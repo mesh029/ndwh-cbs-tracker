@@ -1,7 +1,19 @@
-import { PrismaClient } from "@prisma/client"
+import { PrismaClient, Prisma } from "@prisma/client"
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
+  prismaModelHash?: string
+}
+
+/** Detect schema drift so dev HMR does not keep a stale PrismaClient singleton. */
+function prismaModelHash(): string {
+  try {
+    return Prisma.dmmf.datamodel.models
+      .flatMap((m) => m.fields.map((f) => `${m.name}.${f.name}`))
+      .join("|")
+  } catch {
+    return "unknown"
+  }
 }
 
 /** Keep Aiven connection usage low (multiple Next dev instances share the same limit). */
@@ -18,11 +30,54 @@ function databaseUrlWithPoolLimits(rawUrl: string | undefined): string | undefin
 
 const datasourceUrl = databaseUrlWithPoolLimits(process.env.DATABASE_URL)
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+const perfQueries =
+  process.env.NEXT_RUNTIME !== "edge" &&
+  (process.env.NODE_ENV === "development" || process.env.PERF_LOG_PRISMA === "1")
+
+function createPrismaClient(): PrismaClient {
+  const client = new PrismaClient({
+    log: perfQueries
+      ? [
+          { level: "error", emit: "stdout" },
+          { level: "warn", emit: "stdout" },
+          { level: "query", emit: "event" },
+        ]
+      : process.env.NODE_ENV === "development"
+        ? ["error", "warn"]
+        : ["error"],
     ...(datasourceUrl ? { datasources: { db: { url: datasourceUrl } } } : {}),
   })
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma
+  if (perfQueries) {
+    client.$on("query", (event) => {
+      if (event.duration >= 200) {
+        console.log(`[Prisma] ${event.duration}ms ${event.query.slice(0, 100)}`)
+      }
+    })
+  }
+
+  return client
+}
+
+function getPrismaClient(): PrismaClient {
+  const modelHash = prismaModelHash()
+  const cached = globalForPrisma.prisma
+
+  if (cached && globalForPrisma.prismaModelHash === modelHash) {
+    return cached
+  }
+
+  if (cached) {
+    void cached.$disconnect().catch(() => {})
+    globalForPrisma.prisma = undefined
+  }
+
+  const client = createPrismaClient()
+  if (process.env.NODE_ENV !== "production") {
+    globalForPrisma.prisma = client
+    globalForPrisma.prismaModelHash = modelHash
+  }
+  return client
+}
+
+export const prisma = getPrismaClient()

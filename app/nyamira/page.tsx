@@ -54,20 +54,7 @@ function CountyDashboardContent() {
 
 export default function CountyDashboardPage() {
   return (
-    <Suspense fallback={
-      <div className="flex h-screen overflow-hidden">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto bg-background p-6">
-          <div className="md:hidden fixed top-4 left-4 z-10">
-            <MobileMenuButton />
-          </div>
-          <div className="flex items-center justify-center h-full">
-            <div className="text-muted-foreground">Loading...</div>
-          </div>
-        </main>
-        <Toaster />
-      </div>
-    }>
+    <Suspense fallback={<OverviewDashboard />}>
       <CountyDashboardContent />
     </Suspense>
   )

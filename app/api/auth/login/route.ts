@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { AUTH_ACCESS_COOKIE, AUTH_COOKIE_NAME, AUTH_EMAIL_COOKIE, AUTH_USERNAME_COOKIE, getDefaultRedirect, resolveRoleFromCredentials } from "@/lib/auth"
+import { AUTH_ACCESS_COOKIE, AUTH_COOKIE_NAME, AUTH_EMAIL_COOKIE, AUTH_USERNAME_COOKIE, getDefaultRedirect } from "@/lib/auth"
+import { resolveRoleFromCredentials } from "@/lib/auth-server"
 
 // Force dynamic rendering to prevent build-time static generation
 export const dynamic = 'force-dynamic'

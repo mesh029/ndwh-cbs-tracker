@@ -5,7 +5,6 @@ export type AssetStatus = "active" | "lost" | "recovered"
 export type AssetKind =
   | "server"
   | "router"
-  | "simcard"
   | "tablet"
   | "mobilephone"
   | "lan"
@@ -17,12 +16,23 @@ export const ASSET_STATUS_LABELS: Record<AssetStatus, string> = {
   recovered: "Recovered",
 }
 
+export const LOST_REASON_PRESETS = [
+  "Stolen / missing",
+  "Damaged beyond repair",
+  "Not returned after loan",
+  "Transferred without record",
+  "Decommissioned",
+  "Other",
+] as const
+
 export const STORAGE_LOCATION_PRESETS = [
+  "Returned to office",
   "County office",
   "Central store",
   "Warehouse",
   "Repair shop",
   "At facility",
+  "In transit",
   "Other",
 ] as const
 
@@ -61,18 +71,39 @@ export function lifecycleReportColumns(lf: LifecycleFields): Record<string, stri
   }
 }
 
-export type LifecycleAction = "mark_lost" | "mark_recovered" | "mark_active"
+export type LifecycleAction = "mark_lost" | "mark_recovered" | "mark_active" | "set_location"
 
-export function buildLifecycleUpdate(
-  action: LifecycleAction,
-  body: { statusComment?: string; storageLocation?: string }
-): {
-  assetStatus: AssetStatus
+export function assetKindFromBuiltinType(
+  type: "server" | "router" | "tablet" | "mobilephone" | "lan"
+): AssetKind {
+  return type
+}
+
+export function lifecycleActionLabel(action: LifecycleAction): string {
+  switch (action) {
+    case "mark_lost":
+      return "Mark as lost"
+    case "mark_recovered":
+      return "Return to office"
+    case "mark_active":
+      return "Back in service"
+    case "set_location":
+      return "Update location"
+  }
+}
+
+export type LifecycleUpdateData = {
+  assetStatus?: AssetStatus
   lostAt?: Date | null
   recoveredAt?: Date | null
   statusComment?: string | null
   storageLocation?: string | null
-} {
+}
+
+export function buildLifecycleUpdate(
+  action: LifecycleAction,
+  body: { statusComment?: string; storageLocation?: string }
+): LifecycleUpdateData {
   const comment = body.statusComment?.trim() || null
   const storage = body.storageLocation?.trim() || null
   const now = new Date()
@@ -91,13 +122,20 @@ export function buildLifecycleUpdate(
         assetStatus: "recovered",
         recoveredAt: now,
         statusComment: comment,
-        storageLocation: storage,
+        storageLocation: storage || (comment ? "See notes" : null),
       }
     case "mark_active":
       return {
         assetStatus: "active",
+        lostAt: null,
+        recoveredAt: null,
         statusComment: comment,
         storageLocation: storage,
+      }
+    case "set_location":
+      return {
+        statusComment: comment,
+        storageLocation: storage || (comment ? "See notes" : null),
       }
     default:
       throw new Error("Invalid lifecycle action")
