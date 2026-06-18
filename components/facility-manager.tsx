@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -67,6 +67,8 @@ export function FacilityManager() {
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [showErrorDialog, setShowErrorDialog] = useState(false)
   const [importErrors, setImportErrors] = useState<Array<{ facility: string; reason: string }>>([])
+  const textFileInputRef = useRef<HTMLInputElement>(null)
+  const excelFileInputRef = useRef<HTMLInputElement>(null)
   const { role, access } = useAuth()
   const { toast } = useToast()
   const allowedLocations = access?.locations === "all"
@@ -270,6 +272,7 @@ export function FacilityManager() {
       }
     }
     reader.readAsText(file)
+    event.target.value = ""
   }
 
   const handleEdit = (facility: Facility) => {
@@ -658,6 +661,8 @@ export function FacilityManager() {
         description: "Failed to read Excel file",
         variant: "destructive",
       })
+    } finally {
+      event.target.value = ""
     }
   }
 
@@ -971,20 +976,24 @@ export function FacilityManager() {
                     <Upload className="mr-2 h-4 w-4" />
                     Add Facilities {bulkFacilities.trim() && `(${parseFacilityList(bulkFacilities).length})`}
                   </Button>
-                  <label className="flex-1">
-                    <input
-                      type="file"
-                      accept=".txt,.csv"
-                      onChange={handleFileUpload}
-                      className="hidden"
-                    />
-                    <Button type="button" variant="outline" className="w-full" asChild>
-                      <span>
-                        <Upload className="mr-2 h-4 w-4" />
-                        Upload File
-                      </span>
-                    </Button>
-                  </label>
+                  <input
+                    ref={textFileInputRef}
+                    type="file"
+                    accept=".txt,.csv"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                    tabIndex={-1}
+                    aria-hidden
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => textFileInputRef.current?.click()}
+                  >
+                    <Upload className="mr-2 h-4 w-4" />
+                    Upload File
+                  </Button>
                 </div>
               </TabsContent>
             </Tabs>
@@ -1033,27 +1042,29 @@ export function FacilityManager() {
                     Export Excel
                   </Button>
                   {canUploadData(role) && (
-                    <label>
+                    <>
                       <input
+                        ref={excelFileInputRef}
                         type="file"
                         accept=".xlsx,.xls"
                         onChange={handleExcelFileSelect}
                         className="hidden"
                         disabled={isImporting}
+                        tabIndex={-1}
+                        aria-hidden
                       />
                       <Button
+                        type="button"
                         variant="outline"
                         size="sm"
                         className="gap-2"
-                      asChild
-                      disabled={isImporting}
-                    >
-                      <span>
+                        disabled={isImporting}
+                        onClick={() => excelFileInputRef.current?.click()}
+                      >
                         <Upload className="h-4 w-4" />
                         Import Excel
-                      </span>
-                    </Button>
-                  </label>
+                      </Button>
+                    </>
                   )}
                   <Button
                     variant="destructive"

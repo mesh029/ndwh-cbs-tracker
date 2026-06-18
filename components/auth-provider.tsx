@@ -192,7 +192,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(hardStop)
   }, [authTransitionLoading])
 
-  const loadRole = async () => {
+  const loadRole = async (options?: { silent?: boolean }) => {
+    const silent = options?.silent ?? false
     try {
       const res = await fetch("/api/auth/me", { cache: "no-store" })
       const data = await res.json().catch(() => ({}))
@@ -213,7 +214,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setEmail(null)
       setAccess(null)
     } finally {
-      setLoading(false)
+      if (!silent) {
+        setLoading(false)
+      }
     }
   }
 
@@ -237,16 +240,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     initialLoad()
 
-    // Also refresh on visibility/focus so role updates after login/logout
+    // Refresh session on focus without toggling `loading` — file pickers and other
+    // dialogs steal focus; flipping loading unmounts pages and drops in-flight imports.
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        setLoading(true)
-        loadRole()
+        void loadRole({ silent: true })
       }
     }
     const handleFocus = () => {
-      setLoading(true)
-      loadRole()
+      void loadRole({ silent: true })
     }
 
     window.addEventListener("visibilitychange", handleVisibilityChange)

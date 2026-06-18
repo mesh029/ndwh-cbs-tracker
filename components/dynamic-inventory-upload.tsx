@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -42,6 +42,7 @@ export function DynamicInventoryUpload({
   const [uploadErrors, setUploadErrors] = useState<string[]>([])
   const [importMode, setImportMode] = useState<"merge" | "overwrite">("merge")
   const [processedData, setProcessedData] = useState<any[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const location = (fixedLocation || pickLocation) as Location | undefined
 
@@ -279,21 +280,28 @@ export function DynamicInventoryUpload({
           </Button>
         )}
         {canUploadData(role) && (
-          <label>
+          <>
             <input
+              ref={fileInputRef}
               type="file"
               accept=".xlsx,.xls"
               className="hidden"
               onChange={handleFileUpload}
               disabled={isUploading || !location}
+              tabIndex={-1}
+              aria-hidden
             />
-            <Button variant="outline" size="sm" asChild disabled={isUploading || !location}>
-              <span>
-                <Upload className="h-4 w-4 mr-1" />
-                {isUploading ? "Reading…" : "Import from Excel"}
-              </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isUploading || !location}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload className="h-4 w-4 mr-1" />
+              {isUploading ? "Reading…" : "Import from Excel"}
             </Button>
-          </label>
+          </>
         )}
       </div>
 

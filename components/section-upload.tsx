@@ -10,7 +10,7 @@
 
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
@@ -77,6 +77,7 @@ export function SectionUpload({
   const [showErrorDialog, setShowErrorDialog] = useState(false)
   const [uploadErrors, setUploadErrors] = useState<string[]>([])
   const { toast } = useToast()
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Load facilities when dialog opens
   useEffect(() => {
@@ -248,6 +249,7 @@ export function SectionUpload({
         description: "Please select an Excel file (.xlsx or .xls)",
         variant: "destructive",
       })
+      event.target.value = ""
       return
     }
 
@@ -489,6 +491,7 @@ export function SectionUpload({
         variant: "destructive",
       })
       setIsUploading(false)
+    } finally {
       event.target.value = ""
     }
   }
@@ -612,7 +615,7 @@ export function SectionUpload({
   const fileInputId = `import-file-${section}`
 
   const triggerFileInput = () => {
-    document.getElementById(fileInputId)?.click()
+    fileInputRef.current?.click()
   }
 
   const menuItems = (
@@ -630,7 +633,13 @@ export function SectionUpload({
         </>
       )}
       {canUploadData(role) && (
-        <DropdownMenuItem onClick={triggerFileInput} disabled={isUploading}>
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault()
+            triggerFileInput()
+          }}
+          disabled={isUploading}
+        >
           <Upload className="h-4 w-4 mr-2" />
           {isUploading ? "Reading…" : "Import from Excel"}
         </DropdownMenuItem>
@@ -697,44 +706,37 @@ export function SectionUpload({
           </>
         )}
         {canUploadData(role) && (
-          <label>
-            <input
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={handleFileUpload}
-              className="hidden"
-              disabled={isUploading}
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              className={buttonLayout === "column" ? "gap-2 justify-start w-full" : "gap-2"}
-              asChild
-              disabled={isUploading}
-            >
-              <span>
-                <Upload className="h-4 w-4" />
-                {isUploading ? "Reading…" : (
-                  <>
-                    <span className="hidden sm:inline">Import from Excel</span>
-                    <span className="sm:hidden">Import</span>
-                  </>
-                )}
-              </span>
-            </Button>
-          </label>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={buttonLayout === "column" ? "gap-2 justify-start w-full" : "gap-2"}
+            disabled={isUploading}
+            onClick={triggerFileInput}
+          >
+            <Upload className="h-4 w-4" />
+            {isUploading ? "Reading…" : (
+              <>
+                <span className="hidden sm:inline">Import from Excel</span>
+                <span className="sm:hidden">Import</span>
+              </>
+            )}
+          </Button>
         )}
       </div>
       )}
 
       {canUploadData(role) && (
         <input
+          ref={fileInputRef}
           id={fileInputId}
           type="file"
           accept=".xlsx,.xls"
           onChange={handleFileUpload}
           className="hidden"
           disabled={isUploading}
+          tabIndex={-1}
+          aria-hidden
         />
       )}
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -23,6 +23,7 @@ export function ReportingInput() {
   const [selectedSystem, setSelectedSystem] = useState<SystemType>("NDWH")
   const [selectedLocation, setSelectedLocation] = useState<Location>(defaultLocation)
   const [reportText, setReportText] = useState("")
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
 
   const { setReportedFacilitiesFromText } = useFacilityData(
@@ -71,6 +72,7 @@ export function ReportingInput() {
       }
     }
     reader.readAsText(file)
+    event.target.value = ""
   }
 
   return (
@@ -124,20 +126,19 @@ export function ReportingInput() {
           <Button onClick={handleSubmit} className="flex-1">
             Process Reports
           </Button>
-          <label>
-            <input
-              type="file"
-              accept=".txt,.csv"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-            <Button type="button" variant="outline" asChild>
-              <span>
-                <Upload className="mr-2 h-4 w-4" />
-                Upload File
-              </span>
-            </Button>
-          </label>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".txt,.csv"
+            onChange={handleFileUpload}
+            className="hidden"
+            tabIndex={-1}
+            aria-hidden
+          />
+          <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>
+            <Upload className="mr-2 h-4 w-4" />
+            Upload File
+          </Button>
         </div>
       </CardContent>
     </Card>

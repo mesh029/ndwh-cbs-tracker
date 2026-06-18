@@ -401,38 +401,34 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
           </CardContent>
         </Card>
 
-        <HoverCard>
-          <HoverCardTrigger asChild>
-            <Card className="cursor-pointer hover:bg-accent/50 transition-colors">
-              <CardHeader className="pb-2">
-                <div>
-                  <CardTitle className="text-lg">Total Tickets</CardTitle>
-                  <CardDescription>All issues reported - Hover for main issues</CardDescription>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {isLoadingTickets && !hasLoadedTickets ? (
-                  <div className="flex items-center gap-2 py-2">
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">Loading tickets...</span>
+        <Card>
+          <HoverCard>
+            <HoverCardTrigger asChild>
+              <div className="cursor-pointer hover:bg-accent/50 transition-colors rounded-t-lg">
+                <CardHeader className="pb-2">
+                  <div>
+                    <CardTitle className="text-lg">Total Tickets</CardTitle>
+                    <CardDescription>All issues reported - Hover for main issues</CardDescription>
                   </div>
-                ) : (
-                  <>
-                    <div className="text-2xl font-bold">{tickets.length || 0}</div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {tickets.filter((t: any) => t.status === "resolved").length} resolved
-                    </p>
-                    <div className="mt-4 pt-4 border-t">
-                      <SectionUpload section="ticket" location={location} onUploadComplete={() => {
-                        refreshCountyDashboard()
-                      }} />
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {isLoadingTickets && !hasLoadedTickets ? (
+                    <div className="flex items-center gap-2 py-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">Loading tickets...</span>
                     </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </HoverCardTrigger>
-          <HoverCardContent className="w-96 max-h-96 overflow-y-auto">
+                  ) : (
+                    <>
+                      <div className="text-2xl font-bold">{tickets.length || 0}</div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {tickets.filter((t: any) => t.status === "resolved").length} resolved
+                      </p>
+                    </>
+                  )}
+                </CardContent>
+              </div>
+            </HoverCardTrigger>
+            <HoverCardContent className="w-96 max-h-96 overflow-y-auto">
             <div className="space-y-3">
               <h4 className="font-semibold text-sm mb-3">
                 Main Issues Summary
@@ -502,7 +498,17 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
               )}
             </div>
           </HoverCardContent>
-        </HoverCard>
+          </HoverCard>
+          <CardContent className="pt-4 border-t">
+            <SectionUpload
+              section="ticket"
+              location={location}
+              onUploadComplete={() => {
+                refreshCountyDashboard()
+              }}
+            />
+          </CardContent>
+        </Card>
       </div>
 
       <CriticalServerIssuesPanel location={location} />
