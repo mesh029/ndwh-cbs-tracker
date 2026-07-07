@@ -216,6 +216,7 @@ function buildChartsFromTypes(
       total: v.total,
       lost: v.lost,
       active: v.active,
+      recovered: v.recovered,
     }))
     .sort((a, b) => b.total - a.total)
 
@@ -358,6 +359,7 @@ export async function buildAssetSummary(locations: Location[]) {
       total: v.total,
       lost: v.lost,
       active: v.active,
+      recovered: v.recovered,
     }))
     .sort((a, b) => b.total - a.total)
 
@@ -378,7 +380,7 @@ export async function buildAssetSummary(locations: Location[]) {
     {
       totals: StatusTotals
       distributionChart: { name: string; value: number; fill?: string }[]
-      typeChart: { type: string; key: string; total: number; lost: number; active: number }[]
+      typeChart: { type: string; key: string; total: number; lost: number; active: number; recovered: number }[]
     }
   >
 

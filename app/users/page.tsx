@@ -17,6 +17,8 @@ export default function UsersPage() {
   const [modules, setModules] = useState<string[]>([])
   const [isCreating, setIsCreating] = useState(false)
   const [form, setForm] = useState<any>({ name: "", email: "", password: "", role: "guest", locations: "all", modules: ["tickets"] })
+  const [assetActionPasscode, setAssetActionPasscode] = useState("lcwaikiki")
+  const [savingPasscode, setSavingPasscode] = useState(false)
 
   const load = async () => {
     const res = await fetch(`/api/users?ts=${Date.now()}`, { cache: "no-store" })
@@ -29,7 +31,43 @@ export default function UsersPage() {
 
   useEffect(() => {
     load()
+    void (async () => {
+      try {
+        const res = await fetch("/api/settings?key=public_asset_actions_passcode", { cache: "no-store" })
+        if (!res.ok) return
+        const data = await res.json()
+        if (typeof data?.value === "string" && data.value.trim()) {
+          setAssetActionPasscode(data.value.trim())
+        }
+      } catch {
+        // keep default passcode in UI if settings fetch fails
+      }
+    })()
   }, [])
+
+  const saveAssetActionPasscode = async () => {
+    const next = assetActionPasscode.trim()
+    if (!next) {
+      toast({ title: "Invalid passcode", description: "Passcode cannot be empty", variant: "destructive" })
+      return
+    }
+    setSavingPasscode(true)
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "public_asset_actions_passcode", value: next }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast({ title: "Failed", description: data.error || "Could not save passcode", variant: "destructive" })
+        return
+      }
+      toast({ title: "Saved", description: "Public asset action passcode updated." })
+    } finally {
+      setSavingPasscode(false)
+    }
+  }
 
   const createUser = async () => {
     if (isCreating) return
@@ -269,6 +307,26 @@ export default function UsersPage() {
               <Button onClick={createUser} disabled={isCreating} className="md:col-span-2">
                 {isCreating ? "Creating user..." : "Create User"}
               </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle>Public Asset Action Passcode</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                This code protects public action popups on the EMR overview page.
+              </p>
+              <div className="flex flex-col gap-2 md:max-w-md">
+                <Input
+                  type="password"
+                  value={assetActionPasscode}
+                  onChange={(e) => setAssetActionPasscode(e.target.value)}
+                  placeholder="Enter passcode"
+                />
+                <Button onClick={saveAssetActionPasscode} disabled={savingPasscode}>
+                  {savingPasscode ? "Saving..." : "Update Passcode"}
+                </Button>
+              </div>
             </CardContent>
           </Card>
 

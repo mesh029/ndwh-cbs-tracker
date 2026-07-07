@@ -1,8 +1,10 @@
 "use client"
 
+import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Wifi, HardDrive, Cpu, Ticket } from "lucide-react"
 import {
   PieChart,
@@ -24,6 +26,7 @@ import type { ChartConfig } from "@/components/ui/chart"
 import { SectionUpload } from "@/components/section-upload"
 import type { Location } from "@/lib/storage"
 import { buildCountyDashboardInsights, type CountyServerAsset } from "@/lib/county-dashboard-insights"
+import { useRouter } from "next/navigation"
 
 type Props = {
   location: Location
@@ -76,8 +79,8 @@ function DonutChart({
           </PieChart>
         </ResponsiveContainer>
       </ChartContainer>
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className="text-center">
+      <div className="absolute inset-0 z-0 flex items-center justify-center pointer-events-none">
+        <div className="text-center rounded-md bg-background/95 px-3 py-2 shadow-sm">
           <div className="text-2xl font-bold tabular-nums">{centerValue}</div>
           <div className="text-xs text-muted-foreground">{centerLabel}</div>
         </div>
@@ -94,6 +97,8 @@ export function CountyInsightsPanel({
   tickets,
   onRefresh,
 }: Props) {
+  const router = useRouter()
+  const [graphSection, setGraphSection] = useState<"overview" | "hardware" | "connectivity">("overview")
   const insights = buildCountyDashboardInsights({
     facilities,
     serverAssets,
@@ -101,11 +106,42 @@ export function CountyInsightsPanel({
     totalFacilities,
   })
 
-  const { emrRollout, ticketStatus, issueTypes, lanCoverage, storageProfile, ramProfile, connectivity } =
+  const {
+    emrRollout,
+    facilityVersionDistribution,
+    ticketStatus,
+    issueTypes,
+    lanCoverage,
+    storageProfile,
+    ramProfile,
+    connectivity,
+  } =
     insights
 
   return (
     <div className="space-y-6">
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="text-base">County Graph Slicer</CardTitle>
+              <CardDescription>Show one county insight section at a time</CardDescription>
+            </div>
+            <Select value={graphSection} onValueChange={(v) => setGraphSection(v as typeof graphSection)}>
+              <SelectTrigger className="w-[240px]">
+                <SelectValue placeholder="Select section" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="overview">EMR & Operations</SelectItem>
+                <SelectItem value="hardware">Hardware Profiles</SelectItem>
+                <SelectItem value="connectivity">Connectivity Snapshot</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+      </Card>
+
+      {graphSection === "overview" && (
       <Card>
         <CardHeader>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -127,7 +163,7 @@ export function CountyInsightsPanel({
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-5">
             <div className="space-y-3">
               <h4 className="text-sm font-semibold">KenyaEMR rollout</h4>
               <p className="text-xs text-muted-foreground">
@@ -147,6 +183,37 @@ export function CountyInsightsPanel({
                   Pending: {emrRollout.pending}
                 </Badge>
               </div>
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold">EMR versions by facility</h4>
+              <p className="text-xs text-muted-foreground">
+                County facilities: {facilityVersionDistribution.totalFacilities} · with server version:{" "}
+                {facilityVersionDistribution.facilitiesWithVersion}
+              </p>
+              <DonutChart
+                data={facilityVersionDistribution.chart}
+                centerValue={`${facilityVersionDistribution.latestPct}%`}
+                centerLabel={`on ${facilityVersionDistribution.latestVersion}`}
+              />
+              <div className="flex flex-wrap gap-2 justify-center text-xs">
+                <Badge variant="outline" className="text-emerald-700 border-emerald-300">
+                  Latest: {facilityVersionDistribution.latestCount}
+                </Badge>
+                <Badge variant="outline" className="text-slate-700 border-slate-300">
+                  Versioned: {facilityVersionDistribution.facilitiesWithVersion}
+                </Badge>
+                <Badge variant="outline" className="text-amber-700 border-amber-300">
+                  Blank version: {facilityVersionDistribution.blankVersionCount}
+                </Badge>
+                <Badge variant="outline" className="text-gray-700 border-gray-300">
+                  No server: {facilityVersionDistribution.noServerCount}
+                </Badge>
+              </div>
+              <p className="text-xs text-center text-muted-foreground">
+                Latest share: {facilityVersionDistribution.latestPct}% of all facilities (
+                {facilityVersionDistribution.latestPctAmongVersioned}% of versioned)
+              </p>
             </div>
 
             <div className="space-y-3">
@@ -189,7 +256,9 @@ export function CountyInsightsPanel({
           </div>
         </CardContent>
       </Card>
+      )}
 
+      {graphSection === "hardware" && (
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader className="pb-2">
@@ -250,7 +319,9 @@ export function CountyInsightsPanel({
           </CardContent>
         </Card>
       </div>
+      )}
 
+      {graphSection === "connectivity" && (
       <Card>
         <CardHeader>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -261,7 +332,23 @@ export function CountyInsightsPanel({
               </CardTitle>
               <CardDescription>LAN and router coverage across {location} facilities</CardDescription>
             </div>
-            <SectionUpload section="lan" location={location} onUploadComplete={onRefresh} buttonLayout="column" />
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge
+                variant="outline"
+                className="cursor-pointer border-red-300 text-red-700 hover:bg-red-50"
+                onClick={() => router.push(`/asset-manager?location=${encodeURIComponent(location)}&tab=mobile-phone`)}
+              >
+                Delete SIMs
+              </Badge>
+              <Badge
+                variant="outline"
+                className="cursor-pointer border-red-300 text-red-700 hover:bg-red-50"
+                onClick={() => router.push(`/asset-manager?location=${encodeURIComponent(location)}&tab=lan`)}
+              >
+                Delete LANs
+              </Badge>
+              <SectionUpload section="lan" location={location} onUploadComplete={onRefresh} buttonLayout="column" />
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -338,6 +425,7 @@ export function CountyInsightsPanel({
           </div>
         </CardContent>
       </Card>
+      )}
     </div>
   )
 }

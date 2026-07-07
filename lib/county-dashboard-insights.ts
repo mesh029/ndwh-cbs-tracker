@@ -131,7 +131,14 @@ export function deriveConnectivityFromFacilities(facilities: any[]): {
 
 export function deriveEmrRollout(facilities: any[], serverAssets: CountyServerAsset[]) {
   const inventory = buildMergedServerInventory(facilities, serverAssets)
-  const targetVersion = TARGET_KENYAEMR_VERSION
+  const trackedVersions = serverAssets
+    .map((asset) => (asset.kenyaemrVersion || "").trim())
+    .filter((version) => version.length > 0)
+
+  const targetVersion =
+    trackedVersions.length > 0
+      ? trackedVersions.sort((a, b) => compareKenyaEmrVersions(b, a))[0]
+      : TARGET_KENYAEMR_VERSION
 
   let upgraded = 0
   let pending = 0
@@ -179,6 +186,75 @@ export function deriveEmrRollout(facilities: any[], serverAssets: CountyServerAs
     rolloutPct,
     targetVersion,
     topVersion: versionBreakdown[0]?.key || targetVersion,
+  }
+}
+
+/** Highest KenyaEMR version per facility for county version distribution. */
+export function deriveFacilityVersionDistribution(facilities: any[], serverAssets: CountyServerAsset[]) {
+  const highestByFacility = new Map<string, string>()
+  const blankOnlyFacilities = new Set<string>()
+  const anyServerFacility = new Set<string>()
+  const totalFacilities = facilities.length
+
+  // Versions are server properties: only server assets contribute versions.
+  for (const server of serverAssets) {
+    const facilityKey = server.facilityName.trim().toLowerCase()
+    if (!facilityKey) continue
+    anyServerFacility.add(facilityKey)
+    const version = (server.kenyaemrVersion || "").trim()
+    if (!version) {
+      if (!highestByFacility.has(facilityKey)) blankOnlyFacilities.add(facilityKey)
+      continue
+    }
+    blankOnlyFacilities.delete(facilityKey)
+    const existing = highestByFacility.get(facilityKey)
+    if (!existing || compareKenyaEmrVersions(version, existing) > 0) {
+      highestByFacility.set(facilityKey, version)
+    }
+  }
+
+  const byVersion = new Map<string, number>()
+  Array.from(highestByFacility.values()).forEach((version) => {
+    byVersion.set(version, (byVersion.get(version) || 0) + 1)
+  })
+
+  const sorted = Array.from(byVersion.entries()).sort((a, b) => compareKenyaEmrVersions(b[0], a[0]))
+  const latestVersion = sorted[0]?.[0] || "N/A"
+  const latestCount = sorted[0]?.[1] || 0
+  const facilitiesWithVersion = highestByFacility.size
+  const blankVersionCount = blankOnlyFacilities.size
+  const noServerCount = Math.max(0, totalFacilities - anyServerFacility.size)
+  const facilitiesWithoutVersion = blankVersionCount + noServerCount
+  const latestPct = totalFacilities > 0 ? Math.round((latestCount / totalFacilities) * 100) : 0
+  const latestPctAmongVersioned =
+    facilitiesWithVersion > 0 ? Math.round((latestCount / facilitiesWithVersion) * 100) : 0
+
+  const chart = [
+    ...sorted.map(([version, count], index) => ({
+      name: index === 0 ? `${version} (latest)` : version,
+      value: count,
+      key: version,
+      fill: index === 0 ? "#10B981" : "#94A3B8",
+    })),
+    ...(blankVersionCount > 0
+      ? [{ name: "Blank server version", value: blankVersionCount, key: "blank-version", fill: "#CBD5E1" }]
+      : []),
+    ...(noServerCount > 0
+      ? [{ name: "No server record", value: noServerCount, key: "no-server", fill: "#E2E8F0" }]
+      : []),
+  ]
+
+  return {
+    chart,
+    latestVersion,
+    latestCount,
+    latestPct,
+    latestPctAmongVersioned,
+    totalFacilities,
+    facilitiesWithVersion,
+    facilitiesWithoutVersion,
+    blankVersionCount,
+    noServerCount,
   }
 }
 
@@ -280,6 +356,7 @@ export function buildCountyDashboardInsights(input: {
     connectivity,
     inventory,
     emrRollout: deriveEmrRollout(input.facilities, input.serverAssets),
+    facilityVersionDistribution: deriveFacilityVersionDistribution(input.facilities, input.serverAssets),
     ticketStatus: deriveTicketStatusChart(input.tickets),
     issueTypes: deriveIssueTypeChart(input.tickets),
     lanCoverage: deriveLanCoverage(input.totalFacilities, connectivity.facilitiesWithLAN),

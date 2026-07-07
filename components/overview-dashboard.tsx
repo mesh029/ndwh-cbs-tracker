@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ChipRow, CountyChipRow } from "@/components/filter-chips"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
 import { 
@@ -61,6 +62,18 @@ const EMPTY_TOTALS = {
   facilitiesWithLAN: 0,
 }
 
+function compareVersions(a: string, b: string): number {
+  const pa = a.trim().split(".").map((x) => Number.parseInt(x, 10) || 0)
+  const pb = b.trim().split(".").map((x) => Number.parseInt(x, 10) || 0)
+  const len = Math.max(pa.length, pb.length)
+  for (let i = 0; i < len; i++) {
+    const diff = (pa[i] || 0) - (pb[i] || 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
+
 function MetricValue({
   value,
   className,
@@ -92,6 +105,8 @@ export function OverviewDashboard() {
       : boot.locations.filter((loc) => !boot.counties.some((c) => c.location === loc))
   )
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [chartView, setChartView] = useState<"ticket-status" | "facilities" | "tickets">("ticket-status")
+  const [graphSection, setGraphSection] = useState<"emr" | "server" | "charts" | "ticket-analytics">("emr")
   const [ticketAnalytics, setTicketAnalytics] = useState<{
     byServerType: Array<{ 
       serverType: string; 
@@ -391,6 +406,66 @@ export function OverviewDashboard() {
     ]
   }, [totals])
 
+  const emrVersionOverview = useMemo(() => {
+    const visibleRaw = displayLocations
+      .map((loc) => rawCountiesByLoc[loc])
+      .filter(Boolean) as OverviewCountyRaw[]
+
+    const totalFacilities = visibleRaw.reduce((sum, c) => sum + c.facilities.length, 0)
+    const highestByFacility = new Map<string, string>()
+    const blankOnlyFacilities = new Set<string>()
+    const anyServerFacility = new Set<string>()
+
+    for (const county of visibleRaw) {
+      for (const server of county.servers) {
+        const facilityName = (server.facilityName || "").trim().toLowerCase()
+        const version = (server.kenyaemrVersion || "").trim()
+        if (!facilityName) continue
+        const key = `${county.location}::${facilityName}`
+        anyServerFacility.add(key)
+        if (!version) {
+          if (!highestByFacility.has(key)) blankOnlyFacilities.add(key)
+          continue
+        }
+        blankOnlyFacilities.delete(key)
+        const current = highestByFacility.get(key)
+        if (!current || compareVersions(version, current) > 0) highestByFacility.set(key, version)
+      }
+    }
+
+    const counts = new Map<string, number>()
+    Array.from(highestByFacility.values()).forEach((version) => {
+      counts.set(version, (counts.get(version) || 0) + 1)
+    })
+
+    const sorted = Array.from(counts.entries()).sort((a, b) => compareVersions(b[0], a[0]))
+    const latestVersion = sorted[0]?.[0] || "N/A"
+    const latestCount = sorted[0]?.[1] || 0
+    const versioned = highestByFacility.size
+    const blankVersionCount = blankOnlyFacilities.size
+    const noServerCount = Math.max(0, totalFacilities - anyServerFacility.size)
+    const unversioned = blankVersionCount + noServerCount
+
+    return {
+      latestVersion,
+      latestCount,
+      totalFacilities,
+      versioned,
+      unversioned,
+      blankVersionCount,
+      noServerCount,
+      chart: [
+        ...sorted.map(([version, count], i) => ({
+          name: i === 0 ? `${version} (latest)` : version,
+          value: count,
+          fill: i === 0 ? "#10B981" : "#94A3B8",
+        })),
+        ...(blankVersionCount > 0 ? [{ name: "Blank server version", value: blankVersionCount, fill: "#CBD5E1" }] : []),
+        ...(noServerCount > 0 ? [{ name: "No server record", value: noServerCount, fill: "#E2E8F0" }] : []),
+      ],
+    }
+  }, [displayLocations, rawCountiesByLoc])
+
   if (authLoading === false && !allowedLocations.length) {
     return (
       <div className="flex flex-col items-center justify-center h-96 gap-2 text-center">
@@ -605,7 +680,7 @@ export function OverviewDashboard() {
             return (
             <Card 
               key={loc} 
-              className="cursor-pointer hover:bg-accent/50 transition-colors"
+              className="cursor-pointer bg-card hover:bg-accent transition-colors"
               onClick={() => router.push(`/nyamira?location=${loc}`)}
             >
               <CardHeader className="pb-2">
@@ -659,7 +734,98 @@ export function OverviewDashboard() {
         </div>
       </div>
 
-      {aggregatedServerDistribution.length > 0 && (
+      {graphSection === "emr" && (
+      <Card>
+        <CardHeader>
+          <CardTitle>EMR Version Overview</CardTitle>
+          <CardDescription>
+            Single donut for facility versions from server records across visible counties
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="relative h-[260px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={emrVersionOverview.chart}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={60}
+                    outerRadius={96}
+                    paddingAngle={3}
+                  >
+                    {emrVersionOverview.chart.map((entry, index) => (
+                      <Cell key={`emr-${index}`} fill={entry.fill} />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                <div className="rounded-md bg-background/95 px-3 py-2 text-center shadow-sm">
+                  <div className="text-2xl font-bold">{emrVersionOverview.latestCount}</div>
+                  <div className="text-xs text-muted-foreground">on {emrVersionOverview.latestVersion}</div>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Total facilities</span>
+                <Badge variant="outline">{emrVersionOverview.totalFacilities}</Badge>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">With EMR version</span>
+                <Badge variant="outline">{emrVersionOverview.versioned}</Badge>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Without version</span>
+                <Badge variant="outline">{emrVersionOverview.unversioned}</Badge>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Blank server version</span>
+                <Badge variant="outline">{emrVersionOverview.blankVersionCount}</Badge>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">No server record</span>
+                <Badge variant="outline">{emrVersionOverview.noServerCount}</Badge>
+              </div>
+              <div className="pt-2 border-t space-y-2">
+                {emrVersionOverview.chart.map((item) => (
+                  <div key={item.name} className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">{item.name}</span>
+                    <span className="font-medium">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      )}
+
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle>Graph Slicer</CardTitle>
+              <CardDescription>Show one graph section at a time</CardDescription>
+            </div>
+            <Select value={graphSection} onValueChange={(v) => setGraphSection(v as typeof graphSection)}>
+              <SelectTrigger className="w-[260px]">
+                <SelectValue placeholder="Select graph section" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="emr">EMR Version Overview</SelectItem>
+                <SelectItem value="server">Server Distribution</SelectItem>
+                <SelectItem value="charts">Charts Section</SelectItem>
+                <SelectItem value="ticket-analytics">Ticket Analytics</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+      </Card>
+
+      {graphSection === "server" && aggregatedServerDistribution.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -713,7 +879,7 @@ export function OverviewDashboard() {
                     </ResponsiveContainer>
                   </ChartContainer>
                   {/* Center label */}
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="absolute inset-0 z-0 flex items-center justify-center pointer-events-none">
                     <div className="text-center">
                       <div className="text-3xl font-bold">
                         {totals.totalFacilities}
@@ -826,18 +992,31 @@ export function OverviewDashboard() {
         </Card>
       )}
 
-      {/* Charts Section */}
-      <div className="grid gap-6 md:grid-cols-2">
-
-        {/* Ticket Status Distribution */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Ticket Status Distribution</CardTitle>
-            <CardDescription>All tickets across all counties</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ChartContainer config={serverChartConfig}>
-              <ResponsiveContainer width="100%" height={300}>
+      {/* Charts Section (compressed with slicer) */}
+      {graphSection === "charts" && (
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle>Charts Section</CardTitle>
+              <CardDescription>Switch between key visualizations using slicer</CardDescription>
+            </div>
+            <Select value={chartView} onValueChange={(v) => setChartView(v as typeof chartView)}>
+              <SelectTrigger className="w-[240px]">
+                <SelectValue placeholder="Select chart" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ticket-status">Ticket Status Distribution</SelectItem>
+                <SelectItem value="facilities">Facilities by County</SelectItem>
+                <SelectItem value="tickets">Tickets by County</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <ChartContainer config={serverChartConfig}>
+            <ResponsiveContainer width="100%" height={320}>
+              {chartView === "ticket-status" ? (
                 <PieChart>
                   <Pie
                     data={ticketStatusChartData}
@@ -855,20 +1034,7 @@ export function OverviewDashboard() {
                   </Pie>
                   <ChartTooltip content={<ChartTooltipContent />} />
                 </PieChart>
-              </ResponsiveContainer>
-            </ChartContainer>
-          </CardContent>
-        </Card>
-
-        {/* County Comparison - Facilities */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Facilities by County</CardTitle>
-            <CardDescription>Total facilities per county</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ChartContainer config={serverChartConfig}>
-              <ResponsiveContainer width="100%" height={300}>
+              ) : chartView === "facilities" ? (
                 <BarChart data={countyComparisonChartData}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey="county" tickLine={false} axisLine={false} className="text-xs" />
@@ -876,20 +1042,7 @@ export function OverviewDashboard() {
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <Bar dataKey="facilities" fill="#3B82F6" radius={[4, 4, 0, 0]} />
                 </BarChart>
-              </ResponsiveContainer>
-            </ChartContainer>
-          </CardContent>
-        </Card>
-
-        {/* County Comparison - Tickets */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Tickets by County</CardTitle>
-            <CardDescription>Ticket distribution across counties</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ChartContainer config={serverChartConfig}>
-              <ResponsiveContainer width="100%" height={300}>
+              ) : (
                 <BarChart data={countyComparisonChartData}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey="county" tickLine={false} axisLine={false} className="text-xs" />
@@ -900,14 +1053,15 @@ export function OverviewDashboard() {
                   <Bar dataKey="inProgress" stackId="a" fill="#F59E0B" name="In Progress" />
                   <Bar dataKey="resolved" stackId="a" fill="#10B981" name="Resolved" />
                 </BarChart>
-              </ResponsiveContainer>
-            </ChartContainer>
-          </CardContent>
-        </Card>
-      </div>
+              )}
+            </ResponsiveContainer>
+          </ChartContainer>
+        </CardContent>
+      </Card>
+      )}
 
       {/* Ticket Analytics Section */}
-      {ticketAnalytics && ticketAnalytics.byServerType.length > 0 && (
+      {graphSection === "ticket-analytics" && ticketAnalytics && ticketAnalytics.byServerType.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

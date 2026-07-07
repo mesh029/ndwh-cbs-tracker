@@ -208,8 +208,13 @@ export function AssetCommandDashboard({
     )
   }
 
-  const { totals, distributionChart, typeChart, byLocation, lostAssets } = view
+  const { totals, typeChart, byLocation, lostAssets } = view
   const topTypes = typeChart.slice(0, 8)
+  const statusChart = [
+    { name: "Active", value: totals.active },
+    { name: "Lost", value: totals.lost },
+    { name: "Recovered", value: totals.recovered },
+  ]
 
   return (
     <div className="space-y-6">
@@ -276,25 +281,32 @@ export function AssetCommandDashboard({
             <CardDescription>Active, lost, and recovered across all asset types</CardDescription>
           </CardHeader>
           <CardContent>
-            {distributionChart.length === 0 ? (
+            {totals.total === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-12">No tracked assets yet</p>
             ) : (
-              <ChartContainer config={pieConfig} className="mx-auto aspect-square max-h-[260px]">
-                <PieChart>
-                  <ChartTooltip content={<ChartTooltipContent hideLabel />} />
-                  <Pie
-                    data={distributionChart}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={50}
-                    strokeWidth={4}
-                  >
-                    {distributionChart.map((_, i) => (
-                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                </PieChart>
-              </ChartContainer>
+              <div className="space-y-3">
+                <ChartContainer config={pieConfig} className="mx-auto aspect-square max-h-[260px]">
+                  <PieChart>
+                    <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                    <Pie
+                      data={statusChart}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={50}
+                      strokeWidth={4}
+                    >
+                      {statusChart.map((_, i) => (
+                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ChartContainer>
+                <div className="flex flex-wrap justify-center gap-2 text-xs">
+                  <span className="rounded-md border px-2 py-1">Active: {totals.active}</span>
+                  <span className="rounded-md border px-2 py-1">Lost: {totals.lost}</span>
+                  <span className="rounded-md border px-2 py-1">Recovered: {totals.recovered}</span>
+                </div>
+              </div>
             )}
           </CardContent>
         </Card>

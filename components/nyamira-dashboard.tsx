@@ -122,6 +122,9 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
   const [isLoadingTickets, setIsLoadingTickets] = useState(true)
   const [hasLoadedTickets, setHasLoadedTickets] = useState(false)
   const [hasLoadedServerDistribution, setHasLoadedServerDistribution] = useState(false)
+  const [countyGraphSection, setCountyGraphSection] = useState<
+    "critical" | "server-distribution" | "subcounty" | "insights" | "ticket-correlation"
+  >("insights")
   const { toast } = useToast()
 
   useEffect(() => {
@@ -374,6 +377,36 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
         </p>
       </div>
 
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="text-base">County Graph Slicer</CardTitle>
+              <CardDescription>Switch between county-level chart sections</CardDescription>
+            </div>
+            <Select
+              value={countyGraphSection}
+              onValueChange={(v) =>
+                setCountyGraphSection(
+                  v as "critical" | "server-distribution" | "subcounty" | "insights" | "ticket-correlation"
+                )
+              }
+            >
+              <SelectTrigger className="w-[260px]">
+                <SelectValue placeholder="Select graph section" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="insights">EMR & Operations</SelectItem>
+                <SelectItem value="server-distribution">Server Distribution</SelectItem>
+                <SelectItem value="subcounty">Subcounty Server Distribution</SelectItem>
+                <SelectItem value="ticket-correlation">Ticket Correlation</SelectItem>
+                <SelectItem value="critical">Critical Issues</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+      </Card>
+
       {/* Overview Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card>
@@ -511,10 +544,10 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
         </Card>
       </div>
 
-      <CriticalServerIssuesPanel location={location} />
+      {countyGraphSection === "critical" && <CriticalServerIssuesPanel location={location} />}
 
       {/* Server Distribution Section */}
-      {isLoadingData && !hasLoadedServerDistribution ? (
+      {countyGraphSection === "server-distribution" && (isLoadingData && !hasLoadedServerDistribution ? (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -591,7 +624,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
                     </ResponsiveContainer>
                   </ChartContainer>
                   {/* Center label */}
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="absolute inset-0 z-0 flex items-center justify-center pointer-events-none">
                     <div className="text-center">
                       <div className="text-3xl font-bold">
                         {ndwhMasterTotal || serverDistribution.reduce((sum, item) => sum + item.count, 0)}
@@ -702,10 +735,10 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
             </div>
           </CardContent>
         </Card>
-      ) : null}
+      ) : null)}
 
       {/* Server Type Distribution by Subcounty */}
-      {subcountyDistribution.length > 0 && (
+      {countyGraphSection === "subcounty" && subcountyDistribution.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -889,16 +922,19 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
       )}
 
       {/* EMR rollout, connectivity, hardware & ticket insights */}
-      <CountyInsightsPanel
-        location={location}
-        totalFacilities={ndwhMasterTotal}
-        serverAssets={serverAssets}
-        facilities={countyFacilities}
-        tickets={tickets}
-        onRefresh={refreshCountyDashboard}
-      />
+      {countyGraphSection === "insights" && (
+        <CountyInsightsPanel
+          location={location}
+          totalFacilities={ndwhMasterTotal}
+          serverAssets={serverAssets}
+          facilities={countyFacilities}
+          tickets={tickets}
+          onRefresh={refreshCountyDashboard}
+        />
+      )}
 
       {/* Tickets & Server Issue Correlation Section */}
+      {countyGraphSection === "ticket-correlation" && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -935,6 +971,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
           )}
         </CardContent>
       </Card>
+      )}
 
     </div>
   )

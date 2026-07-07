@@ -1,4 +1,7 @@
 import { prisma } from "@/lib/prisma"
+import { getArticleSlug, slugifyArticleTitle } from "@/lib/article-slug"
+
+export { getArticleSlug, slugifyArticleTitle }
 
 export const ARTICLES_SETTING_KEY = "his_articles_v1"
 const DEFAULT_ARTICLE_AUTHOR = "Meshack Ariri"
@@ -17,21 +20,6 @@ export interface Article {
   createdAt: string
   updatedAt: string
   publishedAt: string | null
-}
-
-export function slugifyArticleTitle(title: string): string {
-  return title
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-}
-
-export function getArticleSlug(article: Article): string {
-  const base = slugifyArticleTitle(article.title)
-  const safeBase = base || "article"
-  return `${safeBase}-${article.id.slice(0, 8)}`
 }
 
 const SAMPLE_ARTICLES: Article[] = [

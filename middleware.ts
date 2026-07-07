@@ -3,7 +3,7 @@ import { AUTH_ACCESS_COOKIE, AUTH_COOKIE_NAME, canAccessPath, getDefaultRedirect
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const publicPaths = new Set(["/", "/login", "/articles"])
+  const publicPaths = new Set(["/", "/login", "/articles", "/emr-overview"])
 
   if (
     pathname.startsWith("/_next") ||
@@ -17,6 +17,22 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  if (pathname.startsWith("/api/public/emr-versions") && request.method === "GET") {
+    return NextResponse.next()
+  }
+
+  if (pathname.startsWith("/api/public/emr-facilities") && request.method === "GET") {
+    return NextResponse.next()
+  }
+
+  if (pathname.startsWith("/api/public/asset-register") && request.method === "GET") {
+    return NextResponse.next()
+  }
+
+  if (pathname.startsWith("/api/public/asset-actions")) {
+    return NextResponse.next()
+  }
+
   if (pathname.startsWith("/api/home/metrics") && request.method === "GET") {
     return NextResponse.next()
   }
@@ -26,7 +42,7 @@ export function middleware(request: NextRequest) {
   const access = parseAccessCookie(request.cookies.get(AUTH_ACCESS_COOKIE)?.value)
 
   if (!role) {
-    if (publicPaths.has(pathname) || pathname.startsWith("/articles/")) return NextResponse.next()
+    if (publicPaths.has(pathname) || pathname.startsWith("/articles/") || pathname.startsWith("/emr-overview")) return NextResponse.next()
     if (pathname.startsWith("/api/articles") && request.method === "GET") {
       return NextResponse.next()
     }

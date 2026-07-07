@@ -23,6 +23,7 @@ export interface OverviewCountyRaw {
     facilityId?: string
     facilityName?: string
     serverType?: string | null
+    kenyaemrVersion?: string | null
   }>
 }
 

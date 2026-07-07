@@ -53,6 +53,7 @@ export async function loadOverviewCountySlice(location: Location): Promise<Overv
         location: true,
         facilityId: true,
         serverType: true,
+        kenyaemrVersion: true,
         facility: { select: { name: true } },
       },
     }),
@@ -66,6 +67,7 @@ export async function loadOverviewCountySlice(location: Location): Promise<Overv
       facilityId: s.facilityId,
       facilityName: s.facility.name,
       serverType: s.serverType,
+      kenyaemrVersion: s.kenyaemrVersion,
     })),
   }
 }
@@ -119,6 +121,7 @@ export async function loadAllCounties(locations: Location[]): Promise<OverviewCo
         location: true,
         facilityId: true,
         serverType: true,
+        kenyaemrVersion: true,
         facility: { select: { name: true } },
       },
     }),
@@ -134,6 +137,7 @@ export async function loadAllCounties(locations: Location[]): Promise<OverviewCo
         facilityId: s.facilityId,
         facilityName: s.facility.name,
         serverType: s.serverType,
+        kenyaemrVersion: s.kenyaemrVersion,
       })),
   }))
 }

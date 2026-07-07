@@ -3,7 +3,7 @@
 import { useState, useEffect, type ReactNode } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Download, FileText, Building2, Package, Ticket, Loader2 } from "lucide-react"
+import { Download, FileText, Building2, Package, Ticket, Loader2, Cpu } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import type { Location } from "@/lib/storage"
 import * as XLSX from "xlsx"
@@ -21,12 +21,13 @@ import {
 
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
-type ReportType = "facilities" | "assets" | "tickets"
+type ReportType = "facilities" | "assets" | "tickets" | "emrVersions"
 
 const REPORT_OPTIONS = [
   { value: "facilities" as const, label: "Facilities", icon: <Building2 className="h-3.5 w-3.5" /> },
   { value: "assets" as const, label: "Assets", icon: <Package className="h-3.5 w-3.5" /> },
   { value: "tickets" as const, label: "Tickets", icon: <Ticket className="h-3.5 w-3.5" /> },
+  { value: "emrVersions" as const, label: "EMR Versions", icon: <Cpu className="h-3.5 w-3.5" /> },
 ]
 
 export function Reports() {
@@ -248,10 +249,219 @@ export function Reports() {
     }
   }
 
+  const compareVersions = (a: string, b: string) => {
+    const pa = a.trim().split(".").map((p) => Number.parseInt(p, 10) || 0)
+    const pb = b.trim().split(".").map((p) => Number.parseInt(p, 10) || 0)
+    const len = Math.max(pa.length, pb.length)
+    for (let i = 0; i < len; i++) {
+      const diff = (pa[i] || 0) - (pb[i] || 0)
+      if (diff !== 0) return diff
+    }
+    return 0
+  }
+
+  const exportEmrVersionReport = async () => {
+    const startedAt = performance.now()
+    let stepsDone = 0
+    const stepsTotal = 5
+    setExporting(true)
+    setExportStep("Collecting facility and server versions…")
+    const progress = toast({ title: "EMR version report…", description: "Starting…" })
+    const tick = (label: string) => {
+      stepsDone++
+      setExportStep(label)
+      const etaMs = (performance.now() - startedAt) / stepsDone * (stepsTotal - stepsDone)
+      progress.update({ title: "EMR version report…", description: `${label} • ETA ${formatDuration(etaMs)}` })
+    }
+
+    try {
+      const wb = XLSX.utils.book_new()
+      const timestamp = new Date().toISOString().split("T")[0]
+      const locations = resolveLocations()
+
+      const summaryRows: Array<Record<string, string | number>> = []
+      const breakdownRows: Array<Record<string, string | number>> = []
+      const facilityRows: Array<Record<string, string | number>> = []
+      const rawServerRows: Array<Record<string, string | number>> = []
+      const globalVersionSet = new Set<string>()
+
+      for (const loc of locations) {
+        try {
+          const [facRes, serverRes] = await Promise.all([
+            fetch(`/api/facilities?system=NDWH&location=${loc}&isMaster=true`),
+            fetch(`/api/assets/servers?location=${loc}`),
+          ])
+          if (!facRes.ok || !serverRes.ok) continue
+
+          const facilitiesData = await facRes.json()
+          const serversData = await serverRes.json()
+          const facilities = facilitiesData.facilities || []
+          const servers = serversData.assets || []
+
+          const highestByFacility = new Map<string, string>()
+          const serverCountByFacility = new Map<string, number>()
+          const blankServerRowsByFacility = new Map<string, number>()
+          const facilityNameByKey = new Map<string, string>()
+          const facilitySubcountyByKey = new Map<string, string>()
+
+          for (const f of facilities) {
+            const key = String(f.name || "").trim().toLowerCase()
+            if (!key) continue
+            facilityNameByKey.set(key, f.name || "")
+            facilitySubcountyByKey.set(key, f.subcounty || "")
+          }
+
+          for (const s of servers) {
+            const facilityName = String(s.facilityName || "").trim()
+            const key = facilityName.toLowerCase()
+            if (!key) continue
+            const version = String(s.kenyaemrVersion || "").trim()
+            serverCountByFacility.set(key, (serverCountByFacility.get(key) || 0) + 1)
+            if (!version) {
+              blankServerRowsByFacility.set(key, (blankServerRowsByFacility.get(key) || 0) + 1)
+            } else {
+              globalVersionSet.add(version)
+              const existing = highestByFacility.get(key)
+              if (!existing || compareVersions(version, existing) > 0) highestByFacility.set(key, version)
+            }
+            rawServerRows.push({
+              Location: loc,
+              "Facility Name": facilityName,
+              Subcounty: s.subcounty || "",
+              "Server Type": s.serverType || "",
+              "Asset Tag": s.assetTag || "",
+              "Serial Number": s.serialNumber || "",
+              "KenyaEMR Version": version || "",
+              Status: s.assetStatus || "",
+            })
+          }
+
+          const latestVersion = Array.from(globalVersionSet).sort((a, b) => compareVersions(b, a))[0] || "N/A"
+          const totalFacilities = facilities.length
+          const versioned = highestByFacility.size
+          const blankOnly = Array.from(serverCountByFacility.keys()).filter(
+            (k) => (serverCountByFacility.get(k) || 0) > 0 && !highestByFacility.has(k)
+          ).length
+          const noServer = Math.max(0, totalFacilities - serverCountByFacility.size)
+          const latestCount = Array.from(highestByFacility.values()).filter((v) => v === latestVersion).length
+
+          const versionCounts = new Map<string, number>()
+          Array.from(highestByFacility.values()).forEach((v) => {
+            versionCounts.set(v, (versionCounts.get(v) || 0) + 1)
+          })
+          const sortedVersions = Array.from(versionCounts.entries()).sort((a, b) => compareVersions(b[0], a[0]))
+
+          summaryRows.push({
+            Location: loc,
+            "Total Facilities": totalFacilities,
+            "Facilities With Version": versioned,
+            "Latest Version": latestVersion,
+            "Facilities on Latest": latestCount,
+            "Blank Server Version (facility level)": blankOnly,
+            "No Server Record": noServer,
+            "Latest % of All Facilities": totalFacilities > 0 ? Math.round((latestCount / totalFacilities) * 100) : 0,
+            "Latest % of Versioned": versioned > 0 ? Math.round((latestCount / versioned) * 100) : 0,
+          })
+
+          for (const [version, count] of sortedVersions) {
+            breakdownRows.push({
+              Location: loc,
+              Version: version,
+              Facilities: count,
+              "Share % of All Facilities": totalFacilities > 0 ? Math.round((count / totalFacilities) * 100) : 0,
+              "Share % of Versioned": versioned > 0 ? Math.round((count / versioned) * 100) : 0,
+              "Is Latest": version === latestVersion ? "Yes" : "No",
+            })
+          }
+          if (blankOnly > 0) {
+            breakdownRows.push({
+              Location: loc,
+              Version: "Blank server version",
+              Facilities: blankOnly,
+              "Share % of All Facilities": totalFacilities > 0 ? Math.round((blankOnly / totalFacilities) * 100) : 0,
+              "Share % of Versioned": 0,
+              "Is Latest": "No",
+            })
+          }
+          if (noServer > 0) {
+            breakdownRows.push({
+              Location: loc,
+              Version: "No server record",
+              Facilities: noServer,
+              "Share % of All Facilities": totalFacilities > 0 ? Math.round((noServer / totalFacilities) * 100) : 0,
+              "Share % of Versioned": 0,
+              "Is Latest": "No",
+            })
+          }
+
+          for (const f of facilities) {
+            const facilityName = String(f.name || "")
+            const key = facilityName.trim().toLowerCase()
+            const serverCount = serverCountByFacility.get(key) || 0
+            const blankCount = blankServerRowsByFacility.get(key) || 0
+            const version = highestByFacility.get(key) || ""
+            const status =
+              version
+                ? (version === latestVersion ? "Latest" : "Below Latest")
+                : serverCount > 0
+                  ? "Blank Server Version"
+                  : "No Server Record"
+            facilityRows.push({
+              Location: loc,
+              "Facility Name": facilityName,
+              Subcounty: facilitySubcountyByKey.get(key) || "",
+              "Highest KenyaEMR Version": version,
+              "Version Status": status,
+              "Server Records": serverCount,
+              "Blank Version Server Rows": blankCount,
+            })
+          }
+        } catch (error) {
+          console.error(`EMR version report ${loc}:`, error)
+        }
+      }
+
+      const globalLatest = Array.from(globalVersionSet).sort((a, b) => compareVersions(b, a))[0] || "N/A"
+      tick("Compiling summary sheets…")
+
+      if (summaryRows.length > 0) {
+        const executiveRows = [
+          {
+            "Detected Global Latest KenyaEMR Version": globalLatest,
+            "Generated On": new Date().toLocaleString(),
+            Scope: selectedLocation === "all" ? "All accessible counties" : selectedLocation,
+          },
+        ]
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(executiveRows), "Executive Summary")
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), "County Summary")
+      }
+
+      tick("Writing breakdown…")
+      if (breakdownRows.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(breakdownRows), "Version Breakdown")
+
+      tick("Writing facility detail…")
+      if (facilityRows.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(facilityRows), "Facility Detail")
+
+      tick("Writing raw server records…")
+      if (rawServerRows.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rawServerRows), "Server Records Raw")
+
+      const suffix = selectedLocation === "all" ? "AllCounties" : selectedLocation
+      XLSX.writeFile(wb, `EMR_Version_Analysis_${suffix}_${timestamp}.xlsx`)
+      progress.update({ title: "Done", description: "EMR version report downloaded" })
+    } catch (e) {
+      console.error(e)
+      progress.update({ title: "Error", description: "Failed to export EMR version report", variant: "destructive" })
+    } finally {
+      setExporting(false)
+      setExportStep("")
+    }
+  }
+
   const handleExport = () => {
     if (selectedReport === "facilities") void exportFacilityMasterReport()
     else if (selectedReport === "assets") void exportAssetInventoryReport()
-    else void exportTicketReport()
+    else if (selectedReport === "tickets") void exportTicketReport()
+    else void exportEmrVersionReport()
   }
 
   const locationLabel =
@@ -273,6 +483,12 @@ export function Reports() {
       description: `Open, in-progress, and resolved tickets for ${locationLabel}.`,
       icon: <Ticket className="h-5 w-5" />,
     },
+    emrVersions: {
+      title: "EMR version analysis",
+      description:
+        `KenyaEMR version rollout with detected latest version, county coverage, blank versions, and facility-level status for ${locationLabel}.`,
+      icon: <Cpu className="h-5 w-5" />,
+    },
   }
 
   const active = reportMeta[selectedReport]
@@ -282,7 +498,7 @@ export function Reports() {
       <div>
         <h1 className="text-3xl font-bold">Reports &amp; Export</h1>
         <p className="text-muted-foreground mt-1">
-          Download facility master lists, full asset inventory, and ticket exports as Excel files.
+          Download facilities, asset inventory, tickets, and EMR version rollout analysis as Excel files.
         </p>
       </div>
 
