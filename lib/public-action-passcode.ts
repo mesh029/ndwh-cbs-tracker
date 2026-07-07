@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma"
 
 export const PUBLIC_ACTION_PASSCODE_KEY = "public_asset_actions_passcode"
 export const DEFAULT_PUBLIC_ACTION_PASSCODE = "lcwaikiki"
+/** Session key shared by action center + register pages */
+export const PUBLIC_REGISTER_PASSCODE_SESSION_KEY = "emr_public_action_passcode"
 
 export async function getPublicActionPasscode(): Promise<string> {
   const row = await prisma.appSetting.findUnique({ where: { key: PUBLIC_ACTION_PASSCODE_KEY } })

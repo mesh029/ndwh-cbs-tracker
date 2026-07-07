@@ -6,15 +6,13 @@ import { useSearchParams } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { RegisterPasscodeScreen } from "@/components/register-passcode-screen"
+import { useRegisterPasscode } from "@/lib/use-register-passcode"
 import { ArrowLeft, ChevronDown, ChevronRight, Download, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
-
-const PASSCODE_STORAGE_KEY = "emr_public_action_passcode"
 
 type RegisterAsset = {
   id: string
@@ -61,9 +59,15 @@ const KIND_LABEL: Record<string, string> = {
 function EmrAssetRegisterContent() {
   const searchParams = useSearchParams()
   const initialCounty = searchParams.get("county") || "all"
-  const [passcode, setPasscode] = useState("")
-  const [passcodeError, setPasscodeError] = useState("")
-  const [unlocked, setUnlocked] = useState(false)
+  const {
+    passcode,
+    setPasscode,
+    passcodeError,
+    unlocked,
+    gateReady,
+    loading: passcodeLoading,
+    tryUnlock,
+  } = useRegisterPasscode("/api/public/asset-register")
   const [data, setData] = useState<ApiPayload | null>(null)
   const [loading, setLoading] = useState(false)
   const [county, setCounty] = useState(initialCounty)
@@ -73,16 +77,8 @@ function EmrAssetRegisterContent() {
   const [search, setSearch] = useState("")
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
 
-  useEffect(() => {
-    const saved = sessionStorage.getItem(PASSCODE_STORAGE_KEY)
-    if (saved) {
-      setPasscode(saved)
-      setUnlocked(true)
-    }
-  }, [])
-
   const loadData = useCallback(async () => {
-    if (!passcode.trim()) return
+    if (!passcode.trim() || !unlocked) return
     setLoading(true)
     try {
       const qs = new URLSearchParams()
@@ -93,42 +89,18 @@ function EmrAssetRegisterContent() {
       const res = await fetch(`/api/public/asset-register?${qs}`, { cache: "no-store" })
       const json = await res.json()
       if (res.status === 401) {
-        setPasscodeError(json?.error || "Wrong passcode")
-        setUnlocked(false)
-        sessionStorage.removeItem(PASSCODE_STORAGE_KEY)
+        setData(null)
         return
       }
       if (res.ok) setData(json)
     } finally {
       setLoading(false)
     }
-  }, [passcode, county, facilityId])
+  }, [passcode, county, facilityId, unlocked])
 
   useEffect(() => {
     if (unlocked && passcode.trim()) void loadData()
   }, [unlocked, loadData, passcode])
-
-  const tryUnlock = async () => {
-    setPasscodeError("")
-    setLoading(true)
-    try {
-      const qs = new URLSearchParams()
-      qs.set("passcode", passcode.trim())
-      if (county !== "all") qs.set("location", county)
-      qs.set("ts", String(Date.now()))
-      const res = await fetch(`/api/public/asset-register?${qs}`, { cache: "no-store" })
-      const json = await res.json()
-      if (!res.ok) {
-        setPasscodeError(json?.error || "Wrong passcode")
-        return
-      }
-      sessionStorage.setItem(PASSCODE_STORAGE_KEY, passcode.trim())
-      setData(json)
-      setUnlocked(true)
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const facilitiesInCounty = useMemo(() => {
     const rows = data?.facilities || []
@@ -206,45 +178,30 @@ function EmrAssetRegisterContent() {
     URL.revokeObjectURL(url)
   }
 
+  if (!gateReady) {
+    return (
+      <main className="flex min-h-[100dvh] items-center justify-center bg-background p-4">
+        <p className="text-muted-foreground">Loading...</p>
+      </main>
+    )
+  }
+
+  if (!unlocked) {
+    return (
+      <RegisterPasscodeScreen
+        title="Asset register access"
+        description="Enter the action passcode to view the full asset register and download reports."
+        passcode={passcode}
+        passcodeError={passcodeError}
+        loading={passcodeLoading}
+        onPasscodeChange={setPasscode}
+        onUnlock={() => void tryUnlock()}
+      />
+    )
+  }
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-background via-background to-muted/40">
-      <Dialog open={!unlocked} onOpenChange={() => {}}>
-        <DialogContent
-          className="flex w-[calc(100%-1.5rem)] max-h-[min(85dvh,480px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-md"
-          onPointerDownOutside={(e) => e.preventDefault()}
-        >
-          <DialogHeader className="shrink-0 space-y-1 border-b px-4 py-3 pr-10 text-left sm:px-6">
-            <DialogTitle>Asset register access</DialogTitle>
-            <DialogDescription>
-              Enter the action passcode to view the full asset register and download reports.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-6">
-            <div className="space-y-3">
-              <div className="space-y-1">
-                <Label>Action passcode</Label>
-                <Input
-                  type="password"
-                  placeholder="Enter passcode"
-                  value={passcode}
-                  onChange={(e) => setPasscode(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && void tryUnlock()}
-                />
-              </div>
-              {passcodeError ? <p className="text-sm text-red-600">{passcodeError}</p> : null}
-            </div>
-          </div>
-          <DialogFooter className="shrink-0 flex-col gap-2 border-t bg-background px-4 py-3 sm:px-6 sm:flex-col sm:space-x-0">
-            <Button className="w-full" onClick={() => void tryUnlock()} disabled={loading || !passcode.trim()}>
-              {loading ? "Checking..." : "Unlock register"}
-            </Button>
-            <Button asChild variant="outline" className="w-full">
-              <Link href="/emr-overview">Back</Link>
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <div className="fixed inset-x-0 top-0 z-[90] pointer-events-none">
         <div className="mx-auto max-w-7xl px-6 pt-3">
           <div className="pointer-events-auto rounded-xl border bg-background/90 p-2.5 shadow-xl backdrop-blur">
@@ -285,7 +242,7 @@ function EmrAssetRegisterContent() {
               Full asset inventory with tags, serials, status, and facility details. Click a row for more.
             </p>
           </div>
-          <Button variant="outline" onClick={exportCsv} disabled={!filtered.length || !unlocked}>
+          <Button variant="outline" onClick={exportCsv} disabled={!filtered.length}>
             <Download className="mr-2 h-4 w-4" />
             Export CSV
           </Button>

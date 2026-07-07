@@ -6,6 +6,7 @@ import {
   emrFacilityStatusLabel,
   type EmrFacilityStatus,
 } from "@/lib/emr-version"
+import { verifyPublicActionPasscode } from "@/lib/public-action-passcode"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -16,6 +17,18 @@ const COUNTIES: County[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
 export async function GET(request: NextRequest) {
   try {
+    const passcode =
+      request.nextUrl.searchParams.get("passcode") ||
+      request.headers.get("x-action-passcode") ||
+      ""
+
+    if (!(await verifyPublicActionPasscode(passcode))) {
+      return NextResponse.json(
+        { error: "We mzee... wrong code 😄" },
+        { status: 401 }
+      )
+    }
+
     const locationParam = request.nextUrl.searchParams.get("location")
     const counties: County[] =
       locationParam && COUNTIES.includes(locationParam as County)

@@ -9,6 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { RegisterPasscodeScreen } from "@/components/register-passcode-screen"
+import { useRegisterPasscode } from "@/lib/use-register-passcode"
 import { ArrowLeft, Download, Search } from "lucide-react"
 
 type FacilityRow = {
@@ -48,29 +50,44 @@ const STATUS_BADGE: Record<FacilityRow["status"], string> = {
 function EmrFacilityDetailsContent() {
   const searchParams = useSearchParams()
   const initialCounty = searchParams.get("county") || "all"
+  const {
+    passcode,
+    setPasscode,
+    passcodeError,
+    unlocked,
+    gateReady,
+    loading: passcodeLoading,
+    tryUnlock,
+  } = useRegisterPasscode("/api/public/emr-facilities")
   const [data, setData] = useState<ApiPayload | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [county, setCounty] = useState(initialCounty)
   const [statusFilter, setStatusFilter] = useState("all")
   const [search, setSearch] = useState("")
 
   const loadData = useCallback(async () => {
+    if (!passcode.trim() || !unlocked) return
     setLoading(true)
     try {
       const qs = new URLSearchParams()
+      qs.set("passcode", passcode.trim())
       if (county !== "all") qs.set("location", county)
       qs.set("ts", String(Date.now()))
       const res = await fetch(`/api/public/emr-facilities?${qs}`, { cache: "no-store" })
       const json = await res.json()
+      if (res.status === 401) {
+        setData(null)
+        return
+      }
       if (res.ok) setData(json)
     } finally {
       setLoading(false)
     }
-  }, [county])
+  }, [county, passcode, unlocked])
 
   useEffect(() => {
-    void loadData()
-  }, [loadData])
+    if (unlocked && passcode.trim()) void loadData()
+  }, [loadData, passcode, unlocked])
 
   const filtered = useMemo(() => {
     const rows = data?.facilities || []
@@ -126,6 +143,28 @@ function EmrFacilityDetailsContent() {
     URL.revokeObjectURL(url)
   }
 
+  if (!gateReady) {
+    return (
+      <main className="flex min-h-[100dvh] items-center justify-center bg-background p-4">
+        <p className="text-muted-foreground">Loading...</p>
+      </main>
+    )
+  }
+
+  if (!unlocked) {
+    return (
+      <RegisterPasscodeScreen
+        title="Facility register access"
+        description="Enter the action passcode to view the KenyaEMR facility upgrade register and export data."
+        passcode={passcode}
+        passcodeError={passcodeError}
+        loading={passcodeLoading}
+        onPasscodeChange={setPasscode}
+        onUnlock={() => void tryUnlock()}
+      />
+    )
+  }
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-background via-background to-muted/40">
       <div className="fixed inset-x-0 top-0 z-[90] pointer-events-none">
@@ -139,7 +178,7 @@ function EmrFacilityDetailsContent() {
                     Overview
                   </Link>
                 </Button>
-                <p className="text-xs text-muted-foreground">Facility upgrade register</p>
+                <p className="text-xs text-muted-foreground">Facility upgrade register (passcode protected)</p>
               </div>
               <div className="flex items-center gap-2">
                 <Select value={county} onValueChange={setCounty}>

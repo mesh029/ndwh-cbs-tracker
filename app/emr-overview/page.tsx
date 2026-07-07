@@ -29,6 +29,8 @@ import {
   Table2,
   Search,
   Trophy,
+  FileText,
+  LayoutDashboard,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { mergeAssetTypeCounts } from "@/lib/asset-type-merge"
@@ -92,10 +94,27 @@ type BrowseAsset = {
 
 type ActionMode = "lost" | "purchased" | "update" | "new" | "emr_upgrade" | null
 
+type OverviewSection = "overview" | "emr-versions" | "assets" | "articles"
+
+const OVERVIEW_SECTIONS: {
+  value: OverviewSection
+  label: string
+  shortLabel: string
+  icon: typeof LayoutDashboard
+}[] = [
+  { value: "overview", label: "Overview & actions", shortLabel: "Overview", icon: LayoutDashboard },
+  { value: "emr-versions", label: "EMR versions", shortLabel: "EMR", icon: MonitorUp },
+  { value: "assets", label: "Asset overview", shortLabel: "Assets", icon: Package },
+  { value: "articles", label: "Articles", shortLabel: "Articles", icon: FileText },
+]
+
+const STICKY_NAV_OFFSET = 140
+
 export default function EmrOverviewPage() {
   const { toast } = useToast()
   const [data, setData] = useState<ApiPayload | null>(null)
   const [selectedCounty, setSelectedCounty] = useState<string>("all")
+  const [activeSection, setActiveSection] = useState<OverviewSection>("overview")
   const [assetFilter, setAssetFilter] = useState<"all" | "active" | "lost" | "recovered">("all")
   const [assetTypeFilter, setAssetTypeFilter] = useState<string>("all")
   const [articles, setArticles] = useState<Article[]>([])
@@ -425,6 +444,44 @@ export default function EmrOverviewPage() {
     return `/articles/${getArticleSlug(pinnedCacheArticle)}`
   }, [pinnedCacheArticle])
 
+  const scrollToSection = useCallback((section: OverviewSection) => {
+    const el = document.getElementById(`emr-section-${section}`)
+    if (!el) return
+    const top = el.getBoundingClientRect().top + window.scrollY - STICKY_NAV_OFFSET
+    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" })
+    setActiveSection(section)
+    window.history.replaceState(null, "", `#${section}`)
+  }, [])
+
+  useEffect(() => {
+    const hash = window.location.hash.replace("#", "") as OverviewSection
+    if (!OVERVIEW_SECTIONS.some((s) => s.value === hash)) return
+    const timer = window.setTimeout(() => scrollToSection(hash), 120)
+    return () => window.clearTimeout(timer)
+  }, [scrollToSection])
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)
+        const id = visible[0]?.target.id?.replace("emr-section-", "") as OverviewSection | undefined
+        if (id && OVERVIEW_SECTIONS.some((s) => s.value === id)) {
+          setActiveSection(id)
+        }
+      },
+      { rootMargin: `-${STICKY_NAV_OFFSET}px 0px -50% 0px`, threshold: [0, 0.15, 0.35] }
+    )
+
+    for (const section of OVERVIEW_SECTIONS) {
+      const el = document.getElementById(`emr-section-${section.value}`)
+      if (el) observer.observe(el)
+    }
+
+    return () => observer.disconnect()
+  }, [selected, filteredAssetOverview, articles.length])
+
   const facilitiesInCounty = useMemo(() => {
     if (actionMode === "lost" || actionMode === "update") {
       if (countyFacilities.length) return countyFacilities
@@ -657,31 +714,75 @@ export default function EmrOverviewPage() {
       <div className="fixed inset-x-0 top-0 z-[90] pointer-events-none">
         <div className="mx-auto max-w-6xl px-6 pt-3">
           <div className="pointer-events-auto rounded-xl border bg-background/90 p-2.5 shadow-xl backdrop-blur supports-[backdrop-filter]:bg-background/75">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-xs text-muted-foreground">
-                {isRefreshing ? "Refreshing dashboard..." : "County slicer — scroll up anytime to view the intro"}
-              </p>
-              <div className="flex items-center gap-2">
-                <Select value={selectedCounty} onValueChange={setSelectedCounty}>
-                  <SelectTrigger className="w-[240px]">
-                    <SelectValue placeholder="Select county" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {countyOptions.map((opt) => (
-                      <SelectItem key={opt} value={opt}>
-                        {opt === "all" ? "All Counties" : opt}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <ThemeToggle />
+            <div className="flex flex-col gap-2.5">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-muted-foreground">
+                  {isRefreshing
+                    ? "Refreshing dashboard..."
+                    : "County & section — jump anywhere without scrolling the whole page"}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select value={selectedCounty} onValueChange={setSelectedCounty}>
+                    <SelectTrigger className="w-full sm:w-[200px]">
+                      <SelectValue placeholder="Select county" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {countyOptions.map((opt) => (
+                        <SelectItem key={opt} value={opt}>
+                          {opt === "all" ? "All Counties" : opt}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={activeSection}
+                    onValueChange={(value) => scrollToSection(value as OverviewSection)}
+                  >
+                    <SelectTrigger className="w-full sm:w-[200px]">
+                      <SelectValue placeholder="Jump to section" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {OVERVIEW_SECTIONS.map((section) => {
+                        const Icon = section.icon
+                        return (
+                          <SelectItem key={section.value} value={section.value}>
+                            <span className="flex items-center gap-2">
+                              <Icon className="h-3.5 w-3.5 shrink-0" />
+                              {section.label}
+                            </span>
+                          </SelectItem>
+                        )
+                      })}
+                    </SelectContent>
+                  </Select>
+                  <ThemeToggle />
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {OVERVIEW_SECTIONS.map((section) => {
+                  const Icon = section.icon
+                  return (
+                    <Button
+                      key={section.value}
+                      type="button"
+                      size="sm"
+                      variant={activeSection === section.value ? "default" : "outline"}
+                      className="h-8 gap-1.5 px-2.5 text-xs"
+                      onClick={() => scrollToSection(section.value)}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {section.shortLabel}
+                    </Button>
+                  )
+                })}
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="mx-auto max-w-6xl space-y-6 px-6 pb-6 pt-28 scroll-mt-28">
+      <div className="mx-auto max-w-6xl space-y-6 px-6 pb-6 pt-40 scroll-mt-40">
+        <section id="emr-section-overview" className="scroll-mt-40 space-y-6">
         <div className="rounded-xl border bg-card/70 p-4 shadow-sm">
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -749,7 +850,9 @@ export default function EmrOverviewPage() {
             <span className="shrink-0 text-xs text-muted-foreground">Read article →</span>
           </Link>
         ) : null}
+        </section>
 
+        <section id="emr-section-emr-versions" className="scroll-mt-40 space-y-6">
         {!selected ? (
           <Card>
             <CardContent className="py-10 text-center text-muted-foreground">Loading EMR overview...</CardContent>
@@ -924,7 +1027,9 @@ export default function EmrOverviewPage() {
             </CardContent>
           </Card>
         ) : null}
+        </section>
 
+        <section id="emr-section-assets" className="scroll-mt-40">
         {selected && filteredAssetOverview && (
           <Card className="shadow-lg border-primary/20" key={`assets-${dashboardKey}`}>
             <CardHeader>
@@ -1067,20 +1172,45 @@ export default function EmrOverviewPage() {
             </CardContent>
           </Card>
         )}
+        </section>
 
-        {pinnedCacheArticle && pinnedReadOnlyHref ? (
-          <Card className="shadow-sm border-primary/15">
-            <CardContent className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <p className="text-sm font-medium truncate">{pinnedCacheArticle.title}</p>
-                <p className="text-xs text-muted-foreground line-clamp-1">{pinnedCacheArticle.summary}</p>
-              </div>
-              <Button asChild size="sm" variant="outline" className="shrink-0">
-                <Link href={pinnedReadOnlyHref}>Read article</Link>
-              </Button>
+        <section id="emr-section-articles" className="scroll-mt-40">
+          <Card className="shadow-lg border-primary/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-primary" />
+                Articles & updates
+              </CardTitle>
+              <CardDescription>Published guidance, release notes, and operational updates</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {articles.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No published articles yet.</p>
+              ) : (
+                articles.map((article) => {
+                  const href = `/articles/${getArticleSlug(article)}`
+                  const isPinned = pinnedCacheArticle?.id === article.id
+                  return (
+                    <Link
+                      key={article.id}
+                      href={href}
+                      className={cn(
+                        "flex flex-col gap-1 rounded-md border px-3 py-2.5 text-sm transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between",
+                        isPinned && "border-amber-400/40 bg-amber-500/10"
+                      )}
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{article.title}</p>
+                        <p className="text-xs text-muted-foreground line-clamp-2">{article.summary}</p>
+                      </div>
+                      <span className="shrink-0 text-xs text-muted-foreground sm:pl-3">Read →</span>
+                    </Link>
+                  )
+                })
+              )}
             </CardContent>
           </Card>
-        ) : null}
+        </section>
 
         {actionSuccess ? (
           <Badge className="bg-emerald-600 text-white w-fit">{actionSuccess}</Badge>
