@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -31,6 +31,7 @@ import {
   Trophy,
   FileText,
   LayoutDashboard,
+  ChevronDown,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { mergeAssetTypeCounts } from "@/lib/asset-type-merge"
@@ -109,12 +110,16 @@ const OVERVIEW_SECTIONS: {
 ]
 
 const STICKY_NAV_OFFSET = 140
+const NAV_COLLAPSE_IDLE_MS = 1400
 
 export default function EmrOverviewPage() {
   const { toast } = useToast()
   const [data, setData] = useState<ApiPayload | null>(null)
   const [selectedCounty, setSelectedCounty] = useState<string>("all")
   const [activeSection, setActiveSection] = useState<OverviewSection>("overview")
+  const [navExpanded, setNavExpanded] = useState(true)
+  const navHoverRef = useRef(false)
+  const navCollapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [assetFilter, setAssetFilter] = useState<"all" | "active" | "lost" | "recovered">("all")
   const [assetTypeFilter, setAssetTypeFilter] = useState<string>("all")
   const [articles, setArticles] = useState<Article[]>([])
@@ -447,11 +452,34 @@ export default function EmrOverviewPage() {
   const scrollToSection = useCallback((section: OverviewSection) => {
     const el = document.getElementById(`emr-section-${section}`)
     if (!el) return
+    setNavExpanded(true)
     const top = el.getBoundingClientRect().top + window.scrollY - STICKY_NAV_OFFSET
     window.scrollTo({ top: Math.max(0, top), behavior: "smooth" })
     setActiveSection(section)
     window.history.replaceState(null, "", `#${section}`)
   }, [])
+
+  const scheduleNavCollapse = useCallback(() => {
+    if (navCollapseTimerRef.current) clearTimeout(navCollapseTimerRef.current)
+    navCollapseTimerRef.current = setTimeout(() => {
+      if (!navHoverRef.current) setNavExpanded(false)
+    }, NAV_COLLAPSE_IDLE_MS)
+  }, [])
+
+  const expandNav = useCallback(() => {
+    setNavExpanded(true)
+    scheduleNavCollapse()
+  }, [scheduleNavCollapse])
+
+  useEffect(() => {
+    const onScroll = () => expandNav()
+    window.addEventListener("scroll", onScroll, { passive: true })
+    scheduleNavCollapse()
+    return () => {
+      window.removeEventListener("scroll", onScroll)
+      if (navCollapseTimerRef.current) clearTimeout(navCollapseTimerRef.current)
+    }
+  }, [expandNav, scheduleNavCollapse])
 
   useEffect(() => {
     const hash = window.location.hash.replace("#", "") as OverviewSection
@@ -712,53 +740,95 @@ export default function EmrOverviewPage() {
   return (
     <main className="min-h-screen bg-gradient-to-br from-background via-background to-muted/40">
       <div className="fixed inset-x-0 top-0 z-[90] pointer-events-none">
-        <div className="mx-auto max-w-6xl px-6 pt-3">
-          <div className="pointer-events-auto rounded-xl border bg-background/90 p-2.5 shadow-xl backdrop-blur supports-[backdrop-filter]:bg-background/75">
-            <div className="flex flex-col gap-2.5">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className={cn("mx-auto max-w-6xl px-6 transition-[padding] duration-300", navExpanded ? "pt-3" : "pt-2")}>
+          <div
+            className={cn(
+              "pointer-events-auto rounded-xl border bg-background/90 shadow-xl backdrop-blur transition-all duration-300 supports-[backdrop-filter]:bg-background/75",
+              navExpanded ? "p-2.5" : "p-1.5"
+            )}
+            onMouseEnter={() => {
+              navHoverRef.current = true
+              setNavExpanded(true)
+            }}
+            onMouseLeave={() => {
+              navHoverRef.current = false
+              scheduleNavCollapse()
+            }}
+            onFocusCapture={() => setNavExpanded(true)}
+            onTouchStart={() => setNavExpanded(true)}
+          >
+            <div className={cn("flex flex-col transition-all duration-300", navExpanded ? "gap-2.5" : "gap-0")}>
+              <div
+                className={cn(
+                  "flex flex-col gap-2 overflow-hidden transition-all duration-300 sm:flex-row sm:items-center sm:justify-between",
+                  navExpanded ? "max-h-24 opacity-100" : "max-h-0 opacity-0"
+                )}
+              >
                 <p className="text-xs text-muted-foreground">
                   {isRefreshing
                     ? "Refreshing dashboard..."
                     : "County & section — jump anywhere without scrolling the whole page"}
                 </p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Select value={selectedCounty} onValueChange={setSelectedCounty}>
-                    <SelectTrigger className="w-full sm:w-[200px]">
-                      <SelectValue placeholder="Select county" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {countyOptions.map((opt) => (
-                        <SelectItem key={opt} value={opt}>
-                          {opt === "all" ? "All Counties" : opt}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    value={activeSection}
-                    onValueChange={(value) => scrollToSection(value as OverviewSection)}
-                  >
-                    <SelectTrigger className="w-full sm:w-[200px]">
-                      <SelectValue placeholder="Jump to section" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {OVERVIEW_SECTIONS.map((section) => {
-                        const Icon = section.icon
-                        return (
-                          <SelectItem key={section.value} value={section.value}>
-                            <span className="flex items-center gap-2">
-                              <Icon className="h-3.5 w-3.5 shrink-0" />
-                              {section.label}
-                            </span>
-                          </SelectItem>
-                        )
-                      })}
-                    </SelectContent>
-                  </Select>
-                  <ThemeToggle />
-                </div>
               </div>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                <Select
+                  value={selectedCounty}
+                  onValueChange={setSelectedCounty}
+                  onOpenChange={(open) => open && setNavExpanded(true)}
+                >
+                  <SelectTrigger className={cn("w-full sm:w-[200px] transition-all", !navExpanded && "h-8 text-xs")}>
+                    <SelectValue placeholder="Select county" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {countyOptions.map((opt) => (
+                      <SelectItem key={opt} value={opt}>
+                        {opt === "all" ? "All Counties" : opt}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={activeSection}
+                  onValueChange={(value) => scrollToSection(value as OverviewSection)}
+                  onOpenChange={(open) => open && setNavExpanded(true)}
+                >
+                  <SelectTrigger className={cn("w-full sm:w-[200px] transition-all", !navExpanded && "h-8 text-xs")}>
+                    <SelectValue placeholder="Jump to section" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {OVERVIEW_SECTIONS.map((section) => {
+                      const Icon = section.icon
+                      return (
+                        <SelectItem key={section.value} value={section.value}>
+                          <span className="flex items-center gap-2">
+                            <Icon className="h-3.5 w-3.5 shrink-0" />
+                            {section.label}
+                          </span>
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectContent>
+                </Select>
+                <ThemeToggle />
+                {!navExpanded ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    title="Expand navigation"
+                    onClick={() => setNavExpanded(true)}
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                ) : null}
+              </div>
+              <div
+                className={cn(
+                  "flex flex-wrap gap-1.5 overflow-hidden transition-all duration-300",
+                  navExpanded ? "max-h-24 opacity-100" : "max-h-0 opacity-0"
+                )}
+              >
                 {OVERVIEW_SECTIONS.map((section) => {
                   const Icon = section.icon
                   return (
