@@ -1711,24 +1711,14 @@ export default function EmrOverviewPage() {
                     </div>
                     {selectedUpdateBuiltinKind ? (
                       <div className="space-y-1">
-                        <Label>
-                          {selectedUpdateBuiltinKind === "server"
-                            ? "Server model/type"
-                            : selectedUpdateBuiltinKind === "router"
-                              ? "Router model/type"
-                              : selectedUpdateBuiltinKind === "tablet"
-                                ? "Tablet model/type"
-                                : selectedUpdateBuiltinKind === "mobilephone"
-                                  ? "Phone model"
-                                  : "LAN type"}
-                        </Label>
+                        <Label>Item name</Label>
                         <Input
                           list={`update-builtin-model-${selectedUpdateBuiltinKind}`}
                           value={form.assetModel}
                           placeholder={
                             updateModelSuggestions[0]
                               ? `e.g. ${updateModelSuggestions[0]}`
-                              : "Type model/type (optional)"
+                              : "e.g. Dell_Optiplex, HP_EliteDesk_800G1, TP Link"
                           }
                           onChange={(e) => setForm((prev) => ({ ...prev, assetModel: e.target.value }))}
                         />
@@ -1738,7 +1728,7 @@ export default function EmrOverviewPage() {
                           ))}
                         </datalist>
                         <p className="text-xs text-muted-foreground">
-                          Suggested from existing assets to keep models consistent.
+                          Use the item descriptor shown in reports/tables; suggestions use existing names.
                         </p>
                       </div>
                     ) : null}
@@ -1825,24 +1815,14 @@ export default function EmrOverviewPage() {
                 </div>
                 {selectedBuiltinKind ? (
                   <div className="space-y-1">
-                    <Label>
-                      {selectedBuiltinKind === "server"
-                        ? "Server model/type"
-                        : selectedBuiltinKind === "router"
-                          ? "Router model/type"
-                          : selectedBuiltinKind === "tablet"
-                            ? "Tablet model/type"
-                            : selectedBuiltinKind === "mobilephone"
-                              ? "Phone model"
-                              : "LAN type"}
-                    </Label>
+                    <Label>Item name</Label>
                     <Input
                       list={`builtin-model-${selectedBuiltinKind}`}
                       value={form.assetModel}
                       placeholder={
                         builtinModelSuggestions[0]
                           ? `e.g. ${builtinModelSuggestions[0]}`
-                          : "Type model/type (optional)"
+                          : "e.g. Dell_Optiplex, HP_EliteDesk_800G1, TP Link"
                       }
                       onChange={(e) => setForm((prev) => ({ ...prev, assetModel: e.target.value }))}
                     />
@@ -1852,7 +1832,7 @@ export default function EmrOverviewPage() {
                       ))}
                     </datalist>
                     <p className="text-xs text-muted-foreground">
-                      Existing records are suggested (e.g. 800G1, TP Link) to keep naming consistent.
+                      Use the item descriptor shown in reports/tables; suggestions use existing names.
                     </p>
                   </div>
                 ) : null}
