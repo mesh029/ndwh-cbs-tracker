@@ -392,11 +392,15 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
                 )
               }
             >
-              <SelectTrigger className="w-[260px]">
+              <SelectTrigger className="w-full sm:w-[260px]">
                 <SelectValue placeholder="Select graph section" />
               </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="insights">EMR & Operations</SelectItem>
+              <SelectContent
+                position="popper"
+                sideOffset={6}
+                className="z-[100] max-h-[min(320px,50vh)] overflow-y-auto"
+              >
+                <SelectItem value="insights">EMR Overview to P Bar</SelectItem>
                 <SelectItem value="server-distribution">Server Distribution</SelectItem>
                 <SelectItem value="subcounty">Subcounty Server Distribution</SelectItem>
                 <SelectItem value="ticket-correlation">Ticket Correlation</SelectItem>
