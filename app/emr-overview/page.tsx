@@ -1280,6 +1280,7 @@ export default function EmrOverviewPage() {
                           })}
                         </Pie>
                         <Tooltip
+                          wrapperStyle={{ zIndex: 40, pointerEvents: "none" }}
                           contentStyle={{
                             background: "#111214",
                             border: "1px solid rgba(255,255,255,.08)",
@@ -1292,7 +1293,7 @@ export default function EmrOverviewPage() {
                         />
                       </PieChart>
                     </ResponsiveContainer>
-                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center">
                       <div className="rounded-full border border-white/10 bg-[#0F1012] px-6 py-4 text-center">
                         <p className="text-4xl font-semibold tracking-tight text-slate-100">{selected.totalFacilities}</p>
                         <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Total facilities</p>
