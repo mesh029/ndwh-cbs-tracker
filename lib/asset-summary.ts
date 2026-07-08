@@ -29,31 +29,29 @@ async function fetchFacilityInventorySupplemental(locations: Location[]) {
     lan: empty(),
   }
 
-  const [rawFacilities, serverAssets, routerAssets, lanAssets] = await Promise.all([
-    prisma.facility.findMany({
-      where: { system: { in: ["NDWH", "CBS"] }, location: { in: locations }, isMaster: true },
-      select: {
-        id: true,
-        name: true,
-        location: true,
-        serverType: true,
-        routerType: true,
-        hasLAN: true,
-      },
-    }),
-    prisma.serverAsset.findMany({
-      where: { location: { in: locations } },
-      select: { facility: { select: { name: true } } },
-    }),
-    prisma.routerAsset.findMany({
-      where: { location: { in: locations } },
-      select: { facility: { select: { name: true } } },
-    }),
-    prisma.lanAsset.findMany({
-      where: { location: { in: locations } },
-      select: { facility: { select: { name: true } } },
-    }),
-  ])
+  const rawFacilities = await prisma.facility.findMany({
+    where: { system: { in: ["NDWH", "CBS"] }, location: { in: locations }, isMaster: true },
+    select: {
+      id: true,
+      name: true,
+      location: true,
+      serverType: true,
+      routerType: true,
+      hasLAN: true,
+    },
+  })
+  const serverAssets = await prisma.serverAsset.findMany({
+    where: { location: { in: locations } },
+    select: { facility: { select: { name: true } } },
+  })
+  const routerAssets = await prisma.routerAsset.findMany({
+    where: { location: { in: locations } },
+    select: { facility: { select: { name: true } } },
+  })
+  const lanAssets = await prisma.lanAsset.findMany({
+    where: { location: { in: locations } },
+    select: { facility: { select: { name: true } } },
+  })
 
   const serverNames = new Set(serverAssets.map((a) => a.facility.name.trim().toLowerCase()))
   const routerNames = new Set(routerAssets.map((a) => a.facility.name.trim().toLowerCase()))
@@ -259,7 +257,10 @@ export async function buildAssetSummary(locations: Location[]) {
   let totalRecovered = 0
   let grandTotal = 0
 
-  const builtinGroups = await Promise.all(BUILTIN_KEYS.map((key) => groupBuiltinAssets(key)))
+  const builtinGroups: StatusGroupRow[][] = []
+  for (const key of BUILTIN_KEYS) {
+    builtinGroups.push(await groupBuiltinAssets(key))
+  }
 
   for (let i = 0; i < BUILTIN_KEYS.length; i++) {
     const key = BUILTIN_KEYS[i]

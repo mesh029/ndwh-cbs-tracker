@@ -27,6 +27,7 @@ import { SectionUpload } from "@/components/section-upload"
 import type { Location } from "@/lib/storage"
 import { buildCountyDashboardInsights, type CountyServerAsset } from "@/lib/county-dashboard-insights"
 import { useRouter } from "next/navigation"
+import { NocSection } from "@/components/noc-ui"
 
 type Props = {
   location: Location
@@ -120,49 +121,32 @@ export function CountyInsightsPanel({
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <CardTitle className="text-base">County Graph Slicer</CardTitle>
-              <CardDescription>Show one county insight section at a time</CardDescription>
-            </div>
-            <Select value={graphSection} onValueChange={(v) => setGraphSection(v as typeof graphSection)}>
-              <SelectTrigger className="w-[240px]">
-                <SelectValue placeholder="Select section" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="overview">EMR & Operations</SelectItem>
-                <SelectItem value="hardware">Hardware Profiles</SelectItem>
-                <SelectItem value="connectivity">Connectivity Snapshot</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardHeader>
-      </Card>
+      <NocSection title="County graph slicer" description="Show one county insight section at a time">
+        <Select value={graphSection} onValueChange={(v) => setGraphSection(v as typeof graphSection)}>
+          <SelectTrigger className="w-full sm:w-[240px]">
+            <SelectValue placeholder="Select section" />
+          </SelectTrigger>
+          <SelectContent className="z-[120]">
+            <SelectItem value="overview">EMR & Operations</SelectItem>
+            <SelectItem value="hardware">Hardware Profiles</SelectItem>
+            <SelectItem value="connectivity">Connectivity Snapshot</SelectItem>
+          </SelectContent>
+        </Select>
+      </NocSection>
 
       {graphSection === "overview" && (
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Cpu className="h-5 w-5 text-primary" />
-                EMR & Infrastructure Health
-              </CardTitle>
-              <CardDescription>
-                Rollout progress, connectivity, and hardware profile for {location}
-              </CardDescription>
-            </div>
-            <SectionUpload
-              section="server"
-              location={location}
-              onUploadComplete={onRefresh}
-              buttonLayout="column"
-            />
-          </div>
-        </CardHeader>
-        <CardContent>
+      <NocSection
+        title="EMR & Infrastructure Health"
+        description={`Rollout progress, connectivity, and hardware profile for ${location}`}
+        actions={
+          <SectionUpload
+            section="server"
+            location={location}
+            onUploadComplete={onRefresh}
+            buttonLayout="column"
+          />
+        }
+      >
           <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-5">
             <div className="space-y-3">
               <h4 className="text-sm font-semibold">KenyaEMR rollout</h4>
@@ -254,8 +238,7 @@ export function CountyInsightsPanel({
               />
             </div>
           </div>
-        </CardContent>
-      </Card>
+      </NocSection>
       )}
 
       {graphSection === "hardware" && (

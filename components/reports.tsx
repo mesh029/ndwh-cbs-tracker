@@ -18,6 +18,7 @@ import {
   fetchCustomAssetTypeDefinitions,
   fetchCustomInventoryRows,
 } from "@/lib/report-asset-export"
+import { NocHero, NocPage } from "@/components/noc-ui"
 
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
@@ -494,13 +495,12 @@ export function Reports() {
   const active = reportMeta[selectedReport]
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Reports &amp; Export</h1>
-        <p className="text-muted-foreground mt-1">
-          Download facilities, asset inventory, tickets, and EMR version rollout analysis as Excel files.
-        </p>
-      </div>
+    <NocPage>
+      <NocHero
+        eyebrow="Reporting"
+        title="Reports & Export"
+        description="Download facilities, asset inventory, tickets, and EMR version rollout analysis as Excel files."
+      />
 
       <div className="space-y-3">
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">County scope</p>
@@ -547,6 +547,6 @@ export function Reports() {
           )}
         </CardContent>
       </Card>
-    </div>
+    </NocPage>
   )
 }

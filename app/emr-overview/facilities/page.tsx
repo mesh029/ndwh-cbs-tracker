@@ -12,6 +12,9 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import { RegisterPasscodeScreen } from "@/components/register-passcode-screen"
 import { useRegisterPasscode } from "@/lib/use-register-passcode"
 import { ArrowLeft, Download, Search } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { NocHero, NocKpi, NocPage } from "@/components/noc-ui"
+import { noc } from "@/lib/noc-design"
 
 type FacilityRow = {
   facilityId: string
@@ -166,10 +169,10 @@ function EmrFacilityDetailsContent() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-background via-background to-muted/40">
+    <main className={cn("min-h-screen", noc.canvas)}>
       <div className="fixed inset-x-0 top-0 z-[90] pointer-events-none">
-        <div className="mx-auto max-w-7xl px-6 pt-3">
-          <div className="pointer-events-auto rounded-xl border bg-background/90 p-2.5 shadow-xl backdrop-blur">
+        <div className="w-full px-4 pt-3 md:px-6">
+          <div className="pointer-events-auto rounded-2xl border border-border/40 bg-card/90 p-2.5 shadow-xl backdrop-blur dark:border-white/10 dark:bg-[#111214]/90">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
                 <Button asChild variant="ghost" size="sm">
@@ -185,7 +188,7 @@ function EmrFacilityDetailsContent() {
                   <SelectTrigger className="w-[200px]">
                     <SelectValue placeholder="County" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="z-[120]">
                     <SelectItem value="all">All Counties</SelectItem>
                     {["Kakamega", "Vihiga", "Nyamira", "Kisumu"].map((c) => (
                       <SelectItem key={c} value={c}>
@@ -201,31 +204,30 @@ function EmrFacilityDetailsContent() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 pb-6 pt-28 scroll-mt-28">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Facility KenyaEMR Upgrade Register</h1>
-            <p className="text-muted-foreground">
-              Complete tabulated view of facility versions, server records, and upgrade status.
-            </p>
-          </div>
-          <Button variant="outline" onClick={exportCsv} disabled={!filtered.length}>
-            <Download className="mr-2 h-4 w-4" />
-            Export CSV
-          </Button>
-        </div>
+      <NocPage className="w-full space-y-6 px-4 pb-6 pt-28 md:px-6 scroll-mt-28">
+        <NocHero
+          eyebrow="EMR versions"
+          title="Facility KenyaEMR Upgrade Register"
+          description="Complete tabulated view of facility versions, server records, and upgrade status."
+          actions={
+            <Button variant="outline" onClick={exportCsv} disabled={!filtered.length}>
+              <Download className="mr-2 h-4 w-4" />
+              Export CSV
+            </Button>
+          }
+        />
 
         {data && (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Latest global</p><p className="text-xl font-bold">{data.latestGlobal}</p></CardContent></Card>
-            <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Total facilities</p><p className="text-xl font-bold">{data.summary.total}</p></CardContent></Card>
-            <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">On latest</p><p className="text-xl font-bold text-emerald-600">{data.summary.latest}</p></CardContent></Card>
-            <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Outdated</p><p className="text-xl font-bold text-amber-600">{data.summary.outdated}</p></CardContent></Card>
-            <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Blank / No server</p><p className="text-xl font-bold text-red-600">{data.summary.blank + data.summary.noServer}</p></CardContent></Card>
+            <NocKpi label="Latest global" value={data.latestGlobal} />
+            <NocKpi label="Total facilities" value={data.summary.total} />
+            <NocKpi label="On latest" value={data.summary.latest} tone="success" />
+            <NocKpi label="Outdated" value={data.summary.outdated} tone="warning" />
+            <NocKpi label="Blank / No server" value={data.summary.blank + data.summary.noServer} tone="danger" />
           </div>
         )}
 
-        <Card className="shadow-lg border-primary/20">
+        <Card className="shadow-sm border-border/40 dark:border-white/10">
           <CardHeader>
             <CardTitle>Facility upgrade details</CardTitle>
             <CardDescription>
@@ -247,7 +249,7 @@ function EmrFacilityDetailsContent() {
                 <SelectTrigger className="w-[220px]">
                   <SelectValue placeholder="Filter status" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="z-[120]">
                   <SelectItem value="all">All statuses</SelectItem>
                   <SelectItem value="latest">Latest</SelectItem>
                   <SelectItem value="outdated">Outdated</SelectItem>
@@ -307,7 +309,7 @@ function EmrFacilityDetailsContent() {
             </div>
           </CardContent>
         </Card>
-      </div>
+      </NocPage>
     </main>
   )
 }

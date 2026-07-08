@@ -13,6 +13,8 @@ import { RegisterPasscodeScreen } from "@/components/register-passcode-screen"
 import { useRegisterPasscode } from "@/lib/use-register-passcode"
 import { ArrowLeft, ChevronDown, ChevronRight, Download, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { NocHero, NocKpi, NocPage } from "@/components/noc-ui"
+import { noc } from "@/lib/noc-design"
 
 type RegisterAsset = {
   id: string
@@ -201,10 +203,10 @@ function EmrAssetRegisterContent() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-background via-background to-muted/40">
+    <main className={cn("min-h-screen", noc.canvas)}>
       <div className="fixed inset-x-0 top-0 z-[90] pointer-events-none">
-        <div className="mx-auto max-w-7xl px-6 pt-3">
-          <div className="pointer-events-auto rounded-xl border bg-background/90 p-2.5 shadow-xl backdrop-blur">
+        <div className="w-full px-4 pt-3 md:px-6">
+          <div className="pointer-events-auto rounded-2xl border border-border/40 bg-card/90 p-2.5 shadow-xl backdrop-blur dark:border-white/10 dark:bg-[#111214]/90">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
                 <Button asChild variant="ghost" size="sm">
@@ -220,7 +222,7 @@ function EmrAssetRegisterContent() {
                   <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder="County" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="z-[120]">
                     <SelectItem value="all">All Counties</SelectItem>
                     {["Kakamega", "Vihiga", "Nyamira", "Kisumu"].map((c) => (
                       <SelectItem key={c} value={c}>{c}</SelectItem>
@@ -234,30 +236,29 @@ function EmrAssetRegisterContent() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 pb-6 pt-28 scroll-mt-28">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Asset Register</h1>
-            <p className="text-muted-foreground">
-              Full asset inventory with tags, serials, status, and facility details. Click a row for more.
-            </p>
-          </div>
-          <Button variant="outline" onClick={exportCsv} disabled={!filtered.length}>
-            <Download className="mr-2 h-4 w-4" />
-            Export CSV
-          </Button>
-        </div>
+      <NocPage className="w-full space-y-6 px-4 pb-6 pt-28 md:px-6 scroll-mt-28">
+        <NocHero
+          eyebrow="Infrastructure"
+          title="Asset Register"
+          description="Full asset inventory with tags, serials, status, and facility details. Click a row for more."
+          actions={
+            <Button variant="outline" onClick={exportCsv} disabled={!filtered.length}>
+              <Download className="mr-2 h-4 w-4" />
+              Export CSV
+            </Button>
+          }
+        />
 
         {data && (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Total assets</p><p className="text-xl font-bold">{data.summary.total}</p></CardContent></Card>
-            <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Active</p><p className="text-xl font-bold text-emerald-600">{data.summary.active}</p></CardContent></Card>
-            <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Lost</p><p className="text-xl font-bold text-red-600">{data.summary.lost}</p></CardContent></Card>
-            <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Recovered</p><p className="text-xl font-bold text-blue-600">{data.summary.recovered}</p></CardContent></Card>
+            <NocKpi label="Total assets" value={data.summary.total} />
+            <NocKpi label="Active" value={data.summary.active} tone="success" />
+            <NocKpi label="Lost" value={data.summary.lost} tone="danger" />
+            <NocKpi label="Recovered" value={data.summary.recovered} tone="info" />
           </div>
         )}
 
-        <Card className="shadow-lg border-primary/20">
+        <Card className="shadow-sm border-border/40 dark:border-white/10">
           <CardHeader>
             <CardTitle>Asset details</CardTitle>
             <CardDescription>
@@ -277,7 +278,7 @@ function EmrAssetRegisterContent() {
               </div>
               <Select value={facilityId} onValueChange={setFacilityId}>
                 <SelectTrigger><SelectValue placeholder="Facility" /></SelectTrigger>
-                <SelectContent>
+                <SelectContent className="z-[120]">
                   <SelectItem value="all">All facilities</SelectItem>
                   {facilitiesInCounty.map((f) => (
                     <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
@@ -286,7 +287,7 @@ function EmrAssetRegisterContent() {
               </Select>
               <Select value={kindFilter} onValueChange={setKindFilter}>
                 <SelectTrigger><SelectValue placeholder="Asset kind" /></SelectTrigger>
-                <SelectContent>
+                <SelectContent className="z-[120]">
                   <SelectItem value="all">All kinds</SelectItem>
                   <SelectGroup>
                     <SelectLabel>Built-in</SelectLabel>
@@ -305,7 +306,7 @@ function EmrAssetRegisterContent() {
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-[220px]"><SelectValue placeholder="Status" /></SelectTrigger>
-              <SelectContent>
+              <SelectContent className="z-[120]">
                 <SelectItem value="all">All statuses</SelectItem>
                 <SelectItem value="active">Active</SelectItem>
                 <SelectItem value="lost">Lost</SelectItem>
@@ -398,7 +399,7 @@ function EmrAssetRegisterContent() {
             </div>
           </CardContent>
         </Card>
-      </div>
+      </NocPage>
     </main>
   )
 }

@@ -31,6 +31,8 @@ import {
 } from "@/lib/nyamira-dashboard-derive"
 import { CountyInsightsPanel } from "@/components/county-insights-panel"
 import { ServerTypeIssueBreakdown } from "@/components/server-type-issue-breakdown"
+import { NocHero, NocKpi, NocPage, NocSection } from "@/components/noc-ui"
+import { noc } from "@/lib/noc-design"
 import type { CountyServerAsset } from "@/lib/county-dashboard-insights"
 import {
   fetchCountyDashboardBundle,
@@ -51,6 +53,7 @@ import {
 import { useAuth } from "@/components/auth-provider"
 import type { ChartConfig } from "@/components/ui/chart"
 import type { Location } from "@/lib/storage"
+import { cn } from "@/lib/utils"
 
 const STATUSES = ["open", "in-progress", "resolved"] as const
 type TicketStatus = typeof STATUSES[number]
@@ -342,253 +345,100 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
   } satisfies ChartConfig
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-4">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => router.push("/nyamira")}
-            className="text-muted-foreground hover:text-foreground"
+    <NocPage>
+      <div className="flex items-center gap-3">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => router.push("/nyamira")}
+          className="text-muted-foreground hover:text-foreground"
+        >
+          ← Back to Overview
+        </Button>
+      </div>
+
+      <NocHero
+        eyebrow="County Mission Control"
+        title={`${location} County Dashboard`}
+        description="Facility operations, server distribution, ticket correlation, and infrastructure insights."
+        meta={
+          <>
+            <NocKpi label="Total facilities" value={isLoadingData ? "…" : ndwhMasterTotal} icon={Building2} />
+            <NocKpi label="Total tickets" value={isLoadingTickets ? "…" : tickets.length} icon={AlertCircle} tone="warning" />
+            <NocKpi label="Servers mapped" value={serverDistribution.reduce((sum, item) => sum + item.count, 0)} icon={Server} tone="info" />
+            <NocKpi label="Graph focus" value={countyGraphSection.replace("-", " ")} icon={MapPin} />
+          </>
+        }
+      />
+
+      <CountyChipRow
+        counties={allowedLocations}
+        value={selectedLocation}
+        onChange={(v) => {
+          setSelectedLocation(v as Location)
+          router.push(`/nyamira?location=${encodeURIComponent(v)}`)
+        }}
+      />
+
+      <NocSection title="Graph slicer" description="Switch between county-level chart sections">
+        <Select
+          value={countyGraphSection}
+          onValueChange={(v) =>
+            setCountyGraphSection(
+              v as "critical" | "server-distribution" | "subcounty" | "insights" | "ticket-correlation"
+            )
+          }
+        >
+          <SelectTrigger className="w-full sm:w-[320px]">
+            <SelectValue placeholder="Select graph section" />
+          </SelectTrigger>
+          <SelectContent
+            position="popper"
+            sideOffset={6}
+            className="z-[100] max-h-[min(320px,50vh)] overflow-y-auto"
           >
-            ← Back to Overview
-          </Button>
-        </div>
-        <div>
-          <h1 className="text-3xl font-bold">County Dashboard</h1>
-          <p className="text-muted-foreground">
-            Comprehensive facility and upload management dashboard
-          </p>
-        </div>
-        <CountyChipRow
-          counties={allowedLocations}
-          value={selectedLocation}
-          onChange={(v) => {
-            setSelectedLocation(v as Location)
-            router.push(`/nyamira?location=${encodeURIComponent(v)}`)
+            <SelectItem value="insights">EMR & Operations</SelectItem>
+            <SelectItem value="server-distribution">Server Distribution</SelectItem>
+            <SelectItem value="subcounty">Subcounty Server Distribution</SelectItem>
+            <SelectItem value="ticket-correlation">Ticket Correlation</SelectItem>
+            <SelectItem value="critical">Critical Issues</SelectItem>
+          </SelectContent>
+        </Select>
+      </NocSection>
+
+      {/* Ticket upload — hero KPIs cover summary metrics */}
+      <NocSection title="Ticket intake" description="Upload ticket data for this county">
+        <SectionUpload
+          section="ticket"
+          location={location}
+          onUploadComplete={() => {
+            refreshCountyDashboard()
           }}
         />
-      </div>
-      
-      <div className="mb-4">
-        <h2 className="text-2xl font-semibold">{location} Analytics</h2>
-        <p className="text-sm text-muted-foreground">
-          View detailed analytics and insights for {location}
-        </p>
-      </div>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <CardTitle className="text-base">County Graph Slicer</CardTitle>
-              <CardDescription>Switch between county-level chart sections</CardDescription>
-            </div>
-            <Select
-              value={countyGraphSection}
-              onValueChange={(v) =>
-                setCountyGraphSection(
-                  v as "critical" | "server-distribution" | "subcounty" | "insights" | "ticket-correlation"
-                )
-              }
-            >
-              <SelectTrigger className="w-full sm:w-[260px]">
-                <SelectValue placeholder="Select graph section" />
-              </SelectTrigger>
-              <SelectContent
-                position="popper"
-                sideOffset={6}
-                className="z-[100] max-h-[min(320px,50vh)] overflow-y-auto"
-              >
-                <SelectItem value="insights">EMR Overview to P Bar</SelectItem>
-                <SelectItem value="server-distribution">Server Distribution</SelectItem>
-                <SelectItem value="subcounty">Subcounty Server Distribution</SelectItem>
-                <SelectItem value="ticket-correlation">Ticket Correlation</SelectItem>
-                <SelectItem value="critical">Critical Issues</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardHeader>
-      </Card>
-
-      {/* Overview Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Total Facilities</CardTitle>
-            <CardDescription>Master list</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {isLoadingData ? (
-              <div className="flex items-center gap-2 py-2">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">Loading...</span>
-              </div>
-            ) : (
-              <>
-                <div className="text-2xl font-bold">
-                  {ndwhMasterTotal}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  <Building2 className="inline h-3 w-3 mr-1" />
-                  {location} facilities ({serverDistribution.reduce((sum, item) => sum + item.count, 0)} with servers)
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <HoverCard>
-            <HoverCardTrigger asChild>
-              <div className="cursor-pointer hover:bg-accent/50 transition-colors rounded-t-lg">
-                <CardHeader className="pb-2">
-                  <div>
-                    <CardTitle className="text-lg">Total Tickets</CardTitle>
-                    <CardDescription>All issues reported - Hover for main issues</CardDescription>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  {isLoadingTickets && !hasLoadedTickets ? (
-                    <div className="flex items-center gap-2 py-2">
-                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">Loading tickets...</span>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="text-2xl font-bold">{tickets.length || 0}</div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {tickets.filter((t: any) => t.status === "resolved").length} resolved
-                      </p>
-                    </>
-                  )}
-                </CardContent>
-              </div>
-            </HoverCardTrigger>
-            <HoverCardContent className="w-96 max-h-96 overflow-y-auto">
-            <div className="space-y-3">
-              <h4 className="font-semibold text-sm mb-3">
-                Main Issues Summary
-              </h4>
-              {ticketAnalytics?.byProblem && ticketAnalytics.byProblem.length > 0 ? (
-                <div className="space-y-2">
-                  {ticketAnalytics.byProblem.slice(0, 10).map((item, index) => (
-                    <div 
-                      key={index}
-                      className={`p-3 rounded-md border ${
-                        index === 0 
-                          ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800' 
-                          : index === 1
-                          ? 'bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800'
-                          : index === 2
-                          ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800'
-                          : 'bg-muted/50'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <div className="flex items-center gap-2 flex-1">
-                          <span className="text-xs font-bold text-muted-foreground">
-                            #{index + 1}
-                          </span>
-                          <Badge 
-                            variant={index < 3 ? "destructive" : "secondary"} 
-                            className="text-xs"
-                          >
-                            {item.count} {item.count === 1 ? 'ticket' : 'tickets'}
-                          </Badge>
-                        </div>
-                      </div>
-                      <p className="text-sm font-medium mb-2 line-clamp-2">
-                        {item.problem}
-                      </p>
-                      {item.serverTypes && item.serverTypes.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          <span className="text-xs text-muted-foreground">Affects:</span>
-                          {item.serverTypes.slice(0, 3).map((serverType, idx) => (
-                            <Badge key={idx} variant="outline" className="text-xs">
-                              {serverType}
-                            </Badge>
-                          ))}
-                          {item.serverTypes.length > 3 && (
-                            <Badge variant="outline" className="text-xs">
-                              +{item.serverTypes.length - 3} more
-                            </Badge>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {ticketAnalytics.byProblem.length > 10 && (
-                    <p className="text-xs text-muted-foreground text-center pt-2 border-t">
-                      Showing top 10 issues. {ticketAnalytics.byProblem.length - 10} more issues available.
-                    </p>
-                  )}
-                </div>
-              ) : tickets.length > 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  Processing issue analysis...
-                </p>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  No tickets available
-                </p>
-              )}
-            </div>
-          </HoverCardContent>
-          </HoverCard>
-          <CardContent className="pt-4 border-t">
-            <SectionUpload
-              section="ticket"
-              location={location}
-              onUploadComplete={() => {
-                refreshCountyDashboard()
-              }}
-            />
-          </CardContent>
-        </Card>
-      </div>
+      </NocSection>
 
       {countyGraphSection === "critical" && <CriticalServerIssuesPanel location={location} />}
 
       {/* Server Distribution Section */}
       {countyGraphSection === "server-distribution" && (isLoadingData && !hasLoadedServerDistribution ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Server className="h-5 w-5" />
-              Server Distribution by Facility
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-center py-8">
-              <div className="flex flex-col items-center gap-2">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">Loading server distribution...</span>
-              </div>
+        <NocSection title="Server Distribution by Facility" description="Loading server distribution from ODS data">
+          <div className="flex items-center justify-center py-8">
+            <div className="flex flex-col items-center gap-2">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">Loading server distribution...</span>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </NocSection>
       ) : serverDistribution.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="flex-1 min-w-0">
-                <CardTitle className="flex items-center gap-2">
-                  <Server className="h-5 w-5" />
-                  Server Distribution by Facility
-                </CardTitle>
-                <CardDescription>
-                  Distribution of facilities across different server types from the ODS file
-                </CardDescription>
-              </div>
-              <div className="flex-shrink-0">
-                <SectionUpload section="server" location={location} onUploadComplete={() => {
-                  refreshCountyDashboard()
-                }} />
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
+        <NocSection
+          title="Server Distribution by Facility"
+          description="Distribution of facilities across different server types from the ODS file"
+          actions={
+            <SectionUpload section="server" location={location} onUploadComplete={() => {
+              refreshCountyDashboard()
+            }} />
+          }
+        >
             <div className="grid gap-6 md:grid-cols-2">
               {/* Donut Chart */}
               <div className="space-y-4">
@@ -700,7 +550,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
                 {serverDistribution.map((item, index) => (
                   <HoverCard key={item.serverType}>
                     <HoverCardTrigger asChild>
-                      <Card className="p-3 cursor-pointer hover:bg-accent/50 transition-colors">
+                      <Card className={cn(noc.panelInset, "p-3 cursor-pointer hover:bg-accent/50 transition-colors border-0 shadow-none")}>
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-2">
                             <div 
@@ -737,23 +587,15 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
                 ))}
               </div>
             </div>
-          </CardContent>
-        </Card>
+        </NocSection>
       ) : null)}
 
       {/* Server Type Distribution by Subcounty */}
       {countyGraphSection === "subcounty" && subcountyDistribution.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MapPin className="h-5 w-5" />
-              Server Type Distribution by Subcounty
-            </CardTitle>
-            <CardDescription>
-              Compare server type distributions across different subcounties in {location}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+        <NocSection
+          title="Server Type Distribution by Subcounty"
+          description={`Compare server type distributions across different subcounties in ${location}`}
+        >
             <div className="space-y-6">
               {/* Stacked Bar Chart - Server Types per Sublocation */}
               <div>
@@ -894,7 +736,7 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
                 <h3 className="text-lg font-semibold mb-4">Detailed Breakdown by Subcounty</h3>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {subcountyDistribution.map((subcounty) => (
-                    <Card key={subcounty.subcounty} className="p-4">
+                    <div key={subcounty.subcounty} className={cn(noc.panelInset, "p-4")}>
                       <div className="flex items-center justify-between mb-3">
                         <h4 className="font-semibold text-base">{subcounty.subcounty}</h4>
                         <Badge variant="secondary">{subcounty.totalFacilities} facilities</Badge>
@@ -916,13 +758,12 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
                       {subcounty.serverTypes.length === 0 && (
                         <p className="text-xs text-muted-foreground">No server type data</p>
                       )}
-                    </Card>
+                    </div>
                   ))}
                 </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+        </NocSection>
       )}
 
       {/* EMR rollout, connectivity, hardware & ticket insights */}
@@ -939,17 +780,10 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
 
       {/* Tickets & Server Issue Correlation Section */}
       {countyGraphSection === "ticket-correlation" && (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <AlertCircle className="h-5 w-5" />
-            Tickets & Server Issue Correlation
-          </CardTitle>
-          <CardDescription>
-            Which server types drive the most tickets — ranked by issue rate
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      <NocSection
+        title="Tickets & Server Issue Correlation"
+        description="Which server types drive the most tickets — ranked by issue rate"
+      >
           {isLoadingTickets && !hasLoadedTickets ? (
             <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
@@ -973,10 +807,9 @@ export function NyamiraDashboard({ location: propLocation }: NyamiraDashboardPro
               </p>
             </div>
           )}
-        </CardContent>
-      </Card>
+      </NocSection>
       )}
 
-    </div>
+    </NocPage>
   )
 }

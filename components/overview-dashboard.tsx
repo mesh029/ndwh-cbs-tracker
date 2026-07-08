@@ -45,6 +45,9 @@ import {
   writeOverviewMetricsSessionCache,
   writeOverviewSessionCache,
 } from "@/lib/dashboard-cache"
+import { NocHero, NocKpi, NocPage, NocSection } from "@/components/noc-ui"
+import { noc } from "@/lib/noc-design"
+import { cn } from "@/lib/utils"
 
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
@@ -476,16 +479,22 @@ export function OverviewDashboard() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <NocPage>
+      <NocHero
+        eyebrow="Mission Control"
+        title="County Operations Overview"
+        description={`Aggregated EMR and infrastructure intelligence across allowed counties${isRefreshing ? " · refreshing…" : pendingCounties.length > 0 ? ` · loading ${pendingCounties.length} county…` : ""}`}
+        meta={
+          <>
+            <NocKpi label="Total facilities" value={<MetricValue value={totals.totalFacilities} />} icon={Building2} progress={100} />
+            <NocKpi label="Open tickets" value={<MetricValue value={totals.openTickets} />} icon={AlertCircle} tone="danger" progress={totals.totalTickets ? (totals.openTickets / totals.totalTickets) * 100 : 0} />
+            <NocKpi label="LAN coverage" value={<MetricValue value={totals.facilitiesWithLAN} />} icon={Wifi} tone="info" progress={totals.totalFacilities ? (totals.facilitiesWithLAN / totals.totalFacilities) * 100 : 0} />
+            <NocKpi label="Latest EMR" value={emrVersionOverview.latestVersion} icon={CheckCircle2} tone="success" progress={emrVersionOverview.totalFacilities ? (emrVersionOverview.latestCount / emrVersionOverview.totalFacilities) * 100 : 0} />
+          </>
+        }
+      />
+
       <div className="space-y-4">
-        <div>
-          <h1 className="text-3xl font-bold">County Dashboard - Overview</h1>
-          <p className="text-muted-foreground">
-            Aggregated EMR data across allowed counties
-            {isRefreshing ? " · refreshing…" : pendingCounties.length > 0 ? ` · loading ${pendingCounties.length} county…` : ""}
-          </p>
-        </div>
         <ChipRow
           options={[
             { value: "overview", label: "All counties" },
@@ -500,21 +509,12 @@ export function OverviewDashboard() {
 
       {/* Overview Summary Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Total Facilities</CardTitle>
-            <CardDescription>Master list</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              <MetricValue value={totals.totalFacilities} />
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              <Building2 className="inline h-3 w-3 mr-1" />
-              <MetricValue value={totals.facilitiesWithServers} className="text-xs font-normal inline" /> with servers
-            </p>
-          </CardContent>
-        </Card>
+        <NocKpi
+          label="Total Facilities"
+          value={<MetricValue value={totals.totalFacilities} />}
+          hint={<><Building2 className="inline h-3 w-3 mr-1" /><MetricValue value={totals.facilitiesWithServers} className="inline" /> with servers</>}
+          icon={Building2}
+        />
 
         <HoverCard>
           <HoverCardTrigger asChild>
@@ -660,9 +660,8 @@ export function OverviewDashboard() {
       </div>
 
 
-      {/* County Comparison Cards */}
-      <div>
-        <h2 className="text-2xl font-semibold mb-4">County Comparison</h2>
+      {/* County Comparison */}
+      <NocSection title="County comparison" description="Click a county to drill into its mission control dashboard">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {displayLocations.map((loc) => {
             const county = countyData.find((c) => c.location === loc)
@@ -678,61 +677,58 @@ export function OverviewDashboard() {
             }
 
             return (
-            <Card 
-              key={loc} 
-              className="cursor-pointer bg-card hover:bg-accent transition-colors"
+            <button
+              key={loc}
+              type="button"
+              className={cn(noc.kpi, "text-left w-full")}
               onClick={() => router.push(`/nyamira?location=${loc}`)}
             >
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">{loc}</CardTitle>
-                  <ArrowRight className="h-4 w-4 text-muted-foreground" />
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-foreground dark:text-slate-100">{loc}</p>
+                <ArrowRight className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {county ? "View details" : partial ? "Summary loaded · detail loading…" : "Loading summary…"}
+              </p>
+              <div className="mt-3 space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Facilities</span>
+                  <Badge variant="secondary">{stats.totalFacilities}</Badge>
                 </div>
-                <CardDescription>
-                  {county ? "Click to view details" : partial ? "Summary loaded · detail loading…" : "Loading summary…"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Facilities</span>
-                    <Badge variant="secondary">{stats.totalFacilities}</Badge>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Tickets</span>
+                  <Badge variant={stats.totalTickets > 0 ? "destructive" : "secondary"}>
+                    {stats.totalTickets}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Open</span>
+                  <span className="font-medium text-red-600">{stats.openTickets}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Resolved</span>
+                  <span className="font-medium text-green-600">{stats.resolvedTickets}</span>
+                </div>
+                <div className="pt-2 border-t border-border/40 mt-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">With servers</span>
+                    <span>{stats.facilitiesWithServers}</span>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Tickets</span>
-                    <Badge variant={stats.totalTickets > 0 ? "destructive" : "secondary"}>
-                      {stats.totalTickets}
-                    </Badge>
+                  <div className="flex items-center justify-between text-xs mt-1">
+                    <span className="text-muted-foreground">With simcards</span>
+                    <span>{stats.facilitiesWithSimcards}</span>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Open</span>
-                    <span className="font-medium text-red-600">{stats.openTickets}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Resolved</span>
-                    <span className="font-medium text-green-600">{stats.resolvedTickets}</span>
-                  </div>
-                  <div className="pt-2 border-t mt-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">With Servers</span>
-                      <span>{stats.facilitiesWithServers}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs mt-1">
-                      <span className="text-muted-foreground">With Simcards</span>
-                      <span>{stats.facilitiesWithSimcards}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs mt-1">
-                      <span className="text-muted-foreground">With LAN</span>
-                      <span>{stats.facilitiesWithLAN}</span>
-                    </div>
+                  <div className="flex items-center justify-between text-xs mt-1">
+                    <span className="text-muted-foreground">With LAN</span>
+                    <span>{stats.facilitiesWithLAN}</span>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </button>
             )
           })}
         </div>
-      </div>
+      </NocSection>
 
       {graphSection === "emr" && (
       <Card>
@@ -803,27 +799,19 @@ export function OverviewDashboard() {
       </Card>
       )}
 
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <CardTitle>Graph Slicer</CardTitle>
-              <CardDescription>Show one graph section at a time</CardDescription>
-            </div>
-            <Select value={graphSection} onValueChange={(v) => setGraphSection(v as typeof graphSection)}>
-              <SelectTrigger className="w-[260px]">
-                <SelectValue placeholder="Select graph section" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="emr">EMR Version Overview</SelectItem>
-                <SelectItem value="server">Server Distribution</SelectItem>
-                <SelectItem value="charts">Charts Section</SelectItem>
-                <SelectItem value="ticket-analytics">Ticket Analytics</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardHeader>
-      </Card>
+      <NocSection title="Graph slicer" description="Show one graph section at a time">
+        <Select value={graphSection} onValueChange={(v) => setGraphSection(v as typeof graphSection)}>
+          <SelectTrigger className="w-full sm:w-[260px]">
+            <SelectValue placeholder="Select graph section" />
+          </SelectTrigger>
+          <SelectContent className="z-[120]">
+            <SelectItem value="emr">EMR Version Overview</SelectItem>
+            <SelectItem value="server">Server Distribution</SelectItem>
+            <SelectItem value="charts">Charts Section</SelectItem>
+            <SelectItem value="ticket-analytics">Ticket Analytics</SelectItem>
+          </SelectContent>
+        </Select>
+      </NocSection>
 
       {graphSection === "server" && aggregatedServerDistribution.length > 0 && (
         <Card>
@@ -1275,6 +1263,6 @@ export function OverviewDashboard() {
           </CardContent>
         </Card>
       )}
-    </div>
+    </NocPage>
   )
 }

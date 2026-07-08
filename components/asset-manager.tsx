@@ -63,6 +63,7 @@ import {
 import { CountyChipRow, ChipRow, ActiveFilterChips, type ActiveFilter } from "@/components/filter-chips"
 import { AssetFilterPanel } from "@/components/asset-filter-panel"
 import { AssetSortMenu } from "@/components/asset-sort-menu"
+import { NocHero, NocPage } from "@/components/noc-ui"
 
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
@@ -1110,24 +1111,22 @@ export function AssetManager() {
   ]
 
   return (
-    <div className="space-y-6">
-      <section className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/10 via-background to-secondary/20 p-4 sm:p-6">
-        <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-primary/10 blur-3xl" />
-        <div className="relative">
-          <h1 className="text-2xl sm:text-3xl font-bold">Asset Command Center</h1>
-          <p className="text-sm sm:text-base text-muted-foreground mt-1">
-            Built-in types plus custom inventory you define (WiFi extenders, UPS, etc.). Superadmins can add types under Asset Types.
-          </p>
-          {role === "superadmin" && (
-            <Button variant="outline" size="sm" className="mt-3" asChild>
+    <NocPage>
+      <NocHero
+        eyebrow="Infrastructure"
+        title="Asset Command Center"
+        description="Built-in types plus custom inventory you define (WiFi extenders, UPS, etc.). Superadmins can add types under Asset Types."
+        actions={
+          role === "superadmin" ? (
+            <Button variant="outline" size="sm" asChild>
               <Link href="/asset-types">
                 <Settings2 className="h-4 w-4 mr-2" />
                 Manage custom asset types
               </Link>
             </Button>
-          )}
-        </div>
-      </section>
+          ) : undefined
+        }
+      />
 
       <CountyChipRow
         counties={allowedLocations}
@@ -1763,6 +1762,6 @@ export function AssetManager() {
       </>
       )}
 
-    </div>
+    </NocPage>
   )
 }

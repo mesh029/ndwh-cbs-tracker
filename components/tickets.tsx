@@ -48,6 +48,7 @@ import type { ChartConfig } from "@/components/ui/chart"
 import { SectionUpload } from "@/components/section-upload"
 import { useAuth } from "@/components/auth-provider"
 import { useRouter } from "next/navigation"
+import { NocHero, NocPage } from "@/components/noc-ui"
 
 // ─── Chart configs ──────────────────────────────────────────────────────────
 
@@ -794,36 +795,32 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-6">
-
-      {/* ── Page Header ── */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex-1 min-w-0">
-          {showBackToOverview && (
-            <div className="mb-2">
+    <NocPage>
+      <NocHero
+        eyebrow="Support operations"
+        title="EMR Tickets Dashboard"
+        description="Comprehensive ticketing for EMR server and networking issues"
+        actions={
+          <>
+            {showBackToOverview ? (
               <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" onClick={() => router.push("/tickets")}>
-                ← Back to Tickets Overview
+                ← Back to overview
               </Button>
-            </div>
-          )}
-          <h1 className="text-3xl font-bold">EMR Tickets Dashboard</h1>
-          <p className="text-muted-foreground">Comprehensive ticketing for EMR server and networking issues</p>
-        </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <label className="text-sm font-medium text-muted-foreground">Location:</label>
-          <Select value={selectedLocation} onValueChange={(v) => setSelectedLocation(v as Location)}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-            <SelectContent>{allowedLocations.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
-          </Select>
-          <Button onClick={handleNewTicket}>
-            <Plus className="mr-2 h-4 w-4" />New Ticket
-          </Button>
-          <Button variant="outline" onClick={() => { handleNewTicket(); window.setTimeout(() => launchTicketTour(), 250) }}>
-            Guided Ticket Form
-          </Button>
-          <SectionUpload section="ticket" location={selectedLocation} onUploadComplete={loadTickets} />
-        </div>
-      </div>
+            ) : null}
+            <Select value={selectedLocation} onValueChange={(v) => setSelectedLocation(v as Location)}>
+              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectContent>{allowedLocations.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
+            </Select>
+            <Button onClick={handleNewTicket}>
+              <Plus className="mr-2 h-4 w-4" />New Ticket
+            </Button>
+            <Button variant="outline" onClick={() => { handleNewTicket(); window.setTimeout(() => launchTicketTour(), 250) }}>
+              Guided Ticket Form
+            </Button>
+            <SectionUpload section="ticket" location={selectedLocation} onUploadComplete={loadTickets} />
+          </>
+        }
+      />
 
       {/* ── Manage Assignees Panel (admin / superadmin) ── */}
       {(role === "admin" || role === "superadmin") && (
@@ -1679,6 +1676,6 @@ export function Tickets({ initialLocation = "Nyamira", showBackToOverview = fals
           </CardContent>
         </Card>
       </div>
-    </div>
+    </NocPage>
   )
 }

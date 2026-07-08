@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Sidebar, MobileMenuButton } from "@/components/sidebar"
+import { DashboardShell } from "@/components/dashboard-shell"
+import { NocHero, NocPage } from "@/components/noc-ui"
 import { Toaster } from "@/components/ui/toaster"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -237,14 +238,14 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar />
-      <main className="flex-1 overflow-y-auto bg-background p-6">
-        <div className="md:hidden fixed top-4 left-4 z-10">
-          <MobileMenuButton />
-        </div>
+    <DashboardShell>
+      <NocPage>
+        <NocHero
+          eyebrow="Administration"
+          title="User Access Management"
+          description="Create users, assign scoped modules and county access, and manage public action passcodes."
+        />
         <div className="space-y-6">
-          <h1 className="text-3xl font-bold">User Access Management</h1>
           <Card>
             <CardHeader><CardTitle>Create User</CardTitle></CardHeader>
             <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -434,8 +435,7 @@ export default function UsersPage() {
             </CardContent>
           </Card>
         </div>
-      </main>
-      <Toaster />
-    </div>
+      </NocPage>
+    </DashboardShell>
   )
 }

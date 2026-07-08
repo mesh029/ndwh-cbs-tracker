@@ -18,6 +18,7 @@ import type { Facility } from "@/lib/storage-api"
 import { canDownloadTemplates, canUploadData } from "@/lib/auth"
 import { useAuth } from "@/components/auth-provider"
 import * as XLSX from "xlsx"
+import { NocHero, NocPage } from "@/components/noc-ui"
 
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
@@ -860,33 +861,29 @@ export function FacilityManager() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Facility Manager</h1>
-          <p className="text-muted-foreground">
-            Manage master facility lists by location
-          </p>
-        </div>
-      </div>
-
-      <div className="flex gap-4">
-        <Select
-          value={selectedLocation}
-          onValueChange={(v) => setSelectedLocation(v as Location)}
-        >
-          <SelectTrigger className="w-40">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {allowedLocations.map((location) => (
-              <SelectItem key={location} value={location}>
-                {location}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+    <NocPage>
+      <NocHero
+        eyebrow="Master data"
+        title="Facility Manager"
+        description="Manage master facility lists by location"
+        actions={
+          <Select
+            value={selectedLocation}
+            onValueChange={(v) => setSelectedLocation(v as Location)}
+          >
+            <SelectTrigger className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {allowedLocations.map((location) => (
+                <SelectItem key={location} value={location}>
+                  {location}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        }
+      />
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
@@ -1586,6 +1583,6 @@ export function FacilityManager() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </NocPage>
   )
 }

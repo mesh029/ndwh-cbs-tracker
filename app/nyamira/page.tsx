@@ -3,8 +3,7 @@
 import { Suspense } from "react"
 import { NyamiraDashboard } from "@/components/nyamira-dashboard"
 import { OverviewDashboard } from "@/components/overview-dashboard"
-import { Sidebar, MobileMenuButton } from "@/components/sidebar"
-import { Toaster } from "@/components/ui/toaster"
+import { DashboardShell } from "@/components/dashboard-shell"
 import { useSearchParams } from "next/navigation"
 import type { Location } from "@/lib/storage"
 import { useAuth } from "@/components/auth-provider"
@@ -23,7 +22,7 @@ function CountyDashboardContent() {
     : ALL_LOCATIONS.filter((loc) => access.locations.includes(loc))
   const effectiveLocation = locationParam && allowedLocations.includes(locationParam) ? locationParam : null
   const showOverview = !effectiveLocation
-  
+
   useEffect(() => {
     if (!locationParam && access?.locations !== "all" && allowedLocations.length > 0) {
       router.replace(`/nyamira?location=${encodeURIComponent(allowedLocations[0])}`)
@@ -33,29 +32,16 @@ function CountyDashboardContent() {
       router.replace(`/nyamira?location=${encodeURIComponent(allowedLocations[0])}`)
     }
   }, [locationParam, access?.locations, allowedLocations, router])
-  
-  return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar />
-      <main className="flex-1 overflow-y-auto bg-background p-6">
-        <div className="md:hidden fixed top-4 left-4 z-10">
-          <MobileMenuButton />
-        </div>
-        {showOverview ? (
-          <OverviewDashboard />
-        ) : (
-          <NyamiraDashboard location={effectiveLocation} />
-        )}
-      </main>
-      <Toaster />
-    </div>
-  )
+
+  return showOverview ? <OverviewDashboard /> : <NyamiraDashboard location={effectiveLocation} />
 }
 
 export default function CountyDashboardPage() {
   return (
-    <Suspense fallback={<OverviewDashboard />}>
-      <CountyDashboardContent />
-    </Suspense>
+    <DashboardShell>
+      <Suspense fallback={<OverviewDashboard />}>
+        <CountyDashboardContent />
+      </Suspense>
+    </DashboardShell>
   )
 }

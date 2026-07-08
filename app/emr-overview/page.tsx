@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,14 +9,17 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts"
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Sector } from "recharts"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Toaster } from "@/components/ui/toaster"
 import { useToast } from "@/components/ui/use-toast"
 import {
   BellRing,
+  Activity,
+  Clock3,
   Sparkles,
   ShieldCheck,
+  ShieldAlert,
   AlertTriangle,
   ShoppingCart,
   Pencil,
@@ -37,6 +39,7 @@ import {
 import { cn } from "@/lib/utils"
 import { mergeAssetTypeCounts } from "@/lib/asset-type-merge"
 import { getArticleSlug } from "@/lib/article-slug"
+import { buildEmrHealthSnapshot, healthBarClass, healthToneClass } from "@/lib/emr-health-indicators"
 
 type CountyRow = {
   county: string
@@ -131,6 +134,7 @@ export default function EmrOverviewPage() {
   const [assetTypeFilter, setAssetTypeFilter] = useState<string>("all")
   const [articles, setArticles] = useState<Article[]>([])
   const [actionMode, setActionMode] = useState<ActionMode>(null)
+  const [quickActionValue, setQuickActionValue] = useState<"" | Exclude<ActionMode, null>>("")
   const [options, setOptions] = useState<{
     facilities: Array<{ id: string; name: string; location: string; subcounty: string | null }>
     assetTypes: Array<{ id: string; slug: string; label: string; kind: "builtin" | "custom" }>
@@ -167,6 +171,8 @@ export default function EmrOverviewPage() {
   })
   const [actionSuccess, setActionSuccess] = useState<string>("")
   const [actionError, setActionError] = useState<string>("")
+  const [lastSyncAt, setLastSyncAt] = useState<Date>(new Date())
+  const [activeDonutIndex, setActiveDonutIndex] = useState<number>(0)
   const [submittingAction, setSubmittingAction] = useState(false)
   const [showControlInfo, setShowControlInfo] = useState(false)
   const [dashboardKey, setDashboardKey] = useState(0)
@@ -194,6 +200,7 @@ export default function EmrOverviewPage() {
     const json = await res.json().catch(() => null)
     if (!json) throw new Error("Failed to parse EMR overview response")
     setData(json)
+    setLastSyncAt(new Date())
   }, [])
 
   const loadActionOptions = useCallback(async () => {
@@ -480,6 +487,34 @@ export default function EmrOverviewPage() {
     return countyUpgradeRanks.find((r) => r.county === selectedCounty) || null
   }, [countyUpgradeRanks, selectedCounty])
 
+  const latestCoveragePct = useMemo(() => {
+    if (!selected?.totalFacilities) return 0
+    return Math.round((selected.latestFacilities / selected.totalFacilities) * 100)
+  }, [selected])
+
+  const outdatedCoveragePct = useMemo(() => {
+    if (!selected?.totalFacilities) return 0
+    return Math.round((selected.outdatedFacilities / selected.totalFacilities) * 100)
+  }, [selected])
+
+  const unknownCoveragePct = useMemo(() => {
+    if (!selected?.totalFacilities) return 0
+    return Math.round((selected.noVersionFacilities / selected.totalFacilities) * 100)
+  }, [selected])
+
+  const healthSnapshot = useMemo(() => {
+    if (!selected) return null
+    return buildEmrHealthSnapshot({
+      totalFacilities: selected.totalFacilities,
+      latestFacilities: selected.latestFacilities,
+      outdatedFacilities: selected.outdatedFacilities,
+      noVersionFacilities: selected.noVersionFacilities,
+      blankVersionFacilities: selected.blankVersionFacilities,
+      noServerFacilities: selected.noServerFacilities,
+      assetOverview: selected.assetOverview,
+    })
+  }, [selected])
+
   const assetMetricValue = useMemo(() => {
     if (!filteredAssetOverview) return 0
     if (assetFilter === "active") return filteredAssetOverview.active
@@ -713,6 +748,7 @@ export default function EmrOverviewPage() {
 
   const openAction = (mode: ActionMode) => {
     setActionMode(mode)
+    setQuickActionValue("")
     setActionError("")
     setActionSuccess("")
     resetAssetPicker()
@@ -879,12 +915,12 @@ export default function EmrOverviewPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-background via-background to-muted/40">
+    <main className="min-h-screen bg-muted/30 dark:bg-[#0B0B0D]">
       <div className="fixed inset-x-0 top-0 z-[90] pointer-events-none">
-        <div className={cn("mx-auto max-w-6xl px-6 transition-[padding] duration-300", navExpanded ? "pt-3" : "pt-2")}>
+        <div className={cn("w-full px-4 lg:px-6 transition-[padding] duration-300", navExpanded ? "pt-3" : "pt-2")}>
           <div
             className={cn(
-              "pointer-events-auto rounded-xl border bg-background/90 shadow-xl backdrop-blur transition-all duration-300 supports-[backdrop-filter]:bg-background/75",
+              "pointer-events-auto rounded-xl border border-border/40 bg-background/95 shadow-sm transition-all duration-300",
               navExpanded ? "p-2.5" : "p-1.5"
             )}
             onMouseEnter={() => {
@@ -896,7 +932,11 @@ export default function EmrOverviewPage() {
               scheduleNavCollapse()
             }}
             onFocusCapture={() => setNavExpanded(true)}
-            onTouchStart={() => setNavExpanded(true)}
+            onTouchStart={() => {
+              navHoverRef.current = false
+              setNavExpanded(true)
+              scheduleNavCollapse()
+            }}
           >
             <div className={cn("flex flex-col transition-all duration-300", navExpanded ? "gap-2.5" : "gap-0")}>
               <div
@@ -915,12 +955,18 @@ export default function EmrOverviewPage() {
                 <Select
                   value={selectedCounty}
                   onValueChange={setSelectedCounty}
-                  onOpenChange={(open) => open && setNavExpanded(true)}
+                  onOpenChange={(open) => {
+                    if (open) {
+                      setNavExpanded(true)
+                      return
+                    }
+                    scheduleNavCollapse()
+                  }}
                 >
                   <SelectTrigger className={cn("w-full sm:w-[200px] transition-all", !navExpanded && "h-8 text-xs")}>
                     <SelectValue placeholder="Select county" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="z-[120]">
                     {countyOptions.map((opt) => (
                       <SelectItem key={opt} value={opt}>
                         {opt === "all" ? "All Counties" : opt}
@@ -931,12 +977,18 @@ export default function EmrOverviewPage() {
                 <Select
                   value={activeSection}
                   onValueChange={(value) => scrollToSection(value as OverviewSection)}
-                  onOpenChange={(open) => open && setNavExpanded(true)}
+                  onOpenChange={(open) => {
+                    if (open) {
+                      setNavExpanded(true)
+                      return
+                    }
+                    scheduleNavCollapse()
+                  }}
                 >
                   <SelectTrigger className={cn("w-full sm:w-[200px] transition-all", !navExpanded && "h-8 text-xs")}>
                     <SelectValue placeholder="Jump to section" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="z-[120]">
                     {OVERVIEW_SECTIONS.map((section) => {
                       const Icon = section.icon
                       return (
@@ -992,467 +1044,487 @@ export default function EmrOverviewPage() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-6xl space-y-6 px-6 pb-6 pt-40 scroll-mt-40">
-        <section id="emr-section-overview" className="scroll-mt-40 space-y-6 rounded-2xl border border-primary/10 bg-gradient-to-br from-primary/[0.06] via-background to-background p-3 sm:p-4">
-        <div className="rounded-xl border bg-card/80 p-4 shadow-sm transition-all duration-300 hover:shadow-md">
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <h1 className="text-3xl font-bold">KenyaEMR Version Overview</h1>
-                <p className="text-muted-foreground">
-                  Public read-only view of county EMR version rollout and infrastructure status
-                </p>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowControlInfo((s) => !s)}
-                className="rounded-full border animate-pulse self-start"
-                title="Tap for control center guide"
-              >
-                <Sparkles className="h-4 w-4 text-primary" />
-              </Button>
-            </div>
-
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
-              <Button variant="outline" className="transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md" onClick={() => openAction("lost")}>
-                <AlertTriangle className="mr-2 h-4 w-4 text-red-600" />
-                Document lost asset
-              </Button>
-              <Button variant="outline" className="transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md" onClick={() => openAction("purchased")}>
-                <ShoppingCart className="mr-2 h-4 w-4 text-emerald-600" />
-                Add purchased asset
-              </Button>
-              <Button variant="outline" className="transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md" onClick={() => openAction("update")}>
-                <Pencil className="mr-2 h-4 w-4 text-amber-600" />
-                Update inventory
-              </Button>
-              <Button variant="outline" className="transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md" onClick={() => openAction("new")}>
-                <PlusCircle className="mr-2 h-4 w-4 text-blue-600" />
-                Add new asset
-              </Button>
-              <Button variant="outline" className="transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md" onClick={() => openAction("transfer")}>
-                <ArrowRightLeft className="mr-2 h-4 w-4 text-indigo-600" />
-                Transfer/recover asset
-              </Button>
-              <Button variant="outline" className="transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md" onClick={() => openAction("emr_upgrade")}>
-                <MonitorUp className="mr-2 h-4 w-4 text-primary" />
-                KenyaEMR upgrade
-              </Button>
-            </div>
-
-            {showControlInfo ? (
-              <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
-                <p className="font-medium flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-primary" />
-                  What you can do on the control center
-                </p>
-                <p className="text-muted-foreground mt-1">
-                  Document lost assets, add new/purchased assets, transfer/recover assets, update inventory records, or bulk update KenyaEMR version for one or many facilities.
-                </p>
-              </div>
-            ) : null}
-          </div>
-        </div>
-
-        {pinnedCacheArticle && pinnedReadOnlyHref ? (
-          <Link
-            href={pinnedReadOnlyHref}
-            className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm transition-all duration-300 hover:-translate-y-0.5 hover:bg-amber-500/15 hover:shadow-md"
-          >
-            <BellRing className="h-4 w-4 shrink-0 text-amber-600" />
-            <span className="min-w-0 flex-1 truncate font-medium">{pinnedCacheArticle.title}</span>
-            <span className="shrink-0 text-xs text-muted-foreground">Read article →</span>
-          </Link>
-        ) : null}
-        </section>
-
-        <section id="emr-section-emr-versions" className="scroll-mt-40 space-y-6 rounded-2xl border border-violet-500/10 bg-gradient-to-br from-violet-500/[0.05] via-background to-background p-3 sm:p-4">
-        {!selected ? (
-          <Card>
-            <CardContent className="py-10 text-center text-muted-foreground">Loading EMR overview...</CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Card className="shadow-lg border-primary/20 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl">
-              <CardHeader>
-                <CardTitle>Version Distribution Donut</CardTitle>
-                <CardDescription>
-                  Hover slices for detail. Latest auto-detected from live data: {selected.latestGlobal}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="relative h-[340px] overflow-hidden rounded-xl border border-primary/10 bg-gradient-to-br from-primary/[0.06] via-background to-background p-1">
-                  <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,hsla(var(--primary),0.18),transparent_62%)]" />
-                  <ResponsiveContainer width="100%" height="100%" key={`donut-wrap-${dashboardKey}`}>
-                    <PieChart key={`donut-${dashboardKey}`}>
-                      <Pie
-                        data={donutData}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius={86}
-                        outerRadius={126}
-                        paddingAngle={4}
-                        cornerRadius={6}
-                        isAnimationActive
-                        animationDuration={700}
-                        animationEasing="ease-out"
-                      >
-                        {donutData.map((entry, i) => (
-                          <Cell key={i} fill={entry.fill} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={{
-                          background: "hsl(var(--card))",
-                          border: "1px solid hsl(var(--border))",
-                          borderRadius: "8px",
-                          boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
-                          opacity: 1,
-                          color: "hsl(var(--foreground))",
-                          zIndex: 1000,
-                          padding: "10px 12px",
-                        }}
-                        labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
-                        itemStyle={{ color: "hsl(var(--foreground))" }}
-                        cursor={{ fill: "rgba(255,255,255,0.08)" }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                    <div className="rounded-full border border-primary/20 bg-background/90 px-4 py-3 text-center shadow-md backdrop-blur">
-                      <div className="text-2xl font-bold tracking-tight">{selected.totalFacilities}</div>
-                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Facilities</div>
-                    </div>
+      <div className="w-full space-y-6 px-4 pb-8 pt-40 scroll-mt-40 lg:px-8">
+        <section id="emr-section-overview" className="scroll-mt-40">
+          <div className="rounded-3xl border border-white/10 bg-[#111214] p-6 text-slate-100 shadow-[0_22px_70px_rgba(0,0,0,0.45)]">
+            <div className="grid gap-6 xl:grid-cols-[1.2fr,0.8fr]">
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Mission Control</p>
+                  <h1 className="text-4xl font-semibold leading-tight tracking-tight md:text-5xl">KenyaEMR Deployment NOC</h1>
+                  <p className="max-w-2xl text-[15px] text-slate-400">
+                    County and facility infrastructure control plane for version rollout, operational actions, and health visibility.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-2xl border border-white/10 bg-[#0F1012] p-4">
+                    <p className="text-[13px] text-slate-400">Last sync</p>
+                    <p className="mt-2 flex items-center gap-2 text-sm font-medium text-slate-100">
+                      <Clock3 className="h-4 w-4 text-slate-300" />
+                      {lastSyncAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-[#0F1012] p-4">
+                    <p className="text-[13px] text-slate-400">Latest detected</p>
+                    <p className="mt-2 text-lg font-semibold text-slate-100">{data?.latestGlobal || "—"}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-[#0F1012] p-4">
+                    <p className="text-[13px] text-slate-400">Infrastructure health</p>
+                    {healthSnapshot ? (
+                      <>
+                        <p className={cn("mt-2 text-lg font-semibold", healthToneClass(healthSnapshot.overallTone))}>
+                          {healthSnapshot.overallScore}% · {healthSnapshot.overallLabel}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Composite from {healthSnapshot.indicators.length} tracked indicators
+                        </p>
+                      </>
+                    ) : (
+                      <p className="mt-2 text-lg font-semibold text-slate-400">—</p>
+                    )}
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-[#0F1012] p-4">
+                    <p className="text-[13px] text-slate-400">Operational status</p>
+                    <p className="mt-2 flex items-center gap-2 text-sm font-medium text-emerald-400">
+                      <Activity className="h-4 w-4" />
+                      {isRefreshing ? "Resync in progress" : "Live"}
+                    </p>
                   </div>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {donutData.map((slice) => (
-                    <span
-                      key={slice.name}
-                      className="inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs text-muted-foreground"
-                    >
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: slice.fill }} />
-                      {slice.name} ({slice.value})
-                    </span>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-lg border-primary/20 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl">
-              <CardHeader>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <CardTitle>{selected.county} Breakdown</CardTitle>
-                    <CardDescription>Latest, outdated, and no-version facility counts</CardDescription>
-                  </div>
-                  <Button asChild variant="outline" size="sm">
-                    <Link href={selectedCounty === "all" ? "/emr-overview/facilities" : `/emr-overview/facilities?county=${encodeURIComponent(selectedCounty)}`}>
-                      <Table2 className="mr-2 h-4 w-4" />
-                      Facility register
-                    </Link>
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {selectedCountyRank ? (
-                  <div className="mb-3 flex items-center justify-between rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2">
-                    <span className="text-sm font-medium flex items-center gap-1.5">
-                      <Trophy className="h-4 w-4 text-amber-600" />
-                      Upgrade rank
-                    </span>
-                    <div className="text-right">
-                      <Badge className="bg-amber-500 text-black">
-                        #{selectedCountyRank.rank} of {countyUpgradeRanks.length}
-                      </Badge>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {selectedCountyRank.latestRate}% on latest · {selectedCountyRank.latestFacilities}/
-                        {selectedCountyRank.totalFacilities} facilities
-                      </p>
+                {healthSnapshot ? (
+                  <div className="rounded-2xl border border-white/10 bg-[#0F1012] p-4">
+                    <p className="mb-3 text-sm font-medium text-slate-200">Health indicators</p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {healthSnapshot.indicators.map((indicator) => (
+                        <div key={indicator.id} className="rounded-xl border border-white/10 bg-[#111214] p-3" title={indicator.description}>
+                          <div className="flex items-center justify-between gap-2 text-sm">
+                            <span className="text-slate-300">{indicator.label}</span>
+                            <span className={cn("font-semibold tabular-nums", healthToneClass(indicator.tone))}>
+                              {indicator.pct}%
+                            </span>
+                          </div>
+                          <p className="mt-0.5 text-xs text-slate-500">{indicator.count.toLocaleString()} recorded</p>
+                          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+                            <div
+                              className={cn("h-full rounded-full transition-all duration-700", healthBarClass(indicator.tone))}
+                              style={{ width: `${Math.min(100, indicator.pct)}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ) : null}
-                <div className="flex items-center justify-between">
-                  <span>Total facilities</span>
-                  <Badge variant="outline">{selected.totalFacilities}</Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Latest ({selected.latestGlobal})</span>
-                  <Badge className="bg-emerald-600">{selected.latestFacilities}</Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>No EMR version</span>
-                  <Badge className="bg-slate-600">{selected.noVersionFacilities}</Badge>
-                </div>
-                <div className="flex items-center justify-between text-sm text-muted-foreground">
-                  <span>- blank server version</span>
-                  <span>{selected.blankVersionFacilities}</span>
-                </div>
-                <div className="flex items-center justify-between text-sm text-muted-foreground">
-                  <span>- no server record</span>
-                  <span>{selected.noServerFacilities}</span>
-                </div>
-                <div className="pt-3 mt-2 border-t space-y-1">
-                  {selected.versionBreakdown.map((v) => (
-                    <div key={v.version} className="flex items-center justify-between text-sm">
-                      <span>{v.version}</span>
-                      <span className="font-medium">{v.facilities}</span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+              </div>
 
-        {countyUpgradeRanks.length > 0 ? (
-          <Card className="shadow-lg border-primary/20 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Trophy className="h-5 w-5 text-amber-600" />
-                County upgrade rankings
-              </CardTitle>
-              <CardDescription>
-                Ranked by share of facilities on the latest KenyaEMR version ({data?.latestGlobal}). Higher rank =
-                better rollout relative to facility count.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {countyUpgradeRanks.map((row) => (
-                <div
-                  key={row.county}
-                  className={cn(
-                    "flex flex-col gap-3 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between",
-                    (selectedCounty === row.county ||
-                      (selectedCounty === "all" && row.rank === 1)) &&
-                      "border-primary/50 bg-primary/5"
-                  )}
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        "shrink-0 tabular-nums font-bold",
-                        row.rank === 1 && "border-amber-500 bg-amber-500 text-black",
-                        row.rank === 2 && "border-slate-400 bg-slate-200 text-slate-900 dark:bg-slate-700 dark:text-white",
-                        row.rank === 3 && "border-orange-400 bg-orange-100 text-orange-900 dark:bg-orange-900/40 dark:text-orange-100"
-                      )}
-                    >
-                      #{row.rank}
-                    </Badge>
-                    <div className="min-w-0">
-                      <p className="font-medium">{row.county}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {row.latestFacilities} of {row.totalFacilities} facilities on latest ·{" "}
-                        {row.outdatedFacilities} outdated · {row.noVersionFacilities} no version
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 sm:min-w-[220px]">
-                    <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full bg-emerald-600 transition-all"
-                        style={{ width: `${Math.min(100, row.latestRate)}%` }}
-                      />
-                    </div>
-                    <span className="w-14 shrink-0 text-right text-sm font-bold tabular-nums">
-                      {row.latestRate}%
-                    </span>
-                  </div>
+              <div className="space-y-3 rounded-2xl border border-white/10 bg-[#0F1012] p-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-slate-200">Quick actions</p>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setShowControlInfo((s) => !s)}
+                    className="h-8 w-8 rounded-lg border border-white/10 text-slate-300 hover:bg-white/5"
+                    title="Show action guidance"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                  </Button>
                 </div>
-              ))}
-            </CardContent>
-          </Card>
-        ) : null}
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Button variant="default" className="h-11 justify-start rounded-xl bg-blue-600 hover:bg-blue-500" onClick={() => openAction("update")}>
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Update inventory
+                  </Button>
+                  <Button variant="outline" className="h-11 justify-start rounded-xl border-white/15 bg-transparent text-slate-200 hover:bg-white/5" onClick={() => openAction("lost")}>
+                    <AlertTriangle className="mr-2 h-4 w-4 text-amber-400" />
+                    Report lost asset
+                  </Button>
+                  <Button variant="outline" className="h-11 justify-start rounded-xl border-white/15 bg-transparent text-slate-200 hover:bg-white/5" onClick={() => openAction("purchased")}>
+                    <ShoppingCart className="mr-2 h-4 w-4 text-emerald-400" />
+                    Add purchased asset
+                  </Button>
+                  <Select
+                    value={quickActionValue}
+                    onValueChange={(value) => {
+                      const selected = value as Exclude<ActionMode, null>
+                      setQuickActionValue(selected)
+                      openAction(selected)
+                    }}
+                  >
+                    <SelectTrigger className="h-11 rounded-xl border-white/15 bg-transparent text-slate-100">
+                      <SelectValue placeholder="More actions" />
+                    </SelectTrigger>
+                    <SelectContent className="z-[120]">
+                      <SelectItem value="new">Add new asset</SelectItem>
+                      <SelectItem value="transfer">Transfer/recover asset</SelectItem>
+                      <SelectItem value="emr_upgrade">KenyaEMR upgrade</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {showControlInfo ? (
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-slate-300">
+                    <p className="mb-1 flex items-center gap-2 font-medium text-slate-100">
+                      <ShieldCheck className="h-4 w-4 text-blue-400" />
+                      Action center usage
+                    </p>
+                    Document losses, register new purchases, transfer assets, update inventory records, and push KenyaEMR version updates.
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
         </section>
 
-        <section id="emr-section-assets" className="scroll-mt-40 rounded-2xl border border-emerald-500/10 bg-gradient-to-br from-emerald-500/[0.05] via-background to-background p-3 sm:p-4">
-        {selected && filteredAssetOverview && (
-          <Card className="shadow-lg border-primary/20 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl" key={`assets-${dashboardKey}`}>
-            <CardHeader>
+        <section id="emr-section-emr-versions" className="scroll-mt-40 space-y-4">
+          {!selected ? (
+            <div className="rounded-2xl border border-white/10 bg-[#111214] py-12 text-center text-slate-400">Loading EMR overview...</div>
+          ) : (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {[
+                  { label: "Total Facilities", value: selected.totalFacilities, icon: Package, color: "text-blue-400", pct: 100, sub: "Deployment footprint" },
+                  { label: "Latest Version", value: selected.latestFacilities, icon: CheckCircle2, color: "text-emerald-400", pct: latestCoveragePct, sub: `${latestCoveragePct}% coverage` },
+                  { label: "Outdated", value: selected.outdatedFacilities, icon: AlertTriangle, color: "text-amber-400", pct: outdatedCoveragePct, sub: `${outdatedCoveragePct}% need action` },
+                  { label: "Unknown Version", value: selected.noVersionFacilities, icon: ShieldAlert, color: "text-slate-300", pct: unknownCoveragePct, sub: `${unknownCoveragePct}% unresolved` },
+                ].map((kpi) => (
+                  <div key={kpi.label} className="rounded-2xl border border-white/10 bg-[#111214] p-4 shadow-[0_8px_24px_rgba(0,0,0,0.24)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(0,0,0,0.32)]">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[13px] text-slate-400">{kpi.label}</p>
+                      <kpi.icon className={cn("h-4 w-4", kpi.color)} />
+                    </div>
+                    <p className="mt-3 text-4xl font-semibold tracking-tight text-slate-100">{kpi.value}</p>
+                    <p className="mt-1 text-xs text-slate-400">{kpi.sub}</p>
+                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+                      <div className="h-full rounded-full bg-blue-500 transition-all duration-700" style={{ width: `${Math.min(100, kpi.pct)}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-[1.4fr,0.9fr]">
+                <div className="rounded-3xl border border-white/10 bg-[#111214] p-5 shadow-[0_20px_60px_rgba(0,0,0,0.32)]">
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-xl font-semibold tracking-tight text-slate-100">Distribution Ring</h3>
+                      <p className="text-sm text-slate-400">County EMR version health snapshot ({selected.latestGlobal} latest)</p>
+                    </div>
+                    <Badge className="bg-blue-600/20 text-blue-300 border border-blue-500/30">System health focus</Badge>
+                  </div>
+                  <div className="relative h-[360px]">
+                    <ResponsiveContainer width="100%" height="100%" key={`donut-wrap-${dashboardKey}`}>
+                      <PieChart key={`donut-${dashboardKey}`}>
+                        <defs>
+                          <linearGradient id="grad-latest" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stopColor="#22C55E" />
+                            <stop offset="100%" stopColor="#16A34A" />
+                          </linearGradient>
+                          <linearGradient id="grad-outdated" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stopColor="#F59E0B" />
+                            <stop offset="100%" stopColor="#D97706" />
+                          </linearGradient>
+                          <linearGradient id="grad-unknown" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stopColor="#64748B" />
+                            <stop offset="100%" stopColor="#475569" />
+                          </linearGradient>
+                        </defs>
+                        <Pie
+                          data={donutData}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={96}
+                          outerRadius={152}
+                          paddingAngle={2}
+                          cornerRadius={22}
+                          activeIndex={activeDonutIndex}
+                          onMouseEnter={(_, idx) => setActiveDonutIndex(idx)}
+                          onMouseLeave={() => setActiveDonutIndex(0)}
+                          activeShape={(props: any) => (
+                            <Sector
+                              {...props}
+                              outerRadius={(props.outerRadius || 152) + 6}
+                            />
+                          )}
+                          isAnimationActive
+                          animationDuration={900}
+                          animationEasing="ease-out"
+                        >
+                          {donutData.map((entry, i) => {
+                            const lower = entry.name.toLowerCase()
+                            const fill =
+                              lower.includes("latest") ? "url(#grad-latest)" : lower.includes("no emr") ? "url(#grad-unknown)" : "url(#grad-outdated)"
+                            return <Cell key={`main-${entry.name}-${i}`} fill={fill} stroke="#111214" strokeWidth={2} />
+                          })}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={{
+                            background: "#111214",
+                            border: "1px solid rgba(255,255,255,.08)",
+                            borderRadius: "12px",
+                            boxShadow: "0 16px 42px rgba(0,0,0,0.5)",
+                            color: "#E2E8F0",
+                          }}
+                          labelStyle={{ color: "#F8FAFC", fontWeight: 600 }}
+                          itemStyle={{ color: "#CBD5E1" }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      <div className="rounded-full border border-white/10 bg-[#0F1012] px-6 py-4 text-center">
+                        <p className="text-4xl font-semibold tracking-tight text-slate-100">{selected.totalFacilities}</p>
+                        <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Total facilities</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                    {donutData.map((slice) => (
+                      <div key={slice.name} className="rounded-xl border border-white/10 bg-[#0F1012] px-3 py-2 text-sm">
+                        <p className="truncate text-slate-300">{slice.name}</p>
+                        <p className="font-semibold text-slate-100">{slice.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-white/10 bg-[#111214] p-5">
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-xl font-semibold tracking-tight text-slate-100">Infrastructure Summary</h3>
+                      <p className="text-sm text-slate-400">Current county: {selected.county}</p>
+                    </div>
+                    <Button asChild variant="outline" size="sm" className="border-white/15 bg-transparent text-slate-200 hover:bg-white/5">
+                      <Link href={selectedCounty === "all" ? "/emr-overview/facilities" : `/emr-overview/facilities?county=${encodeURIComponent(selectedCounty)}`}>
+                        <Table2 className="mr-2 h-4 w-4" />
+                        Facility register
+                      </Link>
+                    </Button>
+                  </div>
+                  <div className="space-y-3">
+                    {[
+                      { label: `Latest (${selected.latestGlobal})`, value: selected.latestFacilities, color: "bg-emerald-500" },
+                      { label: "Outdated", value: selected.outdatedFacilities, color: "bg-amber-500" },
+                      { label: "No EMR version", value: selected.noVersionFacilities, color: "bg-slate-500" },
+                    ].map((item) => (
+                      <div key={item.label} className="rounded-xl border border-white/10 bg-[#0F1012] p-3">
+                        <div className="mb-1 flex items-center justify-between text-sm">
+                          <span className="text-slate-300">{item.label}</span>
+                          <span className="font-semibold text-slate-100">{item.value}</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-white/10">
+                          <div
+                            className={cn("h-1.5 rounded-full", item.color)}
+                            style={{ width: `${selected.totalFacilities ? (item.value / selected.totalFacilities) * 100 : 0}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 border-t border-white/10 pt-4">
+                    <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-slate-400">Version detail</p>
+                    <div className="space-y-1.5">
+                      {selected.versionBreakdown.map((v) => (
+                        <div key={v.version} className="flex items-center justify-between text-sm">
+                          <span className="text-slate-300">{v.version}</span>
+                          <span className="font-medium text-slate-100">{v.facilities}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {countyUpgradeRanks.length > 0 ? (
+                <div className="rounded-3xl border border-white/10 bg-[#111214] p-5">
+                  <h3 className="text-xl font-semibold tracking-tight text-slate-100">County Health Cards</h3>
+                  <p className="mt-1 text-sm text-slate-400">Ranked by latest-version coverage for operational prioritization.</p>
+                  <div className="mt-4 grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+                    {countyUpgradeRanks.map((row) => (
+                      <div
+                        key={row.county}
+                        className={cn(
+                          "rounded-2xl border border-white/10 bg-[#0F1012] p-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-400/40",
+                          (selectedCounty === row.county || (selectedCounty === "all" && row.rank === 1)) && "border-blue-500/40 bg-blue-500/10"
+                        )}
+                      >
+                        <div className="mb-2 flex items-center justify-between">
+                          <p className="font-medium text-slate-100">{row.county}</p>
+                          <Badge variant="outline" className="border-white/20 text-slate-200">#{row.rank}</Badge>
+                        </div>
+                        <p className="text-xs text-slate-400">{row.latestFacilities} of {row.totalFacilities} on latest</p>
+                        <div className="mt-3 h-2 rounded-full bg-white/10">
+                          <div className="h-2 rounded-full bg-emerald-500 transition-all duration-700" style={{ width: `${Math.min(100, row.latestRate)}%` }} />
+                        </div>
+                        <p className="mt-2 text-sm font-semibold text-slate-100">{row.latestRate}% latest coverage</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          )}
+        </section>
+
+        <section id="emr-section-assets" className="scroll-mt-40">
+          {selected && filteredAssetOverview && (
+            <div className="rounded-3xl border border-white/10 bg-[#111214] p-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <CardTitle>Asset Overview</CardTitle>
-                  <CardDescription>
-                    Filter by county, status, and asset type (servers, routers, tablets, WiFi extenders, UPS, etc.)
-                  </CardDescription>
+                  <h3 className="text-xl font-semibold tracking-tight text-slate-100">Asset Overview</h3>
+                  <p className="text-sm text-slate-400">Filter by county, status, and asset type across infrastructure inventory.</p>
                 </div>
-                <Button asChild variant="outline" size="sm" className="shrink-0">
-                  <Link
-                    href={
-                      selectedCounty === "all"
-                        ? "/emr-overview/assets"
-                        : `/emr-overview/assets?county=${encodeURIComponent(selectedCounty)}`
-                    }
-                  >
+                <Button asChild variant="outline" size="sm" className="border-white/15 bg-transparent text-slate-200 hover:bg-white/5">
+                  <Link href={selectedCounty === "all" ? "/emr-overview/assets" : `/emr-overview/assets?county=${encodeURIComponent(selectedCounty)}`}>
                     <Table2 className="mr-2 h-4 w-4" />
                     Asset register
                   </Link>
                 </Button>
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end pt-2">
-                  <Select value={assetTypeFilter} onValueChange={setAssetTypeFilter}>
-                    <SelectTrigger className="w-[240px]">
-                      <SelectValue placeholder="All asset types" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All asset types</SelectItem>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                <Select value={assetTypeFilter} onValueChange={setAssetTypeFilter}>
+                  <SelectTrigger className="w-[240px] border-white/15 bg-[#0F1012] text-slate-100">
+                    <SelectValue placeholder="All asset types" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[120]">
+                    <SelectItem value="all">All asset types</SelectItem>
+                    <SelectGroup>
+                      <SelectLabel>Built-in types</SelectLabel>
+                      {assetTypeOptionsByKind.builtin.map((t) => (
+                        <SelectItem key={t.key} value={t.key}>{t.type} ({t.total})</SelectItem>
+                      ))}
+                    </SelectGroup>
+                    {assetTypeOptionsByKind.custom.length > 0 ? (
                       <SelectGroup>
-                        <SelectLabel>Built-in types</SelectLabel>
-                        {assetTypeOptionsByKind.builtin.map((t) => (
-                          <SelectItem key={t.key} value={t.key}>
-                            {t.type} ({t.total})
-                          </SelectItem>
+                        <SelectLabel>Custom types</SelectLabel>
+                        {assetTypeOptionsByKind.custom.map((t) => (
+                          <SelectItem key={t.key} value={t.key}>{t.type} ({t.total})</SelectItem>
                         ))}
                       </SelectGroup>
-                      {assetTypeOptionsByKind.custom.length > 0 ? (
-                        <SelectGroup>
-                          <SelectLabel>Custom types</SelectLabel>
-                          {assetTypeOptionsByKind.custom.map((t) => (
-                            <SelectItem key={t.key} value={t.key}>
-                              {t.type} ({t.total})
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      ) : null}
-                    </SelectContent>
-                  </Select>
-                  <Select value={assetFilter} onValueChange={(v) => setAssetFilter(v as typeof assetFilter)}>
-                    <SelectTrigger className="w-[220px]">
-                      <SelectValue placeholder="Filter by status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All statuses</SelectItem>
-                      <SelectItem value="active">Active only</SelectItem>
-                      <SelectItem value="lost">Lost only</SelectItem>
-                      <SelectItem value="recovered">Recovered only</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    ) : null}
+                  </SelectContent>
+                </Select>
+                <Select value={assetFilter} onValueChange={(v) => setAssetFilter(v as typeof assetFilter)}>
+                  <SelectTrigger className="w-[220px] border-white/15 bg-[#0F1012] text-slate-100">
+                    <SelectValue placeholder="Filter by status" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[120]">
+                    <SelectItem value="all">All statuses</SelectItem>
+                    <SelectItem value="active">Active only</SelectItem>
+                    <SelectItem value="lost">Lost only</SelectItem>
+                    <SelectItem value="recovered">Recovered only</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <Card className="border-l-4 border-l-primary bg-gradient-to-br from-card to-primary/5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg">
-                  <CardContent className="pt-4">
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  { label: "Total assets", value: filteredAssetOverview.totalAssets, icon: Package, color: "text-blue-400" },
+                  { label: "Active", value: filteredAssetOverview.active, icon: CheckCircle2, color: "text-emerald-400" },
+                  { label: "Lost", value: filteredAssetOverview.lost, icon: AlertTriangle, color: "text-amber-400" },
+                  { label: "Recovered", value: filteredAssetOverview.recovered, icon: Archive, color: "text-sky-400" },
+                ].map((metric) => (
+                  <div key={metric.label} className="rounded-2xl border border-white/10 bg-[#0F1012] p-4">
                     <div className="flex items-center justify-between">
-                      <p className="text-sm text-muted-foreground">Total Assets</p>
-                      <Package className="h-4 w-4 text-primary" />
+                      <p className="text-[13px] text-slate-400">{metric.label}</p>
+                      <metric.icon className={cn("h-4 w-4", metric.color)} />
                     </div>
-                    <p className="mt-2 text-2xl font-bold">{filteredAssetOverview.totalAssets}</p>
-                  </CardContent>
-                </Card>
-                <Card className="border-l-4 border-l-emerald-500 bg-gradient-to-br from-card to-emerald-500/5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg">
-                  <CardContent className="pt-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm text-muted-foreground">Active</p>
-                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                    </div>
-                    <p className="mt-2 text-2xl font-bold text-emerald-600">{filteredAssetOverview.active}</p>
-                  </CardContent>
-                </Card>
-                <Card className="border-l-4 border-l-red-500 bg-gradient-to-br from-card to-red-500/5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg">
-                  <CardContent className="pt-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm text-muted-foreground">Lost</p>
-                      <AlertTriangle className="h-4 w-4 text-red-600" />
-                    </div>
-                    <p className="mt-2 text-2xl font-bold text-red-600">{filteredAssetOverview.lost}</p>
-                  </CardContent>
-                </Card>
-                <Card className="border-l-4 border-l-blue-500 bg-gradient-to-br from-card to-blue-500/5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg">
-                  <CardContent className="pt-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm text-muted-foreground">Recovered</p>
-                      <Archive className="h-4 w-4 text-blue-600" />
-                    </div>
-                    <p className="mt-2 text-2xl font-bold text-blue-600">{filteredAssetOverview.recovered}</p>
-                  </CardContent>
-                </Card>
+                    <p className="mt-3 text-4xl font-semibold tracking-tight text-slate-100">{metric.value}</p>
+                  </div>
+                ))}
               </div>
-              <div className="rounded-md border p-3">
-                <div className="text-sm text-muted-foreground mb-2">
-                  {assetTypeFilter === "all" ? "All types" : assetTypeOptions.find((t) => t.key === assetTypeFilter)?.type || "Selected type"}
-                  {" · "}
-                  {assetFilter === "all" ? "all statuses" : `${assetFilter} only`}
-                </div>
-                <div className="text-2xl font-bold">{assetMetricValue}</div>
+              <div className="mt-4 rounded-2xl border border-white/10 bg-[#0F1012] p-3">
+                <p className="text-sm text-slate-400">
+                  {assetTypeFilter === "all" ? "All types" : assetTypeOptions.find((t) => t.key === assetTypeFilter)?.type || "Selected type"} · {assetFilter === "all" ? "all statuses" : `${assetFilter} only`}
+                </p>
+                <p className="mt-1 text-3xl font-semibold text-slate-100">{assetMetricValue}</p>
               </div>
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-muted-foreground">By asset type</p>
+              <div className="mt-4 space-y-2">
+                <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">By asset type</p>
                 {mergedAssetTypes.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No asset types configured.</p>
+                  <p className="text-sm text-slate-400">No asset types configured.</p>
                 ) : (
                   mergedAssetTypes.map((t) => (
-                      <button
-                        key={t.key}
-                        type="button"
-                        onClick={() => setAssetTypeFilter(assetTypeFilter === t.key ? "all" : t.key)}
-                        className={cn(
-                          "flex w-full items-center justify-between rounded-md border px-3 py-2 text-sm transition-all duration-200 hover:bg-muted/50 hover:shadow-sm",
-                          assetTypeFilter === t.key && "border-primary bg-primary/5"
-                        )}
-                      >
-                        <span>{t.type}</span>
-                        <span className={cn("font-medium tabular-nums", t.total === 0 && "text-muted-foreground")}>
-                          {assetFilter === "active"
-                            ? t.active
-                            : assetFilter === "lost"
-                              ? t.lost
-                              : assetFilter === "recovered"
-                                ? t.recovered
-                                : t.total}
-                        </span>
-                      </button>
-                    ))
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-        </section>
-
-        <section id="emr-section-articles" className="scroll-mt-40 rounded-2xl border border-amber-500/10 bg-gradient-to-br from-amber-500/[0.05] via-background to-background p-3 sm:p-4">
-          <Card className="shadow-lg border-primary/20 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-primary" />
-                Articles & updates
-              </CardTitle>
-              <CardDescription>Published guidance, release notes, and operational updates</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {articles.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No published articles yet.</p>
-              ) : (
-                articles.map((article) => {
-                  const href = `/articles/${getArticleSlug(article)}`
-                  const isPinned = pinnedCacheArticle?.id === article.id
-                  return (
-                    <Link
-                      key={article.id}
-                      href={href}
+                    <button
+                      key={t.key}
+                      type="button"
+                      onClick={() => setAssetTypeFilter(assetTypeFilter === t.key ? "all" : t.key)}
                       className={cn(
-                        "flex flex-col gap-1 rounded-md border px-3 py-2.5 text-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted/50 hover:shadow-sm sm:flex-row sm:items-center sm:justify-between",
-                        isPinned && "border-amber-400/40 bg-amber-500/10"
+                        "flex w-full items-center justify-between rounded-xl border border-white/10 bg-[#0F1012] px-3 py-2 text-sm text-slate-200 transition-all hover:bg-white/5",
+                        assetTypeFilter === t.key && "border-blue-400/40 bg-blue-500/10"
                       )}
                     >
-                      <div className="min-w-0">
-                        <p className="font-medium truncate">{article.title}</p>
-                        <p className="text-xs text-muted-foreground line-clamp-2">{article.summary}</p>
-                      </div>
-                      <span className="shrink-0 text-xs text-muted-foreground sm:pl-3">Read →</span>
-                    </Link>
-                  )
-                })
-              )}
-            </CardContent>
-          </Card>
+                      <span>{t.type}</span>
+                      <span className={cn("font-medium tabular-nums", t.total === 0 && "text-slate-500")}>
+                        {assetFilter === "active" ? t.active : assetFilter === "lost" ? t.lost : assetFilter === "recovered" ? t.recovered : t.total}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
         </section>
 
-        {actionSuccess ? (
-          <Badge className="bg-emerald-600 text-white w-fit">{actionSuccess}</Badge>
-        ) : null}
+        <section id="emr-section-articles" className="scroll-mt-40">
+          <div className="grid gap-4 xl:grid-cols-[1fr,1fr]">
+            <div className="rounded-3xl border border-white/10 bg-[#111214] p-5">
+              <h3 className="text-xl font-semibold tracking-tight text-slate-100">Alerts & recent activity</h3>
+              <p className="mt-1 text-sm text-slate-400">Operational signals and latest updates from the dashboard.</p>
+              <div className="mt-4 space-y-2">
+                {actionSuccess ? (
+                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">{actionSuccess}</div>
+                ) : null}
+                {actionError ? (
+                  <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{actionError}</div>
+                ) : null}
+                {pinnedCacheArticle && pinnedReadOnlyHref ? (
+                  <Link
+                    href={pinnedReadOnlyHref}
+                    className="flex items-center gap-2 rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200 hover:bg-amber-500/15"
+                  >
+                    <BellRing className="h-4 w-4 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">{pinnedCacheArticle.title}</span>
+                    <span className="text-xs text-amber-300/80">Read →</span>
+                  </Link>
+                ) : (
+                  <div className="rounded-xl border border-white/10 bg-[#0F1012] px-3 py-2 text-sm text-slate-400">
+                    No priority alert is pinned.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-white/10 bg-[#111214] p-5">
+              <h3 className="text-xl font-semibold tracking-tight text-slate-100">Knowledge feed</h3>
+              <p className="mt-1 text-sm text-slate-400">Published guidance, release notes, and operational updates.</p>
+              <div className="mt-4 space-y-2">
+                {articles.length === 0 ? (
+                  <p className="text-sm text-slate-400">No published articles yet.</p>
+                ) : (
+                  articles.slice(0, 8).map((article) => {
+                    const href = `/articles/${getArticleSlug(article)}`
+                    const isPinned = pinnedCacheArticle?.id === article.id
+                    return (
+                      <Link
+                        key={article.id}
+                        href={href}
+                        className={cn(
+                          "flex flex-col gap-1 rounded-xl border border-white/10 bg-[#0F1012] px-3 py-2.5 text-sm text-slate-200 transition-colors hover:bg-white/5 sm:flex-row sm:items-center sm:justify-between",
+                          isPinned && "border-amber-400/40 bg-amber-500/10"
+                        )}
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">{article.title}</p>
+                          <p className="line-clamp-2 text-xs text-slate-400">{article.summary}</p>
+                        </div>
+                        <span className="shrink-0 text-xs text-slate-400 sm:pl-3">Read →</span>
+                      </Link>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
 
       <Dialog open={actionMode !== null} onOpenChange={(open) => !open && setActionMode(null)}>

@@ -9,6 +9,7 @@ import type { Location } from "@/lib/storage"
 import { cachedFetch } from "@/lib/cache"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/components/auth-provider"
+import { NocHero, NocKpi, NocPage } from "@/components/noc-ui"
 
 const LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
@@ -128,71 +129,38 @@ export function TicketsOverview() {
   }, [allTickets])
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Tickets Overview</h1>
-          <p className="text-muted-foreground">
-            High-level view of EMR tickets across your allowed locations. Click a county to drill into details.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {lastUpdated && (
-            <p className="text-xs text-muted-foreground hidden sm:block">
-              Last updated{" "}
-              {lastUpdated.toLocaleString("en-KE", {
-                year: "numeric",
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </p>
-          )}
-          <Button variant="outline" size="sm" onClick={loadOverview} disabled={isLoading}>
-            {isLoading ? "Refreshing..." : "Refresh"}
-          </Button>
-        </div>
-      </div>
+    <NocPage>
+      <NocHero
+        eyebrow="Support Operations"
+        title="Tickets Overview"
+        description="High-level view of EMR tickets across your allowed locations. Click a county to drill into details."
+        actions={
+          <div className="flex items-center gap-3">
+            {lastUpdated && (
+              <p className="text-xs text-muted-foreground hidden sm:block">
+                Last updated{" "}
+                {lastUpdated.toLocaleString("en-KE", {
+                  year: "numeric",
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </p>
+            )}
+            <Button variant="outline" size="sm" onClick={loadOverview} disabled={isLoading}>
+              {isLoading ? "Refreshing..." : "Refresh"}
+            </Button>
+          </div>
+        }
+      />
 
       {/* Overall summary */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Total Tickets</CardTitle>
-            <CardDescription>All locations</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{overall.total}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Open</CardTitle>
-            <CardDescription>Pending resolution</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{overall.open}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">In Progress</CardTitle>
-            <CardDescription>Being worked on</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{overall.inProgress}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Resolved</CardTitle>
-            <CardDescription>Completed tickets</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{overall.resolved}</div>
-          </CardContent>
-        </Card>
+        <NocKpi label="Total Tickets" value={overall.total} hint="All locations" icon={AlertCircle} />
+        <NocKpi label="Open" value={overall.open} hint="Pending resolution" icon={Clock} tone="info" />
+        <NocKpi label="In Progress" value={overall.inProgress} hint="Being worked on" icon={Clock} tone="warning" />
+        <NocKpi label="Resolved" value={overall.resolved} hint="Completed tickets" icon={CheckCircle2} tone="success" />
       </div>
 
       {/* Per-county overview */}
@@ -333,7 +301,7 @@ export function TicketsOverview() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </NocPage>
   )
 }
 

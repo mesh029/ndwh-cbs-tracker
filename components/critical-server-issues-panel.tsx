@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
 import { useAuth } from "@/components/auth-provider"
+import { NocSection } from "@/components/noc-ui"
 import type { Location } from "@/lib/storage"
 
 interface FacilityOption {
@@ -219,28 +220,23 @@ export function CriticalServerIssuesPanel({ location }: CriticalServerIssuesPane
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <CardTitle>Critical Server Issues</CardTitle>
-            <CardDescription>
-              Track high-priority server problems and quick remediation notes for {location}
-            </CardDescription>
-            <div className="mt-2 flex items-center gap-2">
-              <Badge variant="secondary">{activeIssues.length} active</Badge>
-              {resolvedIssues.length > 0 && <Badge variant="outline">{resolvedIssues.length} resolved</Badge>}
-            </div>
-          </div>
-          {canEdit && (
-            <Button onClick={() => setShowAddDialog(true)} size="sm">
-              <Plus className="h-4 w-4 mr-1" />
-              Add
-            </Button>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <NocSection
+      title="Critical Server Issues"
+      description={`Track high-priority server problems and quick remediation notes for ${location}`}
+      actions={
+        canEdit ? (
+          <Button onClick={() => setShowAddDialog(true)} size="sm">
+            <Plus className="h-4 w-4 mr-1" />
+            Add
+          </Button>
+        ) : undefined
+      }
+    >
+      <div className="mb-4 flex items-center gap-2">
+        <Badge variant="secondary">{activeIssues.length} active</Badge>
+        {resolvedIssues.length > 0 && <Badge variant="outline">{resolvedIssues.length} resolved</Badge>}
+      </div>
+      <div className="space-y-4">
         {isLoading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -300,7 +296,7 @@ export function CriticalServerIssuesPanel({ location }: CriticalServerIssuesPane
             )}
           </>
         )}
-      </CardContent>
+      </div>
 
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">
@@ -403,6 +399,6 @@ export function CriticalServerIssuesPanel({ location }: CriticalServerIssuesPane
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
+    </NocSection>
   )
 }

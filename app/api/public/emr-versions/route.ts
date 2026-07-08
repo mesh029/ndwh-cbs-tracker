@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { buildAssetSummary } from "@/lib/asset-summary"
 import { fetchAssetTypeCatalog } from "@/lib/asset-type-catalog"
+import { getServerCache, setServerCache, SERVER_CACHE_AGGREGATE_TTL_MS } from "@/lib/server-cache"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -9,6 +10,8 @@ export const revalidate = 0
 
 type County = "Kakamega" | "Vihiga" | "Nyamira" | "Kisumu"
 const COUNTIES: County[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
+
+const CACHE_KEY = "public:emr-versions"
 
 function compareVersions(a: string, b: string): number {
   const pa = a.trim().split(".").map((p) => Number.parseInt(p, 10) || 0)
@@ -23,27 +26,30 @@ function compareVersions(a: string, b: string): number {
 
 export async function GET() {
   try {
-    const [
-      facilities,
-      serverAssets,
-      assetSummary,
-      assetTypeCatalog,
-    ] = await Promise.all([
-      prisma.facility.findMany({
-        where: { system: "NDWH", isMaster: true, location: { in: COUNTIES } },
-        select: { id: true, name: true, location: true },
-      }),
-      prisma.serverAsset.findMany({
-        where: { location: { in: COUNTIES } },
-        select: {
-          location: true,
-          kenyaemrVersion: true,
-          facility: { select: { name: true } },
-        },
-      }),
-      buildAssetSummary(COUNTIES),
-      fetchAssetTypeCatalog(),
-    ])
+    const cached = getServerCache<{
+      latestGlobal: string
+      assetTypeCatalog: Awaited<ReturnType<typeof fetchAssetTypeCatalog>>
+      counties: unknown[]
+    }>(CACHE_KEY)
+    if (cached) {
+      return NextResponse.json(cached)
+    }
+
+    // Run sequentially to avoid exhausting the small Prisma connection pool (P2024).
+    const facilities = await prisma.facility.findMany({
+      where: { system: "NDWH", isMaster: true, location: { in: COUNTIES } },
+      select: { id: true, name: true, location: true },
+    })
+    const serverAssets = await prisma.serverAsset.findMany({
+      where: { location: { in: COUNTIES } },
+      select: {
+        location: true,
+        kenyaemrVersion: true,
+        facility: { select: { name: true } },
+      },
+    })
+    const assetTypeCatalog = await fetchAssetTypeCatalog()
+    const assetSummary = await buildAssetSummary(COUNTIES)
 
     const latestGlobal = serverAssets
       .map((r) => (r.kenyaemrVersion || "").trim())
@@ -123,14 +129,16 @@ export async function GET() {
       }
     })
 
-    return NextResponse.json({
+    const response = {
       latestGlobal,
       assetTypeCatalog,
       counties: payload,
-    })
+    }
+
+    setServerCache(CACHE_KEY, response, SERVER_CACHE_AGGREGATE_TTL_MS)
+    return NextResponse.json(response)
   } catch (error: any) {
     console.error("GET /api/public/emr-versions:", error)
     return NextResponse.json({ error: "Failed to load EMR public overview" }, { status: 500 })
   }
 }
-

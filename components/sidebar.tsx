@@ -201,7 +201,7 @@ export function Sidebar() {
   return (
     <div
       className={cn(
-        "hidden md:flex h-full flex-col border-r bg-card transition-all duration-300 ease-in-out",
+        "hidden md:flex h-full flex-col border-r border-border/40 dark:border-white/10 bg-card dark:bg-[#0F1012] transition-all duration-300 ease-in-out",
         isCollapsed ? "w-16" : "w-64"
       )}
       onMouseEnter={handleMouseEnter}

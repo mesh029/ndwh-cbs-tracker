@@ -10,6 +10,7 @@ export function invalidateDashboardServerCaches(location?: Location | null) {
   invalidateServerCachePrefix("home:metrics")
   invalidateServerCachePrefix("assets-summary:")
   invalidateServerCachePrefix("facilities:")
+  invalidateServerCachePrefix("public:emr-versions")
   if (location) {
     invalidateServerCachePrefix(`county:${location}:`)
   }

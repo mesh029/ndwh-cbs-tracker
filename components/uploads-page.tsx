@@ -21,6 +21,7 @@ import {
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Legend } from "recharts"
 import type { Location } from "@/lib/storage"
 import { useAuth } from "@/components/auth-provider"
+import { NocHero, NocPage } from "@/components/noc-ui"
 
 const AVAILABLE_LOCATIONS: Location[] = ["Kakamega", "Vihiga", "Nyamira", "Kisumu"]
 
@@ -310,15 +311,12 @@ export function UploadsPage() {
     }))
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Uploads & Trends</h1>
-          <p className="text-muted-foreground">
-            Upload facility lists for CBS and NDWH by week and track trends over the past 4 weeks
-          </p>
-        </div>
-      </div>
+    <NocPage>
+      <NocHero
+        eyebrow="Data pipeline"
+        title="Uploads & Trends"
+        description="Upload facility lists for CBS and NDWH by week and track trends over the past 4 weeks"
+      />
 
       <Tabs defaultValue="upload" className="space-y-4">
         <TabsList>
@@ -692,6 +690,6 @@ export function UploadsPage() {
           </div>
         </TabsContent>
       </Tabs>
-    </div>
+    </NocPage>
   )
 }
