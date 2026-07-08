@@ -32,6 +32,7 @@ import {
   FileText,
   LayoutDashboard,
   ChevronDown,
+  ArrowRightLeft,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { mergeAssetTypeCounts } from "@/lib/asset-type-merge"
@@ -93,7 +94,7 @@ type BrowseAsset = {
   assetStatus: string
 }
 
-type ActionMode = "lost" | "purchased" | "update" | "new" | "emr_upgrade" | null
+type ActionMode = "lost" | "purchased" | "update" | "new" | "transfer" | "emr_upgrade" | null
 type BuiltinKind = "server" | "router" | "tablet" | "mobilephone" | "lan"
 
 type OverviewSection = "overview" | "emr-versions" | "assets" | "articles"
@@ -160,6 +161,8 @@ export default function EmrOverviewPage() {
     serialNumber: "",
     notes: "",
     assetModel: "",
+    transferMode: "move" as "recover" | "move",
+    transferFacilityId: "",
     kenyaemrVersion: "",
   })
   const [actionSuccess, setActionSuccess] = useState<string>("")
@@ -258,7 +261,7 @@ export default function EmrOverviewPage() {
   }, [loadActionOptions, toast])
 
   useEffect(() => {
-    if ((actionMode !== "lost" && actionMode !== "update") || !form.location) {
+    if ((actionMode !== "lost" && actionMode !== "update" && actionMode !== "transfer") || !form.location) {
       setCountyAssets([])
       setCountyFacilities([])
       return
@@ -618,6 +621,11 @@ export default function EmrOverviewPage() {
     [countyAssets, form.inventoryAssetId]
   )
 
+  const selectedTransferAsset = useMemo(
+    () => countyAssets.find((a) => a.id === form.inventoryAssetId) || null,
+    [countyAssets, form.inventoryAssetId]
+  )
+
   const facilityAssetCounts = useMemo(() => {
     const counts = new Map<string, number>()
     for (const asset of countyAssets) {
@@ -688,6 +696,16 @@ export default function EmrOverviewPage() {
     }))
   }
 
+  const applyTransferAssetSelection = (asset: BrowseAsset) => {
+    setForm((prev) => ({
+      ...prev,
+      inventoryAssetId: asset.id,
+      assetKind: asset.assetKind,
+      transferFacilityId: asset.facilityId,
+      transferMode: asset.assetStatus === "lost" ? "recover" : prev.transferMode,
+    }))
+  }
+
   const resetAssetPicker = () => {
     setLostAssetSearch("")
     setPickerFacilityId("__all__")
@@ -714,17 +732,27 @@ export default function EmrOverviewPage() {
       notes: "",
       kenyaemrVersion: "",
       assetModel: "",
+      transferMode: "move",
+      transferFacilityId: firstFacility?.id || "",
     })
   }
 
   const buildActionSuccessMessage = (
     mode: Exclude<ActionMode, null>,
-    upgradeJson?: { updatedServers?: number; facilitiesUpdated?: number; kenyaemrVersion?: string }
+    responseJson?: {
+      updatedServers?: number
+      facilitiesUpdated?: number
+      kenyaemrVersion?: string
+      transferMode?: "recover" | "move"
+      destinationFacilityName?: string
+    }
   ) => {
     const asset =
       mode === "lost"
         ? selectedLostAsset
-        : mode === "update"
+        : mode === "transfer"
+          ? selectedTransferAsset
+          : mode === "update"
           ? selectedUpdateAsset
           : null
     const assetLine = asset
@@ -740,8 +768,12 @@ export default function EmrOverviewPage() {
         return "Purchased asset registered successfully"
       case "new":
         return "New asset added successfully"
+      case "transfer":
+        return responseJson?.transferMode === "recover"
+          ? `Asset marked as recovered${responseJson?.destinationFacilityName ? ` at ${responseJson.destinationFacilityName}` : ""}`
+          : `Asset transferred${responseJson?.destinationFacilityName ? ` to ${responseJson.destinationFacilityName}` : ""} successfully`
       case "emr_upgrade":
-        return `KenyaEMR upgraded: ${upgradeJson?.updatedServers ?? 0} server(s) across ${upgradeJson?.facilitiesUpdated ?? 0} facility(ies) to version ${upgradeJson?.kenyaemrVersion || form.kenyaemrVersion || "-"}`
+        return `KenyaEMR upgraded: ${responseJson?.updatedServers ?? 0} server(s) across ${responseJson?.facilitiesUpdated ?? 0} facility(ies) to version ${responseJson?.kenyaemrVersion || form.kenyaemrVersion || "-"}`
     }
   }
 
@@ -756,6 +788,7 @@ export default function EmrOverviewPage() {
         purchased: "add_purchased",
         update: "update_inventory",
         new: "add_new_asset",
+        transfer: "transfer_asset",
         emr_upgrade: "upgrade_kenyaemr",
       }
       const payload = {
@@ -774,6 +807,8 @@ export default function EmrOverviewPage() {
         notes: form.notes || undefined,
         kenyaemrVersion: form.kenyaemrVersion || undefined,
         assetModel: form.assetModel || undefined,
+        transferMode: form.transferMode,
+        transferFacilityId: form.transferFacilityId || undefined,
       }
       const res = await fetch("/api/public/asset-actions", {
         method: "POST",
@@ -816,6 +851,10 @@ export default function EmrOverviewPage() {
               ? "Marked as lost"
               : actionMode === "update"
                 ? "Asset updated"
+                : actionMode === "transfer"
+                  ? form.transferMode === "recover"
+                    ? "Marked as recovered"
+                    : "Asset transferred"
                 : "Success",
           description: message,
         })
@@ -830,6 +869,8 @@ export default function EmrOverviewPage() {
         inventoryAssetId: "",
         assetKind: "",
         selectedFacilityIds: [],
+        transferMode: "move",
+        transferFacilityId: "",
         passcode: "",
       }))
     } finally {
@@ -973,7 +1014,7 @@ export default function EmrOverviewPage() {
               </Button>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
               <Button variant="outline" onClick={() => openAction("lost")}>
                 <AlertTriangle className="mr-2 h-4 w-4 text-red-600" />
                 Document lost asset
@@ -990,6 +1031,10 @@ export default function EmrOverviewPage() {
                 <PlusCircle className="mr-2 h-4 w-4 text-blue-600" />
                 Add new asset
               </Button>
+              <Button variant="outline" onClick={() => openAction("transfer")}>
+                <ArrowRightLeft className="mr-2 h-4 w-4 text-indigo-600" />
+                Transfer/recover asset
+              </Button>
               <Button variant="outline" onClick={() => openAction("emr_upgrade")}>
                 <MonitorUp className="mr-2 h-4 w-4 text-primary" />
                 KenyaEMR upgrade
@@ -1003,7 +1048,7 @@ export default function EmrOverviewPage() {
                   What you can do on the control center
                 </p>
                 <p className="text-muted-foreground mt-1">
-                  Document lost assets, add new/purchased assets, update inventory records, or bulk update KenyaEMR version for one or many facilities.
+                  Document lost assets, add new/purchased assets, transfer/recover assets, update inventory records, or bulk update KenyaEMR version for one or many facilities.
                 </p>
               </div>
             ) : null}
@@ -1397,6 +1442,8 @@ export default function EmrOverviewPage() {
                   ? "Register newly purchased asset"
                   : actionMode === "update"
                     ? "Update existing inventory asset"
+                    : actionMode === "transfer"
+                      ? "Transfer or recover asset"
                     : actionMode === "new"
                       ? "Register new asset"
                       : "Did you just upgrade KenyaEMR?"}
@@ -1408,6 +1455,8 @@ export default function EmrOverviewPage() {
                   ? "Add a brand-new asset record to inventory."
                     : actionMode === "update"
                     ? "Pick county and facility, browse assets, then edit details."
+                    : actionMode === "transfer"
+                      ? "Pick county/facility, tap asset, then recover it or assign to another facility."
                     : actionMode === "lost"
                       ? "Pick county and facility, search by tag, then tap the asset to mark as lost."
                       : "Select facilities and set the new KenyaEMR version."}
@@ -1756,6 +1805,156 @@ export default function EmrOverviewPage() {
               </>
             )}
 
+            {actionMode === "transfer" && (
+              <div className="space-y-3 rounded-md border border-indigo-500/40 bg-indigo-500/5 p-3">
+                <p className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
+                  Find asset to transfer or recover
+                </p>
+
+                <div className="space-y-1">
+                  <Label>County</Label>
+                  <Select
+                    value={form.location}
+                    onValueChange={(value) => {
+                      setForm((prev) => ({
+                        ...prev,
+                        location: value,
+                        inventoryAssetId: "",
+                        assetKind: "",
+                        transferFacilityId: "",
+                      }))
+                      resetAssetPicker()
+                    }}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Select county" /></SelectTrigger>
+                    <SelectContent>
+                      {["Kakamega", "Vihiga", "Nyamira", "Kisumu"].map((loc) => (
+                        <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1">
+                  <Label>Facility</Label>
+                  <Select
+                    value={pickerFacilityId}
+                    onValueChange={(value) => {
+                      setPickerFacilityId(value)
+                      setForm((prev) => ({ ...prev, inventoryAssetId: "", assetKind: "", transferFacilityId: "" }))
+                    }}
+                  >
+                    <SelectTrigger><SelectValue placeholder="All facilities in county" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">All facilities in {form.location}</SelectItem>
+                      {pickerFacilities.map((f) => (
+                        <SelectItem key={f.id} value={f.id}>
+                          {f.name} ({f.assetCount})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1">
+                  <Label>Search by asset tag, serial, or type</Label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      className="pl-9"
+                      placeholder="Type asset tag e.g. 52123"
+                      value={lostAssetSearch}
+                      onChange={(e) => setLostAssetSearch(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {selectedTransferAsset ? (
+                  <div className="rounded-md border border-indigo-500/60 bg-indigo-500/10 p-2 text-sm">
+                    <span className="font-medium">Selected:</span>{" "}
+                    {selectedTransferAsset.assetType} · {selectedTransferAsset.facilityName} · Tag{" "}
+                    {selectedTransferAsset.assetTag || "—"} · Serial {selectedTransferAsset.serialNumber || "—"}
+                  </div>
+                ) : null}
+
+                <div className="space-y-1">
+                  <Label>
+                    Tap the asset
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      ({pickerCountyAssets.length} shown)
+                    </span>
+                  </Label>
+                  <div className="rounded-md border bg-background/80 divide-y">
+                    {pickerCountyAssets.length === 0 ? (
+                      <p className="p-3 text-sm text-muted-foreground">
+                        {pickerFacilityId === "__all__"
+                          ? `No matching assets in ${form.location}. Try another tag or county.`
+                          : "No matching assets at this facility. Try another facility or search term."}
+                      </p>
+                    ) : (
+                      pickerCountyAssets.map((asset) => {
+                        const selected = form.inventoryAssetId === asset.id
+                        return (
+                          <button
+                            key={`${asset.assetKind}-${asset.id}`}
+                            type="button"
+                            onClick={() => applyTransferAssetSelection(asset)}
+                            className={cn(
+                              "w-full text-left p-3 text-sm transition-colors hover:bg-muted/50",
+                              selected && "bg-indigo-500/10 border-l-2 border-l-indigo-500"
+                            )}
+                          >
+                            <div className="font-medium">{asset.assetType}</div>
+                            <div className="text-muted-foreground">{asset.facilityName}</div>
+                            <div className="text-xs mt-1">
+                              Tag: {asset.assetTag || "—"} · Serial: {asset.serialNumber || "—"} · {asset.assetStatus}
+                            </div>
+                          </button>
+                        )
+                      })
+                    )}
+                  </div>
+                </div>
+
+                {selectedTransferAsset ? (
+                  <>
+                    <div className="space-y-1">
+                      <Label>Transfer option</Label>
+                      <Select
+                        value={form.transferMode}
+                        onValueChange={(value) =>
+                          setForm((prev) => ({ ...prev, transferMode: value as "recover" | "move" }))
+                        }
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="move">Assign to another facility</SelectItem>
+                          <SelectItem value="recover">Mark as recovered</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label>Destination facility</Label>
+                      <Select
+                        value={form.transferFacilityId}
+                        onValueChange={(value) => setForm((prev) => ({ ...prev, transferFacilityId: value }))}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Select facility" /></SelectTrigger>
+                        <SelectContent>
+                          {options.facilities.map((f) => (
+                            <SelectItem key={f.id} value={f.id}>
+                              {f.name} ({f.location})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            )}
+
             {(actionMode === "purchased" || actionMode === "new") && (
               <div
                 className={
@@ -1976,12 +2175,22 @@ export default function EmrOverviewPage() {
           <DialogFooter className="shrink-0 flex-col gap-2 border-t bg-background px-4 py-3 sm:px-6 sm:flex-col">
             {actionError ? <p className="w-full text-sm text-red-600">{actionError}</p> : null}
             <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => setActionMode(null)}
+              disabled={submittingAction}
+            >
+              Back
+            </Button>
+            <Button
               className="w-full"
               onClick={submitAction}
               disabled={
                 submittingAction ||
                 (actionMode === "update" && !form.inventoryAssetId) ||
-                (actionMode === "lost" && !form.inventoryAssetId)
+                (actionMode === "lost" && !form.inventoryAssetId) ||
+                (actionMode === "transfer" && (!form.inventoryAssetId || !form.transferFacilityId))
               }
             >
               {submittingAction
@@ -1992,6 +2201,10 @@ export default function EmrOverviewPage() {
                     ? "Add asset"
                     : actionMode === "update"
                       ? "Save changes"
+                      : actionMode === "transfer"
+                        ? form.transferMode === "recover"
+                          ? "Mark as recovered"
+                          : "Transfer asset"
                       : actionMode === "lost"
                         ? "Mark as lost"
                         : "Submit action"}

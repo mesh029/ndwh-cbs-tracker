@@ -479,3 +479,54 @@ export async function updatePublicAsset(
       })
   }
 }
+
+export async function transferPublicAsset(
+  assetKind: PublicAssetKind,
+  assetId: string,
+  data: {
+    facilityId: string
+    location: Location
+    subcounty?: string | null
+    notes?: string | null
+    transferMode: "recover" | "move"
+  }
+) {
+  const common = {
+    facilityId: data.facilityId,
+    location: data.location,
+    subcounty: data.subcounty?.trim() || null,
+    ...(typeof data.notes === "string" && data.notes.trim()
+      ? { notes: data.notes.trim() }
+      : {}),
+  }
+
+  const recoveryPatch =
+    data.transferMode === "recover"
+      ? {
+          assetStatus: "recovered" as const,
+          recoveredAt: new Date(),
+          statusComment: "Recovered via public overview action center",
+        }
+      : {}
+
+  switch (assetKind) {
+    case "server":
+      return prisma.serverAsset.update({ where: { id: assetId }, data: { ...common, ...recoveryPatch } })
+    case "router":
+      return prisma.routerAsset.update({ where: { id: assetId }, data: { ...common, ...recoveryPatch } })
+    case "tablet":
+      return prisma.tabletAsset.update({ where: { id: assetId }, data: { ...common, ...recoveryPatch } })
+    case "mobilephone":
+      return prisma.mobilePhoneAsset.update({
+        where: { id: assetId },
+        data: { ...common, ...recoveryPatch },
+      })
+    case "lan":
+      return prisma.lanAsset.update({ where: { id: assetId }, data: { ...common, ...recoveryPatch } })
+    case "custom":
+      return prisma.inventoryAsset.update({
+        where: { id: assetId },
+        data: { ...common, ...recoveryPatch },
+      })
+  }
+}

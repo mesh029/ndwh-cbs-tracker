@@ -7,6 +7,7 @@ import { fetchAssetTypeCatalog } from "@/lib/asset-type-catalog"
 import {
   fetchPublicBrowseAssets,
   markPublicAssetLost,
+  transferPublicAsset,
   updatePublicAsset,
   type PublicAssetKind,
 } from "@/lib/public-asset-browse"
@@ -25,6 +26,7 @@ type ActionType =
   | "update_inventory"
   | "add_new_asset"
   | "upgrade_kenyaemr"
+  | "transfer_asset"
 
 type ActionAssetTypeOption = {
   id: string
@@ -39,6 +41,14 @@ type BuiltinModelOptions = {
   tablet: string[]
   mobilephone: string[]
   lan: string[]
+}
+
+type ExistingIdentityMatch = {
+  assetKind: Exclude<PublicAssetKind, "lan">
+  assetId: string
+  facilityId: string
+  facilityName: string
+  location: string
 }
 
 function isLocation(value: string): value is Location {
@@ -162,6 +172,83 @@ async function fetchBuiltinModelOptions(location: Location | null): Promise<Buil
   }
 }
 
+async function findExistingAssetByIdentity(input: {
+  assetTag?: string
+  serialNumber?: string
+}): Promise<ExistingIdentityMatch | null> {
+  const tag = input.assetTag?.trim() || null
+  const serial = input.serialNumber?.trim() || null
+  if (!tag && !serial) return null
+
+  const identityWhere = [
+    ...(tag ? [{ assetTag: tag }] : []),
+    ...(serial ? [{ serialNumber: serial }] : []),
+  ]
+  if (!identityWhere.length) return null
+
+  const commonSelect = {
+    id: true,
+    facilityId: true,
+    location: true,
+    facility: { select: { name: true } },
+  } as const
+
+  const [server, router, tablet, mobilephone, custom] = await Promise.all([
+    prisma.serverAsset.findFirst({ where: { OR: identityWhere }, select: commonSelect }),
+    prisma.routerAsset.findFirst({ where: { OR: identityWhere }, select: commonSelect }),
+    prisma.tabletAsset.findFirst({ where: { OR: identityWhere }, select: commonSelect }),
+    prisma.mobilePhoneAsset.findFirst({ where: { OR: identityWhere }, select: commonSelect }),
+    prisma.inventoryAsset.findFirst({ where: { OR: identityWhere }, select: commonSelect }),
+  ])
+
+  if (server) {
+    return {
+      assetKind: "server",
+      assetId: server.id,
+      facilityId: server.facilityId,
+      facilityName: server.facility.name,
+      location: server.location,
+    }
+  }
+  if (router) {
+    return {
+      assetKind: "router",
+      assetId: router.id,
+      facilityId: router.facilityId,
+      facilityName: router.facility.name,
+      location: router.location,
+    }
+  }
+  if (tablet) {
+    return {
+      assetKind: "tablet",
+      assetId: tablet.id,
+      facilityId: tablet.facilityId,
+      facilityName: tablet.facility.name,
+      location: tablet.location,
+    }
+  }
+  if (mobilephone) {
+    return {
+      assetKind: "mobilephone",
+      assetId: mobilephone.id,
+      facilityId: mobilephone.facilityId,
+      facilityName: mobilephone.facility.name,
+      location: mobilephone.location,
+    }
+  }
+  if (custom) {
+    return {
+      assetKind: "custom",
+      assetId: custom.id,
+      facilityId: custom.facilityId,
+      facilityName: custom.facility.name,
+      location: custom.location,
+    }
+  }
+  return null
+}
+
 export async function GET(request: NextRequest) {
   try {
     const locationParam = request.nextUrl.searchParams.get("location")
@@ -244,6 +331,8 @@ export async function POST(request: NextRequest) {
       notes,
       attributes,
       assetModel,
+      transferMode,
+      transferFacilityId,
       kenyaemrVersion,
     } = body as {
       passcode?: string
@@ -261,6 +350,8 @@ export async function POST(request: NextRequest) {
       notes?: string
       attributes?: Record<string, unknown>
       assetModel?: string
+      transferMode?: "recover" | "move"
+      transferFacilityId?: string
       kenyaemrVersion?: string
     }
 
@@ -377,6 +468,47 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, action, assetId: updated.id })
     }
 
+    if (action === "transfer_asset") {
+      const resolvedId = assetId || inventoryAssetId
+      const resolvedKind: PublicAssetKind =
+        assetKind && isAssetKind(assetKind) ? assetKind : "custom"
+      const mode: "recover" | "move" = transferMode === "recover" ? "recover" : "move"
+      if (!resolvedId) {
+        return NextResponse.json({ error: "Pick an asset to transfer" }, { status: 400 })
+      }
+      if (!transferFacilityId) {
+        return NextResponse.json({ error: "Select destination facility" }, { status: 400 })
+      }
+
+      const destination = await prisma.facility.findFirst({
+        where: { id: transferFacilityId, system: "NDWH", isMaster: true },
+        select: { id: true, location: true, subcounty: true, name: true },
+      })
+      if (!destination) {
+        return NextResponse.json({ error: "Destination facility not found" }, { status: 400 })
+      }
+
+      const updated = await transferPublicAsset(resolvedKind, resolvedId, {
+        facilityId: destination.id,
+        location: destination.location as Location,
+        subcounty: destination.subcounty,
+        notes,
+        transferMode: mode,
+      })
+
+      invalidateAssetServerCaches(destination.location as Location)
+      invalidateAssetServerCaches()
+
+      return NextResponse.json({
+        success: true,
+        action,
+        assetId: updated.id,
+        transferMode: mode,
+        destinationFacilityId: destination.id,
+        destinationFacilityName: destination.name,
+      })
+    }
+
     if (!facilityId || !assetTypeId || !location || !isLocation(location)) {
       return NextResponse.json(
         { error: "facilityId, assetTypeId, and valid location are required" },
@@ -389,6 +521,20 @@ export async function POST(request: NextRequest) {
         action === "add_purchased"
           ? [notes?.trim(), "Added as newly purchased asset"].filter(Boolean).join(" | ")
           : notes?.trim() || null
+
+      const duplicate = await findExistingAssetByIdentity({ assetTag, serialNumber })
+      if (duplicate) {
+        const sameFacility = duplicate.facilityId === facilityId
+        return NextResponse.json(
+          {
+            error: sameFacility
+              ? `Asset already exists at this facility (${duplicate.facilityName}). Use Update inventory instead of creating a duplicate.`
+              : `Asset already exists at ${duplicate.facilityName} (${duplicate.location}). Use Transfer/recover asset to move it instead of creating a duplicate.`,
+            duplicateAsset: duplicate,
+          },
+          { status: 409 }
+        )
+      }
 
       const builtinMatch = assetTypeId.startsWith("builtin:")
         ? assetTypeId.replace("builtin:", "")
