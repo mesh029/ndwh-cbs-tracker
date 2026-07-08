@@ -402,6 +402,7 @@ export async function updatePublicAsset(
     assetTag?: string | null
     serialNumber?: string | null
     notes?: string | null
+    assetModel?: string | null
     assetTypeId?: string
     attributes?: Record<string, unknown>
   }
@@ -421,6 +422,7 @@ export async function updatePublicAsset(
           ...common,
           assetTag: data.assetTag?.trim() || null,
           serialNumber: data.serialNumber?.trim() || null,
+          serverType: data.assetModel?.trim() || "Unknown server",
         },
       })
     case "router":
@@ -430,6 +432,7 @@ export async function updatePublicAsset(
           ...common,
           assetTag: data.assetTag?.trim() || null,
           serialNumber: data.serialNumber?.trim() || null,
+          routerType: data.assetModel?.trim() || null,
         },
       })
     case "tablet":
@@ -439,6 +442,7 @@ export async function updatePublicAsset(
           ...common,
           assetTag: data.assetTag?.trim() || null,
           serialNumber: data.serialNumber?.trim() || null,
+          tabletType: data.assetModel?.trim() || "Unknown tablet",
         },
       })
     case "mobilephone":
@@ -448,12 +452,16 @@ export async function updatePublicAsset(
           ...common,
           assetTag: data.assetTag?.trim() || null,
           serialNumber: data.serialNumber?.trim() || null,
+          phoneModel: data.assetModel?.trim() || "Unknown phone",
         },
       })
     case "lan":
       return prisma.lanAsset.update({
         where: { id: assetId },
-        data: common,
+        data: {
+          ...common,
+          lanType: data.assetModel?.trim() || null,
+        },
       })
     case "custom":
       if (!data.assetTypeId) throw new Error("assetTypeId is required for custom assets")

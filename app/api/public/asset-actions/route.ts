@@ -369,6 +369,7 @@ export async function POST(request: NextRequest) {
         assetTag,
         serialNumber,
         notes,
+        assetModel,
         assetTypeId,
         attributes,
       })

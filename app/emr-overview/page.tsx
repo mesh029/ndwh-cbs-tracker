@@ -94,6 +94,7 @@ type BrowseAsset = {
 }
 
 type ActionMode = "lost" | "purchased" | "update" | "new" | "emr_upgrade" | null
+type BuiltinKind = "server" | "router" | "tablet" | "mobilephone" | "lan"
 
 type OverviewSection = "overview" | "emr-versions" | "assets" | "articles"
 
@@ -111,6 +112,11 @@ const OVERVIEW_SECTIONS: {
 
 const STICKY_NAV_OFFSET = 140
 const NAV_COLLAPSE_IDLE_MS = 1400
+
+function extractBuiltinModel(asset: BrowseAsset): string {
+  const parts = asset.assetType.split(" · ")
+  return parts.length > 1 ? parts.slice(1).join(" · ").trim() : ""
+}
 
 export default function EmrOverviewPage() {
   const { toast } = useToast()
@@ -597,6 +603,16 @@ export default function EmrOverviewPage() {
     )
   }, [countyAssets, options.inventoryAssets, form.inventoryAssetId])
 
+  const selectedUpdateBuiltinKind = useMemo(() => {
+    if (!selectedUpdateAsset) return null
+    return selectedUpdateAsset.assetKind === "custom" ? null : (selectedUpdateAsset.assetKind as BuiltinKind)
+  }, [selectedUpdateAsset])
+
+  const updateModelSuggestions = useMemo(() => {
+    if (!selectedUpdateBuiltinKind) return []
+    return options.builtinModels[selectedUpdateBuiltinKind] || []
+  }, [options.builtinModels, selectedUpdateBuiltinKind])
+
   const selectedLostAsset = useMemo(
     () => countyAssets.find((a) => a.id === form.inventoryAssetId) || null,
     [countyAssets, form.inventoryAssetId]
@@ -660,6 +676,7 @@ export default function EmrOverviewPage() {
       assetTag: asset.assetTag || "",
       serialNumber: asset.serialNumber || "",
       notes: asset.notes || "",
+      assetModel: asset.assetKind === "custom" ? "" : extractBuiltinModel(asset),
     }))
   }
 
@@ -1692,6 +1709,39 @@ export default function EmrOverviewPage() {
                         />
                       </div>
                     </div>
+                    {selectedUpdateBuiltinKind ? (
+                      <div className="space-y-1">
+                        <Label>
+                          {selectedUpdateBuiltinKind === "server"
+                            ? "Server model/type"
+                            : selectedUpdateBuiltinKind === "router"
+                              ? "Router model/type"
+                              : selectedUpdateBuiltinKind === "tablet"
+                                ? "Tablet model/type"
+                                : selectedUpdateBuiltinKind === "mobilephone"
+                                  ? "Phone model"
+                                  : "LAN type"}
+                        </Label>
+                        <Input
+                          list={`update-builtin-model-${selectedUpdateBuiltinKind}`}
+                          value={form.assetModel}
+                          placeholder={
+                            updateModelSuggestions[0]
+                              ? `e.g. ${updateModelSuggestions[0]}`
+                              : "Type model/type (optional)"
+                          }
+                          onChange={(e) => setForm((prev) => ({ ...prev, assetModel: e.target.value }))}
+                        />
+                        <datalist id={`update-builtin-model-${selectedUpdateBuiltinKind}`}>
+                          {updateModelSuggestions.map((value) => (
+                            <option key={value} value={value} />
+                          ))}
+                        </datalist>
+                        <p className="text-xs text-muted-foreground">
+                          Suggested from existing assets to keep models consistent.
+                        </p>
+                      </div>
+                    ) : null}
                     <div className="space-y-1">
                       <Label>Subcounty (optional)</Label>
                       <Select
