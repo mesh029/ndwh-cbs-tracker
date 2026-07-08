@@ -993,8 +993,8 @@ export default function EmrOverviewPage() {
       </div>
 
       <div className="mx-auto max-w-6xl space-y-6 px-6 pb-6 pt-40 scroll-mt-40">
-        <section id="emr-section-overview" className="scroll-mt-40 space-y-6">
-        <div className="rounded-xl border bg-card/70 p-4 shadow-sm">
+        <section id="emr-section-overview" className="scroll-mt-40 space-y-6 rounded-2xl border border-primary/10 bg-gradient-to-br from-primary/[0.06] via-background to-background p-3 sm:p-4">
+        <div className="rounded-xl border bg-card/80 p-4 shadow-sm transition-all duration-300 hover:shadow-md">
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -1015,27 +1015,27 @@ export default function EmrOverviewPage() {
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
-              <Button variant="outline" onClick={() => openAction("lost")}>
+              <Button variant="outline" className="transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md" onClick={() => openAction("lost")}>
                 <AlertTriangle className="mr-2 h-4 w-4 text-red-600" />
                 Document lost asset
               </Button>
-              <Button variant="outline" onClick={() => openAction("purchased")}>
+              <Button variant="outline" className="transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md" onClick={() => openAction("purchased")}>
                 <ShoppingCart className="mr-2 h-4 w-4 text-emerald-600" />
                 Add purchased asset
               </Button>
-              <Button variant="outline" onClick={() => openAction("update")}>
+              <Button variant="outline" className="transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md" onClick={() => openAction("update")}>
                 <Pencil className="mr-2 h-4 w-4 text-amber-600" />
                 Update inventory
               </Button>
-              <Button variant="outline" onClick={() => openAction("new")}>
+              <Button variant="outline" className="transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md" onClick={() => openAction("new")}>
                 <PlusCircle className="mr-2 h-4 w-4 text-blue-600" />
                 Add new asset
               </Button>
-              <Button variant="outline" onClick={() => openAction("transfer")}>
+              <Button variant="outline" className="transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md" onClick={() => openAction("transfer")}>
                 <ArrowRightLeft className="mr-2 h-4 w-4 text-indigo-600" />
                 Transfer/recover asset
               </Button>
-              <Button variant="outline" onClick={() => openAction("emr_upgrade")}>
+              <Button variant="outline" className="transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md" onClick={() => openAction("emr_upgrade")}>
                 <MonitorUp className="mr-2 h-4 w-4 text-primary" />
                 KenyaEMR upgrade
               </Button>
@@ -1058,7 +1058,7 @@ export default function EmrOverviewPage() {
         {pinnedCacheArticle && pinnedReadOnlyHref ? (
           <Link
             href={pinnedReadOnlyHref}
-            className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm hover:bg-amber-500/15 transition-colors"
+            className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm transition-all duration-300 hover:-translate-y-0.5 hover:bg-amber-500/15 hover:shadow-md"
           >
             <BellRing className="h-4 w-4 shrink-0 text-amber-600" />
             <span className="min-w-0 flex-1 truncate font-medium">{pinnedCacheArticle.title}</span>
@@ -1067,14 +1067,14 @@ export default function EmrOverviewPage() {
         ) : null}
         </section>
 
-        <section id="emr-section-emr-versions" className="scroll-mt-40 space-y-6">
+        <section id="emr-section-emr-versions" className="scroll-mt-40 space-y-6 rounded-2xl border border-violet-500/10 bg-gradient-to-br from-violet-500/[0.05] via-background to-background p-3 sm:p-4">
         {!selected ? (
           <Card>
             <CardContent className="py-10 text-center text-muted-foreground">Loading EMR overview...</CardContent>
           </Card>
         ) : (
           <div className="grid gap-6 lg:grid-cols-2">
-            <Card className="shadow-lg border-primary/20">
+            <Card className="shadow-lg border-primary/20 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl">
               <CardHeader>
                 <CardTitle>Version Distribution Donut</CardTitle>
                 <CardDescription>
@@ -1082,10 +1082,22 @@ export default function EmrOverviewPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="relative h-[340px]">
+                <div className="relative h-[340px] overflow-hidden rounded-xl border border-primary/10 bg-gradient-to-br from-primary/[0.06] via-background to-background p-1">
+                  <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,hsla(var(--primary),0.18),transparent_62%)]" />
                   <ResponsiveContainer width="100%" height="100%" key={`donut-wrap-${dashboardKey}`}>
                     <PieChart key={`donut-${dashboardKey}`}>
-                      <Pie data={donutData} dataKey="value" nameKey="name" innerRadius={80} outerRadius={120} paddingAngle={3}>
+                      <Pie
+                        data={donutData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={86}
+                        outerRadius={126}
+                        paddingAngle={4}
+                        cornerRadius={6}
+                        isAnimationActive
+                        animationDuration={700}
+                        animationEasing="ease-out"
+                      >
                         {donutData.map((entry, i) => (
                           <Cell key={i} fill={entry.fill} />
                         ))}
@@ -1108,16 +1120,27 @@ export default function EmrOverviewPage() {
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                    <div className="rounded-md bg-background/90 px-3 py-2 text-center shadow-sm">
-                      <div className="text-2xl font-bold">{selected.totalFacilities}</div>
-                      <div className="text-xs text-muted-foreground">Facilities</div>
+                    <div className="rounded-full border border-primary/20 bg-background/90 px-4 py-3 text-center shadow-md backdrop-blur">
+                      <div className="text-2xl font-bold tracking-tight">{selected.totalFacilities}</div>
+                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Facilities</div>
                     </div>
                   </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {donutData.map((slice) => (
+                    <span
+                      key={slice.name}
+                      className="inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs text-muted-foreground"
+                    >
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: slice.fill }} />
+                      {slice.name} ({slice.value})
+                    </span>
+                  ))}
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="shadow-lg border-primary/20">
+            <Card className="shadow-lg border-primary/20 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl">
               <CardHeader>
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -1184,7 +1207,7 @@ export default function EmrOverviewPage() {
         )}
 
         {countyUpgradeRanks.length > 0 ? (
-          <Card className="shadow-lg border-primary/20">
+          <Card className="shadow-lg border-primary/20 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Trophy className="h-5 w-5 text-amber-600" />
@@ -1244,9 +1267,9 @@ export default function EmrOverviewPage() {
         ) : null}
         </section>
 
-        <section id="emr-section-assets" className="scroll-mt-40">
+        <section id="emr-section-assets" className="scroll-mt-40 rounded-2xl border border-emerald-500/10 bg-gradient-to-br from-emerald-500/[0.05] via-background to-background p-3 sm:p-4">
         {selected && filteredAssetOverview && (
-          <Card className="shadow-lg border-primary/20" key={`assets-${dashboardKey}`}>
+          <Card className="shadow-lg border-primary/20 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl" key={`assets-${dashboardKey}`}>
             <CardHeader>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
@@ -1310,7 +1333,7 @@ export default function EmrOverviewPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <Card className="border-l-4 border-l-primary bg-gradient-to-br from-card to-primary/5">
+                <Card className="border-l-4 border-l-primary bg-gradient-to-br from-card to-primary/5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg">
                   <CardContent className="pt-4">
                     <div className="flex items-center justify-between">
                       <p className="text-sm text-muted-foreground">Total Assets</p>
@@ -1319,7 +1342,7 @@ export default function EmrOverviewPage() {
                     <p className="mt-2 text-2xl font-bold">{filteredAssetOverview.totalAssets}</p>
                   </CardContent>
                 </Card>
-                <Card className="border-l-4 border-l-emerald-500 bg-gradient-to-br from-card to-emerald-500/5">
+                <Card className="border-l-4 border-l-emerald-500 bg-gradient-to-br from-card to-emerald-500/5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg">
                   <CardContent className="pt-4">
                     <div className="flex items-center justify-between">
                       <p className="text-sm text-muted-foreground">Active</p>
@@ -1328,7 +1351,7 @@ export default function EmrOverviewPage() {
                     <p className="mt-2 text-2xl font-bold text-emerald-600">{filteredAssetOverview.active}</p>
                   </CardContent>
                 </Card>
-                <Card className="border-l-4 border-l-red-500 bg-gradient-to-br from-card to-red-500/5">
+                <Card className="border-l-4 border-l-red-500 bg-gradient-to-br from-card to-red-500/5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg">
                   <CardContent className="pt-4">
                     <div className="flex items-center justify-between">
                       <p className="text-sm text-muted-foreground">Lost</p>
@@ -1337,7 +1360,7 @@ export default function EmrOverviewPage() {
                     <p className="mt-2 text-2xl font-bold text-red-600">{filteredAssetOverview.lost}</p>
                   </CardContent>
                 </Card>
-                <Card className="border-l-4 border-l-blue-500 bg-gradient-to-br from-card to-blue-500/5">
+                <Card className="border-l-4 border-l-blue-500 bg-gradient-to-br from-card to-blue-500/5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg">
                   <CardContent className="pt-4">
                     <div className="flex items-center justify-between">
                       <p className="text-sm text-muted-foreground">Recovered</p>
@@ -1366,7 +1389,7 @@ export default function EmrOverviewPage() {
                         type="button"
                         onClick={() => setAssetTypeFilter(assetTypeFilter === t.key ? "all" : t.key)}
                         className={cn(
-                          "flex w-full items-center justify-between rounded-md border px-3 py-2 text-sm transition-colors hover:bg-muted/50",
+                          "flex w-full items-center justify-between rounded-md border px-3 py-2 text-sm transition-all duration-200 hover:bg-muted/50 hover:shadow-sm",
                           assetTypeFilter === t.key && "border-primary bg-primary/5"
                         )}
                       >
@@ -1389,8 +1412,8 @@ export default function EmrOverviewPage() {
         )}
         </section>
 
-        <section id="emr-section-articles" className="scroll-mt-40">
-          <Card className="shadow-lg border-primary/20">
+        <section id="emr-section-articles" className="scroll-mt-40 rounded-2xl border border-amber-500/10 bg-gradient-to-br from-amber-500/[0.05] via-background to-background p-3 sm:p-4">
+          <Card className="shadow-lg border-primary/20 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5 text-primary" />
@@ -1410,7 +1433,7 @@ export default function EmrOverviewPage() {
                       key={article.id}
                       href={href}
                       className={cn(
-                        "flex flex-col gap-1 rounded-md border px-3 py-2.5 text-sm transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between",
+                        "flex flex-col gap-1 rounded-md border px-3 py-2.5 text-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted/50 hover:shadow-sm sm:flex-row sm:items-center sm:justify-between",
                         isPinned && "border-amber-400/40 bg-amber-500/10"
                       )}
                     >
