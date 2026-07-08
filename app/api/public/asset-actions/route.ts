@@ -163,18 +163,41 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "KenyaEMR version is required" }, { status: 400 })
       }
 
+      const targetFacilities = await prisma.facility.findMany({
+        where: {
+          id: { in: ids },
+          system: "NDWH",
+          isMaster: true,
+          ...(location && isLocation(location) ? { location } : {}),
+        },
+        select: { id: true },
+      })
+      const targetFacilityIds = targetFacilities.map((f) => f.id)
+      if (!targetFacilityIds.length) {
+        return NextResponse.json(
+          { error: "No matching NDWH facilities found for the selected county/facilities" },
+          { status: 400 }
+        )
+      }
+
       const update = await prisma.serverAsset.updateMany({
-        where: { facilityId: { in: ids } },
+        where: { facilityId: { in: targetFacilityIds } },
         data: { kenyaemrVersion: version },
       })
+      if (update.count === 0) {
+        return NextResponse.json(
+          { error: "No server records found for selected facilities, so nothing was upgraded" },
+          { status: 400 }
+        )
+      }
 
-      await invalidateForFacilities(ids)
+      await invalidateForFacilities(targetFacilityIds)
 
       return NextResponse.json({
         success: true,
         action,
         updatedServers: update.count,
-        facilitiesUpdated: ids.length,
+        facilitiesUpdated: targetFacilityIds.length,
         kenyaemrVersion: version,
       })
     }
