@@ -126,9 +126,21 @@ export default function EmrOverviewPage() {
   const [actionMode, setActionMode] = useState<ActionMode>(null)
   const [options, setOptions] = useState<{
     facilities: Array<{ id: string; name: string; location: string; subcounty: string | null }>
-    assetTypes: Array<{ id: string; slug: string; label: string }>
+    assetTypes: Array<{ id: string; slug: string; label: string; kind: "builtin" | "custom" }>
+    builtinModels: {
+      server: string[]
+      router: string[]
+      tablet: string[]
+      mobilephone: string[]
+      lan: string[]
+    }
     inventoryAssets: BrowseAsset[]
-  }>({ facilities: [], assetTypes: [], inventoryAssets: [] })
+  }>({
+    facilities: [],
+    assetTypes: [],
+    builtinModels: { server: [], router: [], tablet: [], mobilephone: [], lan: [] },
+    inventoryAssets: [],
+  })
   const [form, setForm] = useState({
     passcode: "",
     inventoryAssetId: "",
@@ -141,6 +153,7 @@ export default function EmrOverviewPage() {
     assetTag: "",
     serialNumber: "",
     notes: "",
+    assetModel: "",
     kenyaemrVersion: "",
   })
   const [actionSuccess, setActionSuccess] = useState<string>("")
@@ -161,8 +174,16 @@ export default function EmrOverviewPage() {
       cache: "no-store",
       headers: { "Cache-Control": "no-cache" },
     })
-    if (!res.ok) return
-    const json = await res.json()
+    if (!res.ok) {
+      let message = "Failed to refresh EMR overview"
+      try {
+        const errJson = await res.json()
+        if (typeof errJson?.error === "string" && errJson.error.trim()) message = errJson.error
+      } catch {}
+      throw new Error(message)
+    }
+    const json = await res.json().catch(() => null)
+    if (!json) throw new Error("Failed to parse EMR overview response")
     setData(json)
   }, [])
 
@@ -173,11 +194,20 @@ export default function EmrOverviewPage() {
       cache: "no-store",
       headers: { "Cache-Control": "no-cache" },
     })
-    if (!res.ok) return
-    const json = await res.json()
+    if (!res.ok) {
+      let message = "Failed to refresh action options"
+      try {
+        const errJson = await res.json()
+        if (typeof errJson?.error === "string" && errJson.error.trim()) message = errJson.error
+      } catch {}
+      throw new Error(message)
+    }
+    const json = await res.json().catch(() => null)
+    if (!json) throw new Error("Failed to parse action options response")
     setOptions({
       facilities: json?.facilities || [],
       assetTypes: json?.assetTypes || [],
+      builtinModels: json?.builtinModels || { server: [], router: [], tablet: [], mobilephone: [], lan: [] },
       inventoryAssets: json?.inventoryAssets || [],
     })
   }, [selectedCounty])
@@ -193,8 +223,15 @@ export default function EmrOverviewPage() {
   }, [loadOverview, loadActionOptions])
 
   useEffect(() => {
-    void loadOverview()
-  }, [loadOverview])
+    void loadOverview().catch((error) => {
+      console.error("Initial EMR overview load failed:", error)
+      toast({
+        title: "Overview load failed",
+        description: "Could not fetch latest dashboard data. Please retry.",
+        variant: "destructive",
+      })
+    })
+  }, [loadOverview, toast])
 
   useEffect(() => {
     fetch("/api/articles?status=published")
@@ -204,8 +241,15 @@ export default function EmrOverviewPage() {
   }, [])
 
   useEffect(() => {
-    void loadActionOptions()
-  }, [loadActionOptions])
+    void loadActionOptions().catch((error) => {
+      console.error("Initial action options load failed:", error)
+      toast({
+        title: "Actions unavailable",
+        description: "Could not load facility/action options. Please retry.",
+        variant: "destructive",
+      })
+    })
+  }, [loadActionOptions, toast])
 
   useEffect(() => {
     if ((actionMode !== "lost" && actionMode !== "update") || !form.location) {
@@ -525,6 +569,25 @@ export default function EmrOverviewPage() {
     return Array.from(set).sort()
   }, [facilitiesInCounty])
 
+  const actionAssetTypesByKind = useMemo(() => {
+    const builtin = options.assetTypes.filter((type) => type.kind === "builtin")
+    const custom = options.assetTypes.filter((type) => type.kind === "custom")
+    return { builtin, custom }
+  }, [options.assetTypes])
+
+  const selectedBuiltinKind = useMemo(() => {
+    if (!form.assetTypeId.startsWith("builtin:")) return null
+    const raw = form.assetTypeId.replace("builtin:", "")
+    return ["server", "router", "tablet", "mobilephone", "lan"].includes(raw)
+      ? (raw as "server" | "router" | "tablet" | "mobilephone" | "lan")
+      : null
+  }, [form.assetTypeId])
+
+  const builtinModelSuggestions = useMemo(() => {
+    if (!selectedBuiltinKind) return []
+    return options.builtinModels[selectedBuiltinKind] || []
+  }, [options.builtinModels, selectedBuiltinKind])
+
   const selectedUpdateAsset = useMemo(() => {
     if (!form.inventoryAssetId) return null
     return (
@@ -633,6 +696,7 @@ export default function EmrOverviewPage() {
       serialNumber: "",
       notes: "",
       kenyaemrVersion: "",
+      assetModel: "",
     })
   }
 
@@ -692,6 +756,7 @@ export default function EmrOverviewPage() {
         serialNumber: form.serialNumber || undefined,
         notes: form.notes || undefined,
         kenyaemrVersion: form.kenyaemrVersion || undefined,
+        assetModel: form.assetModel || undefined,
       }
       const res = await fetch("/api/public/asset-actions", {
         method: "POST",
@@ -710,23 +775,41 @@ export default function EmrOverviewPage() {
         return
       }
       const message = buildActionSuccessMessage(actionMode, json)
-      setActionSuccess(message)
-      toast({
-        title:
-          actionMode === "lost"
-            ? "Marked as lost"
-            : actionMode === "update"
-              ? "Asset updated"
-              : "Success",
-        description: message,
-      })
-      setActionMode(null)
-      await refreshDashboard()
+      let refreshed = true
+      try {
+        await refreshDashboard()
+      } catch (refreshError) {
+        refreshed = false
+        console.error("Dashboard refresh failed after action:", refreshError)
+      }
+
+      if (!refreshed) {
+        const refreshMessage = "Action was saved, but dashboard refresh failed. Please refresh the page."
+        setActionError(refreshMessage)
+        toast({
+          title: "Saved, but view is stale",
+          description: refreshMessage,
+          variant: "destructive",
+        })
+      } else {
+        setActionSuccess(message)
+        toast({
+          title:
+            actionMode === "lost"
+              ? "Marked as lost"
+              : actionMode === "update"
+                ? "Asset updated"
+                : "Success",
+          description: message,
+        })
+        setActionMode(null)
+      }
       setForm((prev) => ({
         ...prev,
         notes: "",
         assetTag: "",
         serialNumber: "",
+        assetModel: "",
         inventoryAssetId: "",
         assetKind: "",
         selectedFacilityIds: [],
@@ -1570,7 +1653,7 @@ export default function EmrOverviewPage() {
                           <Select value={form.assetTypeId} onValueChange={(value) => setForm((prev) => ({ ...prev, assetTypeId: value }))}>
                             <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
-                              {options.assetTypes.map((type) => (
+                              {actionAssetTypesByKind.custom.map((type) => (
                                 <SelectItem key={type.id} value={type.id}>{type.label}</SelectItem>
                               ))}
                             </SelectContent>
@@ -1672,13 +1755,57 @@ export default function EmrOverviewPage() {
                     <Select value={form.assetTypeId} onValueChange={(value) => setForm((prev) => ({ ...prev, assetTypeId: value }))}>
                       <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                       <SelectContent>
-                        {options.assetTypes.map((type) => (
-                          <SelectItem key={type.id} value={type.id}>{type.label}</SelectItem>
-                        ))}
+                        <SelectGroup>
+                          <SelectLabel>Built-in asset types</SelectLabel>
+                          {actionAssetTypesByKind.builtin.map((type) => (
+                            <SelectItem key={type.id} value={type.id}>{type.label}</SelectItem>
+                          ))}
+                        </SelectGroup>
+                        {actionAssetTypesByKind.custom.length > 0 ? (
+                          <SelectGroup>
+                            <SelectLabel>Custom asset types</SelectLabel>
+                            {actionAssetTypesByKind.custom.map((type) => (
+                              <SelectItem key={type.id} value={type.id}>{type.label}</SelectItem>
+                            ))}
+                          </SelectGroup>
+                        ) : null}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
+                {selectedBuiltinKind ? (
+                  <div className="space-y-1">
+                    <Label>
+                      {selectedBuiltinKind === "server"
+                        ? "Server model/type"
+                        : selectedBuiltinKind === "router"
+                          ? "Router model/type"
+                          : selectedBuiltinKind === "tablet"
+                            ? "Tablet model/type"
+                            : selectedBuiltinKind === "mobilephone"
+                              ? "Phone model"
+                              : "LAN type"}
+                    </Label>
+                    <Input
+                      list={`builtin-model-${selectedBuiltinKind}`}
+                      value={form.assetModel}
+                      placeholder={
+                        builtinModelSuggestions[0]
+                          ? `e.g. ${builtinModelSuggestions[0]}`
+                          : "Type model/type (optional)"
+                      }
+                      onChange={(e) => setForm((prev) => ({ ...prev, assetModel: e.target.value }))}
+                    />
+                    <datalist id={`builtin-model-${selectedBuiltinKind}`}>
+                      {builtinModelSuggestions.map((value) => (
+                        <option key={value} value={value} />
+                      ))}
+                    </datalist>
+                    <p className="text-xs text-muted-foreground">
+                      Existing records are suggested (e.g. 800G1, TP Link) to keep naming consistent.
+                    </p>
+                  </div>
+                ) : null}
                 <div className="space-y-1">
                   <Label>Facility</Label>
                   <Select value={form.facilityId} onValueChange={applyFacilitySelection}>

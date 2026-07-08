@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import type { Location } from "@/lib/storage"
 import { invalidateAssetServerCaches } from "@/lib/invalidate-caches"
+import { fetchAssetTypeCatalog } from "@/lib/asset-type-catalog"
 import {
   fetchPublicBrowseAssets,
   markPublicAssetLost,
@@ -25,6 +26,21 @@ type ActionType =
   | "add_new_asset"
   | "upgrade_kenyaemr"
 
+type ActionAssetTypeOption = {
+  id: string
+  slug: string
+  label: string
+  kind: "builtin" | "custom"
+}
+
+type BuiltinModelOptions = {
+  server: string[]
+  router: string[]
+  tablet: string[]
+  mobilephone: string[]
+  lan: string[]
+}
+
 function isLocation(value: string): value is Location {
   return VALID_LOCATIONS.includes(value as Location)
 }
@@ -46,6 +62,106 @@ function isAssetKind(value: string): value is PublicAssetKind {
   return ["server", "router", "tablet", "mobilephone", "lan", "custom"].includes(value)
 }
 
+async function createBuiltinAsset(input: {
+  kind: Exclude<PublicAssetKind, "custom">
+  facilityId: string
+  location: Location
+  subcounty?: string
+  assetTag?: string
+  serialNumber?: string
+  notes?: string
+  model?: string
+}) {
+  const normalizedModel = input.model?.trim() || null
+  const shared = {
+    facilityId: input.facilityId,
+    location: input.location,
+    subcounty: input.subcounty?.trim() || null,
+    assetTag: input.assetTag?.trim() || null,
+    serialNumber: input.serialNumber?.trim() || null,
+    notes: input.notes?.trim() || null,
+    assetStatus: "active" as const,
+  }
+
+  switch (input.kind) {
+    case "server":
+      return prisma.serverAsset.create({
+        data: { ...shared, serverType: normalizedModel || "Unknown server" },
+      })
+    case "router":
+      return prisma.routerAsset.create({ data: { ...shared, routerType: normalizedModel } })
+    case "tablet":
+      return prisma.tabletAsset.create({
+        data: { ...shared, tabletType: normalizedModel || "Unknown tablet" },
+      })
+    case "mobilephone":
+      return prisma.mobilePhoneAsset.create({
+        data: { ...shared, phoneModel: normalizedModel || "Unknown phone" },
+      })
+    case "lan":
+      return prisma.lanAsset.create({
+        data: {
+          facilityId: input.facilityId,
+          location: input.location,
+          subcounty: input.subcounty?.trim() || null,
+          notes: input.notes?.trim() || null,
+          hasLAN: true,
+          lanType: normalizedModel,
+          assetStatus: "active",
+        },
+      })
+  }
+}
+
+async function fetchBuiltinModelOptions(location: Location | null): Promise<BuiltinModelOptions> {
+  const locationWhere = location ? { location } : {}
+  const [servers, routers, tablets, phones, lans] = await Promise.all([
+    prisma.serverAsset.findMany({
+      where: locationWhere,
+      select: { serverType: true },
+      distinct: ["serverType"],
+      orderBy: { serverType: "asc" },
+    }),
+    prisma.routerAsset.findMany({
+      where: locationWhere,
+      select: { routerType: true },
+      distinct: ["routerType"],
+      orderBy: { routerType: "asc" },
+    }),
+    prisma.tabletAsset.findMany({
+      where: locationWhere,
+      select: { tabletType: true },
+      distinct: ["tabletType"],
+      orderBy: { tabletType: "asc" },
+    }),
+    prisma.mobilePhoneAsset.findMany({
+      where: locationWhere,
+      select: { phoneModel: true },
+      distinct: ["phoneModel"],
+      orderBy: { phoneModel: "asc" },
+    }),
+    prisma.lanAsset.findMany({
+      where: locationWhere,
+      select: { lanType: true },
+      distinct: ["lanType"],
+      orderBy: { lanType: "asc" },
+    }),
+  ])
+
+  const clean = (values: Array<string | null | undefined>) =>
+    Array.from(new Set(values.map((v) => (v || "").trim()).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b)
+    )
+
+  return {
+    server: clean(servers.map((row) => row.serverType)),
+    router: clean(routers.map((row) => row.routerType)),
+    tablet: clean(tablets.map((row) => row.tabletType)),
+    mobilephone: clean(phones.map((row) => row.phoneModel)),
+    lan: clean(lans.map((row) => row.lanType)),
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const locationParam = request.nextUrl.searchParams.get("location")
@@ -53,7 +169,7 @@ export async function GET(request: NextRequest) {
     const location = locationParam && isLocation(locationParam) ? locationParam : null
     const facilityId = facilityIdParam?.trim() || null
 
-    const [facilities, assetTypes, browseAssets] = await Promise.all([
+    const [facilities, customAssetTypes, assetTypeCatalog, builtinModels, browseAssets] = await Promise.all([
       prisma.facility.findMany({
         where: {
           system: "NDWH",
@@ -68,12 +184,38 @@ export async function GET(request: NextRequest) {
         select: { id: true, slug: true, label: true },
         orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
       }),
+      fetchAssetTypeCatalog(),
+      fetchBuiltinModelOptions(location),
       fetchPublicBrowseAssets({ location, facilityId }),
     ])
+
+    const customBySlug = new Map(customAssetTypes.map((t) => [t.slug, t]))
+    const assetTypes: ActionAssetTypeOption[] = assetTypeCatalog
+      .map((entry) => {
+        if (entry.kind === "builtin") {
+          return {
+            id: `builtin:${entry.key}`,
+            slug: entry.key,
+            label: entry.type,
+            kind: "builtin" as const,
+          }
+        }
+        const customSlug = entry.key.replace(/^custom:/, "")
+        const customType = customBySlug.get(customSlug)
+        if (!customType) return null
+        return {
+          id: customType.id,
+          slug: customType.slug,
+          label: customType.label,
+          kind: "custom" as const,
+        }
+      })
+      .filter((entry): entry is ActionAssetTypeOption => Boolean(entry))
 
     return NextResponse.json({
       facilities,
       assetTypes,
+      builtinModels,
       inventoryAssets: browseAssets,
       browseAssets,
     })
@@ -101,6 +243,7 @@ export async function POST(request: NextRequest) {
       serialNumber,
       notes,
       attributes,
+      assetModel,
       kenyaemrVersion,
     } = body as {
       passcode?: string
@@ -117,6 +260,7 @@ export async function POST(request: NextRequest) {
       serialNumber?: string
       notes?: string
       attributes?: Record<string, unknown>
+      assetModel?: string
       kenyaemrVersion?: string
     }
 
@@ -240,25 +384,46 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "add_purchased" || action === "add_new_asset") {
-      const created = await prisma.inventoryAsset.create({
-        data: {
-          facilityId,
-          assetTypeId,
-          location,
-          subcounty: subcounty?.trim() || null,
-          assetTag: assetTag?.trim() || null,
-          serialNumber: serialNumber?.trim() || null,
-          notes:
-            action === "add_purchased"
-              ? [notes?.trim(), "Added as newly purchased asset"].filter(Boolean).join(" | ")
-              : notes?.trim() || null,
-          attributes:
-            attributes && typeof attributes === "object"
-              ? (attributes as Prisma.InputJsonValue)
-              : {},
-          assetStatus: "active",
-        },
-      })
+      const normalizedNotes =
+        action === "add_purchased"
+          ? [notes?.trim(), "Added as newly purchased asset"].filter(Boolean).join(" | ")
+          : notes?.trim() || null
+
+      const builtinMatch = assetTypeId.startsWith("builtin:")
+        ? assetTypeId.replace("builtin:", "")
+        : null
+      const builtinKind =
+        builtinMatch && isAssetKind(builtinMatch) && builtinMatch !== "custom"
+          ? (builtinMatch as Exclude<PublicAssetKind, "custom">)
+          : null
+
+      const created = builtinKind
+        ? await createBuiltinAsset({
+            kind: builtinKind,
+            facilityId,
+            location: location as Location,
+            subcounty,
+            assetTag,
+            serialNumber,
+            notes: normalizedNotes || undefined,
+            model: assetModel,
+          })
+        : await prisma.inventoryAsset.create({
+            data: {
+              facilityId,
+              assetTypeId,
+              location,
+              subcounty: subcounty?.trim() || null,
+              assetTag: assetTag?.trim() || null,
+              serialNumber: serialNumber?.trim() || null,
+              notes: normalizedNotes,
+              attributes:
+                attributes && typeof attributes === "object"
+                  ? (attributes as Prisma.InputJsonValue)
+                  : {},
+              assetStatus: "active",
+            },
+          })
       invalidateAssetServerCaches(location)
       return NextResponse.json({ success: true, action, assetId: created.id })
     }
