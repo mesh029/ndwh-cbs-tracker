@@ -114,8 +114,8 @@ const OVERVIEW_SECTIONS: {
   { value: "articles", label: "Articles", shortLabel: "Articles", icon: FileText },
 ]
 
-const STICKY_NAV_OFFSET = 140
 const NAV_COLLAPSE_IDLE_MS = 1400
+const DEFAULT_NAV_OFFSET = 176
 
 function extractBuiltinModel(asset: BrowseAsset): string {
   const parts = asset.assetType.split(" · ")
@@ -130,6 +130,8 @@ export default function EmrOverviewPage() {
   const [navExpanded, setNavExpanded] = useState(true)
   const navHoverRef = useRef(false)
   const navCollapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const navShellRef = useRef<HTMLDivElement>(null)
+  const [navOffset, setNavOffset] = useState(DEFAULT_NAV_OFFSET)
   const [assetFilter, setAssetFilter] = useState<"all" | "active" | "lost" | "recovered">("all")
   const [assetTypeFilter, setAssetTypeFilter] = useState<string>("all")
   const [articles, setArticles] = useState<Article[]>([])
@@ -541,11 +543,26 @@ export default function EmrOverviewPage() {
     const el = document.getElementById(`emr-section-${section}`)
     if (!el) return
     setNavExpanded(true)
-    const top = el.getBoundingClientRect().top + window.scrollY - STICKY_NAV_OFFSET
+    const stickyOffset = navShellRef.current?.getBoundingClientRect().height ?? navOffset
+    const top = el.getBoundingClientRect().top + window.scrollY - stickyOffset - 8
     window.scrollTo({ top: Math.max(0, top), behavior: "smooth" })
     setActiveSection(section)
     window.history.replaceState(null, "", `#${section}`)
-  }, [])
+  }, [navOffset])
+
+  useEffect(() => {
+    const el = navShellRef.current
+    if (!el) return
+    const update = () => setNavOffset(Math.ceil(el.getBoundingClientRect().height) + 12)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    window.addEventListener("resize", update)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener("resize", update)
+    }
+  }, [navExpanded])
 
   const scheduleNavCollapse = useCallback(() => {
     if (navCollapseTimerRef.current) clearTimeout(navCollapseTimerRef.current)
@@ -587,7 +604,7 @@ export default function EmrOverviewPage() {
           setActiveSection(id)
         }
       },
-      { rootMargin: `-${STICKY_NAV_OFFSET}px 0px -50% 0px`, threshold: [0, 0.15, 0.35] }
+      { rootMargin: `-${navOffset}px 0px -50% 0px`, threshold: [0, 0.15, 0.35] }
     )
 
     for (const section of OVERVIEW_SECTIONS) {
@@ -596,7 +613,7 @@ export default function EmrOverviewPage() {
     }
 
     return () => observer.disconnect()
-  }, [selected, filteredAssetOverview, articles.length])
+  }, [selected, filteredAssetOverview, articles.length, navOffset])
 
   const facilitiesInCounty = useMemo(() => {
     if (actionMode === "lost" || actionMode === "update") {
@@ -919,8 +936,10 @@ export default function EmrOverviewPage() {
       <div className="fixed inset-x-0 top-0 z-[90] pointer-events-none">
         <div className={cn("w-full px-4 lg:px-6 transition-[padding] duration-300", navExpanded ? "pt-3" : "pt-2")}>
           <div
+            ref={navShellRef}
             className={cn(
               "pointer-events-auto rounded-xl border border-border/40 bg-background/95 shadow-sm transition-all duration-300",
+              "max-h-[min(72dvh,28rem)] overflow-y-auto overscroll-contain md:max-h-none md:overflow-visible",
               navExpanded ? "p-2.5" : "p-1.5"
             )}
             onMouseEnter={() => {
@@ -941,7 +960,7 @@ export default function EmrOverviewPage() {
             <div className={cn("flex flex-col transition-all duration-300", navExpanded ? "gap-2.5" : "gap-0")}>
               <div
                 className={cn(
-                  "flex flex-col gap-2 overflow-hidden transition-all duration-300 sm:flex-row sm:items-center sm:justify-between",
+                  "hidden flex-col gap-2 overflow-hidden transition-all duration-300 sm:flex sm:flex-row sm:items-center sm:justify-between",
                   navExpanded ? "max-h-24 opacity-100" : "max-h-0 opacity-0"
                 )}
               >
@@ -951,7 +970,7 @@ export default function EmrOverviewPage() {
                     : "County & section — jump anywhere without scrolling the whole page"}
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
                 <Select
                   value={selectedCounty}
                   onValueChange={setSelectedCounty}
@@ -1018,8 +1037,8 @@ export default function EmrOverviewPage() {
               </div>
               <div
                 className={cn(
-                  "flex flex-wrap gap-1.5 overflow-hidden transition-all duration-300",
-                  navExpanded ? "max-h-24 opacity-100" : "max-h-0 opacity-0"
+                  "hidden flex-wrap gap-1.5 overflow-hidden transition-all duration-300 md:flex",
+                  navExpanded ? "max-h-32 opacity-100" : "max-h-0 opacity-0"
                 )}
               >
                 {OVERVIEW_SECTIONS.map((section) => {
@@ -1044,11 +1063,14 @@ export default function EmrOverviewPage() {
         </div>
       </div>
 
-      <div className="w-full space-y-6 px-4 pb-8 pt-40 scroll-mt-40 lg:px-8">
-        <section id="emr-section-overview" className="scroll-mt-40">
+      <div
+        className="w-full min-w-0 space-y-6 px-4 pb-8 lg:px-8"
+        style={{ paddingTop: navOffset }}
+      >
+        <section id="emr-section-overview" className="scroll-mt-4" style={{ scrollMarginTop: navOffset }}>
           <div className="rounded-3xl border border-white/10 bg-[#111214] p-6 text-slate-100 shadow-[0_22px_70px_rgba(0,0,0,0.45)]">
-            <div className="grid gap-6 xl:grid-cols-[1.2fr,0.8fr]">
-              <div className="space-y-5">
+            <div className="grid min-w-0 gap-6 xl:grid-cols-[1.2fr,0.8fr]">
+              <div className="min-w-0 space-y-5">
                 <div className="space-y-2">
                   <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Mission Control</p>
                   <h1 className="text-4xl font-semibold leading-tight tracking-tight md:text-5xl">KenyaEMR Deployment NOC</h1>
@@ -1117,7 +1139,7 @@ export default function EmrOverviewPage() {
                 ) : null}
               </div>
 
-              <div className="space-y-3 rounded-2xl border border-white/10 bg-[#0F1012] p-4">
+              <div className="min-w-0 space-y-3 rounded-2xl border border-white/10 bg-[#0F1012] p-4">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium text-slate-200">Quick actions</p>
                   <Button
@@ -1175,7 +1197,7 @@ export default function EmrOverviewPage() {
           </div>
         </section>
 
-        <section id="emr-section-emr-versions" className="scroll-mt-40 space-y-4">
+        <section id="emr-section-emr-versions" className="scroll-mt-4 space-y-4" style={{ scrollMarginTop: navOffset }}>
           {!selected ? (
             <div className="rounded-2xl border border-white/10 bg-[#111214] py-12 text-center text-slate-400">Loading EMR overview...</div>
           ) : (
@@ -1365,7 +1387,7 @@ export default function EmrOverviewPage() {
           )}
         </section>
 
-        <section id="emr-section-assets" className="scroll-mt-40">
+        <section id="emr-section-assets" className="scroll-mt-4" style={{ scrollMarginTop: navOffset }}>
           {selected && filteredAssetOverview && (
             <div className="rounded-3xl border border-white/10 bg-[#111214] p-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1464,9 +1486,9 @@ export default function EmrOverviewPage() {
           )}
         </section>
 
-        <section id="emr-section-articles" className="scroll-mt-40">
-          <div className="grid gap-4 xl:grid-cols-[1fr,1fr]">
-            <div className="rounded-3xl border border-white/10 bg-[#111214] p-5">
+        <section id="emr-section-articles" className="scroll-mt-4 min-w-0" style={{ scrollMarginTop: navOffset }}>
+          <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+            <div className="min-w-0 rounded-3xl border border-white/10 bg-[#111214] p-4 sm:p-5">
               <h3 className="text-xl font-semibold tracking-tight text-slate-100">Alerts & recent activity</h3>
               <p className="mt-1 text-sm text-slate-400">Operational signals and latest updates from the dashboard.</p>
               <div className="mt-4 space-y-2">
@@ -1493,10 +1515,10 @@ export default function EmrOverviewPage() {
               </div>
             </div>
 
-            <div className="rounded-3xl border border-white/10 bg-[#111214] p-5">
+            <div className="min-w-0 rounded-3xl border border-white/10 bg-[#111214] p-4 sm:p-5">
               <h3 className="text-xl font-semibold tracking-tight text-slate-100">Knowledge feed</h3>
               <p className="mt-1 text-sm text-slate-400">Published guidance, release notes, and operational updates.</p>
-              <div className="mt-4 space-y-2">
+              <div className="mt-4 max-h-[min(55dvh,28rem)] space-y-2 overflow-y-auto overscroll-contain pr-1 sm:max-h-none sm:overflow-visible">
                 {articles.length === 0 ? (
                   <p className="text-sm text-slate-400">No published articles yet.</p>
                 ) : (
@@ -1508,15 +1530,15 @@ export default function EmrOverviewPage() {
                         key={article.id}
                         href={href}
                         className={cn(
-                          "flex flex-col gap-1 rounded-xl border border-white/10 bg-[#0F1012] px-3 py-2.5 text-sm text-slate-200 transition-colors hover:bg-white/5 sm:flex-row sm:items-center sm:justify-between",
+                          "flex min-w-0 flex-col gap-1 rounded-xl border border-white/10 bg-[#0F1012] px-3 py-2.5 text-sm text-slate-200 transition-colors hover:bg-white/5",
                           isPinned && "border-amber-400/40 bg-amber-500/10"
                         )}
                       >
-                        <div className="min-w-0">
-                          <p className="truncate font-medium">{article.title}</p>
-                          <p className="line-clamp-2 text-xs text-slate-400">{article.summary}</p>
+                        <div className="min-w-0 flex-1">
+                          <p className="line-clamp-2 font-medium break-words">{article.title}</p>
+                          <p className="line-clamp-2 break-words text-xs text-slate-400">{article.summary}</p>
                         </div>
-                        <span className="shrink-0 text-xs text-slate-400 sm:pl-3">Read →</span>
+                        <span className="shrink-0 text-xs text-slate-400">Read →</span>
                       </Link>
                     )
                   })

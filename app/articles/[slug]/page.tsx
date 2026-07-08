@@ -56,7 +56,7 @@ export default async function ArticleDetailPage({
               />
             )}
             <p className="text-muted-foreground">{article.summary}</p>
-            <article className="markdown-content">
+            <article className="markdown-content max-w-full overflow-x-auto">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{article.bodyMarkdown}</ReactMarkdown>
             </article>
           </CardContent>

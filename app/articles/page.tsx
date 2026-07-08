@@ -201,8 +201,8 @@ export default function ArticlesPage() {
             )}
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
-            <Card className="h-fit">
+          <div className="grid gap-4 grid-cols-1 min-w-0 xl:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+            <Card className="h-fit max-h-[min(45dvh,22rem)] overflow-y-auto overscroll-contain xl:max-h-none xl:overflow-visible">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">Articles</CardTitle>
                 <CardDescription>{articles.length} item(s)</CardDescription>
@@ -243,7 +243,7 @@ export default function ArticlesPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="min-w-0">
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between gap-2 flex-wrap">
                   <div>
@@ -287,7 +287,7 @@ export default function ArticlesPage() {
                       ))}
                     </div>
 
-                    <article className="markdown-content">
+                    <article className="markdown-content max-w-full overflow-x-auto">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{activeArticle.bodyMarkdown}</ReactMarkdown>
                     </article>
                   </div>

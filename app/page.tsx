@@ -173,9 +173,9 @@ export default async function Home() {
           <h2 className="text-xl sm:text-2xl font-semibold">Latest Article Previews</h2>
           <Button variant="ghost" asChild><Link href="/articles">View all</Link></Button>
         </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {publishedArticles.map((article) => (
-            <Card key={article.id} className="overflow-hidden">
+            <Card key={article.id} className="min-w-0 overflow-hidden">
               {article.imageUrl && (
                 <Image src={article.imageUrl} alt={article.title} width={900} height={420} className="h-44 w-full object-cover" />
               )}
